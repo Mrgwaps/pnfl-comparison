@@ -14,6 +14,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -396,7 +397,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v3.9...</div>
+  <div class="pl-sub">Loading v4.1...</div>
 </div>
 <div id="root"></div>
 <script type="text/babel">
@@ -411,11 +412,19 @@ const haptic = (style = 'light') => {
   }
 };
 
-// ── In-memory storage ──
-const memStore = {};
+// ── Persistent storage (localStorage, synchronous, survives page close) ──
 const storage = {
-  get: (key) => { try { return memStore[key] ? JSON.parse(memStore[key]) : null; } catch { return null; } },
-  set: (key, val) => { memStore[key] = JSON.stringify(val); }
+  get: (key) => {
+    try { const v = localStorage.getItem('pnfl_' + key); return v ? JSON.parse(v) : null; }
+    catch { return null; }
+  },
+  set: (key, val) => {
+    try { localStorage.setItem('pnfl_' + key, JSON.stringify(val)); } catch {}
+  },
+  clear: () => {
+    try { Object.keys(localStorage).filter(k => k.startsWith('pnfl_')).forEach(k => localStorage.removeItem(k)); }
+    catch {}
+  }
 };
 
 // ── Constants ──
@@ -443,7 +452,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '3.9';
+const APP_VERSION = '4.1';
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
 
@@ -568,8 +577,129 @@ const TEAM_LOGO_DATA = {
 // ── ROSTER PARSER ──
 // Parse the raw text fetched from pnfl.biz/pnflstats/PNFL_roster.htm
 function parsePNFLRosterText(rawText) {
-  const lines = rawText.split('\n');
   const result = { season: '', date: '', week: '', fetchedAt: new Date().toISOString(), teams: {} };
+
+  // Detect if this is HTML or plain text
+  const isHTML = rawText.includes('<table') || rawText.includes('<tr') || rawText.includes('<td');
+
+  if (isHTML) {
+    return parsePNFLRosterHTML(rawText, result);
+  } else {
+    return parsePNFLRosterPlainText(rawText, result);
+  }
+}
+
+function parsePNFLRosterHTML(html, result) {
+  // Parse HTML using a temporary DOM element
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  // Extract header info from full text
+  const bodyText = doc.body ? doc.body.innerText || doc.body.textContent : html;
+  const seasonMatch = bodyText.match(/(\d{4})\s*season/i);
+  if (seasonMatch) result.season = seasonMatch[1];
+  const weekMatch = bodyText.match(/Week\s*(\d+)/i);
+  if (weekMatch) result.week = weekMatch[1];
+  const dateMatch = bodyText.match(/([A-Za-z]+ \d+,\s*\d{4})/);
+  if (dateMatch) result.date = dateMatch[1];
+
+  const teamNameMap = {
+    'Jacksonville':'Jacksonville','Buffalo':'Buffalo','New England':'New England',
+    'Miami':'Miami','Denver':'Denver','Las Vegas':'Las Vegas',
+    'Cincinnati':'Cincinnati','Los Angeles':'Los Angeles','Pittsburgh':'Pittsburgh',
+    'Atlanta':'Atlanta','New York':'New York','Philadelphia':'Philadelphia',
+    'Washington':'Washington','Green Bay':'Green Bay','Chicago':'Chicago',
+    'Seattle':'Seattle','Minnesota':'Minnesota','San Francisco':'San Francisco',
+    'Free Agent':null
+  };
+  const VALID_POS = new Set(['QB','HB','FB','TE','WR','C','G','T','K','P','DE','DT','LB','CB','S']);
+
+  // Find all tables in the document
+  const tables = doc.querySelectorAll('table');
+  let currentTeam = null;
+
+  tables.forEach(table => {
+    // Check if preceding heading/text identifies a team
+    let el = table.previousElementSibling;
+    while (el) {
+      const txt = el.textContent.trim();
+      const m = txt.match(/Team Roster:\s*(.+)/i) || txt.match(/^(.+?)\s+Team Roster/i);
+      if (m) {
+        const tName = m[1].trim();
+        const mapped = teamNameMap[tName];
+        currentTeam = (mapped !== undefined) ? mapped : tName;
+        if (currentTeam && !result.teams[currentTeam]) result.teams[currentTeam] = {};
+        break;
+      }
+      // Also check headings containing team names
+      for (const [key] of Object.entries(teamNameMap)) {
+        if (key && txt.includes(key)) {
+          const mapped = teamNameMap[key];
+          currentTeam = (mapped !== undefined) ? mapped : key;
+          if (currentTeam && !result.teams[currentTeam]) result.teams[currentTeam] = {};
+          break;
+        }
+      }
+      if (currentTeam) break;
+      el = el.previousElementSibling;
+    }
+    if (!currentTeam) return;
+
+    // Each row in this table = one player (or potential row)
+    const rows = table.querySelectorAll('tr');
+    let lastPlayer = null;
+
+    rows.forEach(row => {
+      const cells = Array.from(row.querySelectorAll('td,th'));
+      if (cells.length < 6) return;
+
+      const cellTexts = cells.map(c => c.textContent.trim());
+
+      // Detect player row: first cell is status A/O/I/IR
+      const status = cellTexts[0];
+      if (!['A','O','I','IR'].includes(status)) {
+        // Might be a potential row — look for 8 numeric values
+        if (lastPlayer && !lastPlayer.pattrs) {
+          const nums = cellTexts.filter(t => /^\d{2,3}$/.test(t)).map(Number);
+          if (nums.length >= 8) {
+            lastPlayer.pattrs = nums.slice(0, 8);
+          }
+        }
+        lastPlayer = null;
+        return;
+      }
+
+      // Position is second cell e.g. "QB1", "HB2"
+      const posRaw = cellTexts[1] || '';
+      const pos = posRaw.replace(/\d+$/, '').toUpperCase();
+      if (!VALID_POS.has(pos)) { lastPlayer = null; return; }
+
+      // Extract 8 attribute numbers from the row — last 8 numeric cells
+      const allNums = cellTexts.filter(t => /^\d{2,3}$/.test(t)).map(Number);
+      if (allNums.length < 8) { lastPlayer = null; return; }
+      const attrs = allNums.slice(-8);
+
+      // Jersey number and name
+      const num = parseInt(cellTexts[2]) || 0;
+      // Name is typically 4th cell (index 3), clean it up
+      const name = (cellTexts[3] || '').replace(/\s+/g,' ').trim();
+
+      if (!result.teams[currentTeam][pos]) result.teams[currentTeam][pos] = [];
+      const playerObj = { name, num, status, attrs, pattrs: null };
+      result.teams[currentTeam][pos].push(playerObj);
+      lastPlayer = playerObj;
+    });
+  });
+
+  // Fallback: if HTML parsing got 0 teams, try plain text
+  if (Object.keys(result.teams).length === 0) {
+    return parsePNFLRosterPlainText(doc.body ? doc.body.innerText || doc.body.textContent : '', result);
+  }
+  return result;
+}
+
+function parsePNFLRosterPlainText(rawText, result) {
+  const lines = rawText.split('\n');
 
   // Extract header info
   for (let i = 0; i < Math.min(20, lines.length); i++) {
@@ -578,96 +708,69 @@ function parsePNFLRosterText(rawText) {
     if (seasonMatch) result.season = seasonMatch[1];
     const weekMatch = line.match(/Week\s*(\d+)/i);
     if (weekMatch) result.week = weekMatch[1];
-    // Date: "September 6, 2048" or similar
     const dateMatch = line.match(/([A-Za-z]+ \d+,\s*\d{4})/);
     if (dateMatch) result.date = dateMatch[1];
   }
 
-  // Identify team sections
-  // Pattern: "### Team Roster: TeamName" or "Team Roster: TeamName"
-  let currentTeam = null;
-
-  // Map from page team name to our internal name
   const teamNameMap = {
-    'Jacksonville': 'Jacksonville', 'Buffalo': 'Buffalo', 'New England': 'New England',
-    'Miami': 'Miami', 'Denver': 'Denver', 'Las Vegas': 'Las Vegas',
-    'Cincinnati': 'Cincinnati', 'Los Angeles': 'Los Angeles', 'Pittsburgh': 'Pittsburgh',
-    'Atlanta': 'Atlanta', 'New York': 'New York', 'Philadelphia': 'Philadelphia',
-    'Washington': 'Washington', 'Green Bay': 'Green Bay', 'Chicago': 'Chicago',
-    'Seattle': 'Seattle', 'Minnesota': 'Minnesota', 'San Francisco': 'San Francisco',
-    'Free Agent': null
+    'Jacksonville':'Jacksonville','Buffalo':'Buffalo','New England':'New England',
+    'Miami':'Miami','Denver':'Denver','Las Vegas':'Las Vegas',
+    'Cincinnati':'Cincinnati','Los Angeles':'Los Angeles','Pittsburgh':'Pittsburgh',
+    'Atlanta':'Atlanta','New York':'New York','Philadelphia':'Philadelphia',
+    'Washington':'Washington','Green Bay':'Green Bay','Chicago':'Chicago',
+    'Seattle':'Seattle','Minnesota':'Minnesota','San Francisco':'San Francisco',
+    'Free Agent':null
   };
-
-  // Valid position codes from the page
   const VALID_POS = new Set(['QB','HB','FB','TE','WR','C','G','T','K','P','DE','DT','LB','CB','S','FB']);
 
-  let lastPlayer = null; // reference to last pushed player to attach pattrs
-  let captureNext = false; // capture next indented row as pattrs
+  let currentTeam = null;
+  let lastPlayer = null;
+  let captureNext = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Detect team header
     const teamMatch = line.match(/Team Roster:\s*(.+)/i);
     if (teamMatch) {
       const tName = teamMatch[1].trim();
       const mapped = teamNameMap[tName];
-      currentTeam = mapped !== undefined ? mapped : tName;
-      if (currentTeam && !result.teams[currentTeam]) {
-        result.teams[currentTeam] = {};
-      }
-      lastPlayer = null;
+      currentTeam = (mapped !== undefined) ? mapped : tName;
+      if (currentTeam && !result.teams[currentTeam]) result.teams[currentTeam] = {};
+      lastPlayer = null; captureNext = false;
       continue;
     }
-
     if (!currentTeam) continue;
 
-    // Player row format (from fetched text):
-    // "A  QB1   6  Jordan Love           OK  10   0-0    0  80 78 80 96 70 86 92 83"
-    // Status is A/O/I/IR, then pos+depth like QB1, QB2, then number, name, injury, year, ht, wt, then 8 attrs
-    // The projected row has no leading status/pos — it's just indented spaces + 8 numbers
-    
-    // Match player row: starts with status (A/O/I/IR), then position
-    const playerMatch = line.match(/^\s*(A|O|I|IR)\s+(QB\d*|HB\d*|FB\d*|TE\d*|WR\d*|C\d*|G\d*|T\d*|K\d*|P\d*|DE\d*|DT\d*|LB\d*|CB\d*|S\d*)\s+(\d+)\s+(.+?)\s{2,}(OK|P-\d+|Q-\d+|S-\d+)\s+(\d+|R)\s+[\d-]+\s+\d+\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/);
-    
+    const playerMatch = line.match(/^\s*(A|O|I|IR)\s+(QB\d*|HB\d*|FB\d*|TE\d*|WR\d*|C\d*|G\d*|T\d*|K\d*|P\d*|DE\d*|DT\d*|LB\d*|CB\d*|S\d*)\s+(\d+)\s+(.+?)\s{2,}\S.*?\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/);
     if (playerMatch) {
       const status = playerMatch[1];
       const posRaw = playerMatch[2];
-      const num = playerMatch[3];
-      const name = playerMatch[4].trim().replace(/\s+/g, ' ');
-      const attrs = [
-        parseInt(playerMatch[7]), parseInt(playerMatch[8]),
-        parseInt(playerMatch[9]), parseInt(playerMatch[10]),
-        parseInt(playerMatch[11]),parseInt(playerMatch[12]),
-        parseInt(playerMatch[13]),parseInt(playerMatch[14])
-      ];
-
       const pos = posRaw.replace(/\d+$/, '');
-      if (!VALID_POS.has(pos)) continue;
+      if (!VALID_POS.has(pos)) { captureNext = false; continue; }
+      const num = parseInt(playerMatch[3]);
+      const name = playerMatch[4].trim().replace(/\s+/g,' ');
+      const attrs = [playerMatch[5],playerMatch[6],playerMatch[7],playerMatch[8],
+                     playerMatch[9],playerMatch[10],playerMatch[11],playerMatch[12]].map(Number);
       if (!result.teams[currentTeam][pos]) result.teams[currentTeam][pos] = [];
-
-      const playerObj = { name, num: parseInt(num), status, attrs, pattrs: null };
+      const playerObj = { name, num, status, attrs, pattrs: null };
       result.teams[currentTeam][pos].push(playerObj);
       lastPlayer = playerObj;
-      captureNext = true; // next indented line = potential attrs
+      captureNext = true;
       continue;
     }
 
-    // Capture the projected/potential row (second line per player — 8 numbers)
-    // The line may contain HTML or extra whitespace — just extract 8 consecutive integers
     if (captureNext) {
       captureNext = false;
-      // Strip any HTML tags first, then look for 8 numbers
-      const stripped = line.replace(/<[^>]*>/g, ' ');
-      const nums = stripped.match(/\b(\d{2,3})\b/g);
-      if (nums && nums.length >= 8 && lastPlayer) {
-        lastPlayer.pattrs = nums.slice(0, 8).map(Number);
+      // Strip HTML tags, find 8 2-3 digit numbers
+      const stripped = line.replace(/<[^>]*>/g,' ');
+      const nums = (stripped.match(/\b\d{2,3}\b/g) || []).map(Number).filter(n => n >= 10 && n <= 999);
+      if (nums.length >= 8 && lastPlayer) {
+        lastPlayer.pattrs = nums.slice(0, 8);
       }
       lastPlayer = null;
       continue;
     }
   }
-
   return result;
 }
 
@@ -2488,6 +2591,103 @@ function loadRosterCache() { return storage.get('pnfl_roster') || null; }
 function saveRosterCache(r){ storage.set('pnfl_roster', r); }
 function loadStandingsCache() { return storage.get('pnfl_standings') || null; }
 function saveStandingsCache(s){ storage.set('pnfl_standings', s); }
+function loadContractCache() { return storage.get('pnfl_contracts') || null; }
+function saveContractCache(c){ storage.set('pnfl_contracts', c); }
+
+// ── Contract Data Parser (SheetJS) ──
+// Parses PNFL Contracts.xlsx and returns a map keyed by player name
+function parseContractXLSX(arrayBuffer) {
+  const wb = XLSX.read(arrayBuffer, { type: 'array' });
+  const contracts = {}; // keyed by normalized player name
+
+  wb.SheetNames.forEach(sheetName => {
+    const ws = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    if (!rows.length) return;
+
+    rows.forEach(row => {
+      // Normalize column names (handle varied casing/spacing)
+      const r = {};
+      Object.entries(row).forEach(([k,v]) => { r[k.trim().toLowerCase().replace(/\s+/g,'_')] = v; });
+
+      // Try to find player name field
+      const name = (r.player_name || r.player || r.name || r.full_name || '').toString().trim();
+      if (!name) return;
+
+      const contract = {
+        playerName:    name,
+        team:          (r.team || r.team_name || sheetName || '').toString().trim(),
+        position:      (r.position || r.pos || '').toString().trim().toUpperCase(),
+        playerId:      (r.player_id || r.id || r.pid || '').toString().trim(),
+        draftSlot:     (r.draft_slot || r.draft || r.pick || '').toString().trim(),
+        draftRound:    (r.draft_round || r.round || '').toString().trim(),
+        draftYear:     (r.draft_year || r.year_drafted || '').toString().trim(),
+        salary:        r.salary || r.cap_hit || r.annual_salary || '',
+        salaryTotal:   r.total_value || r.total || r.contract_value || '',
+        yearsLeft:     r.years_remaining || r.years_left || r.yrs_left || '',
+        contractYears: r.contract_years || r.years || r.contract_length || '',
+        contractEnd:   r.contract_end || r.expiry || r.expires || '',
+        bonus:         r.bonus || r.signing_bonus || '',
+        age:           r.age || '',
+        college:       r.college || r.school || '',
+        experience:    r.exp || r.experience || r.years_exp || '',
+        injuryStatus:  r.injury || r.injury_status || '',
+        notes:         r.notes || r.note || '',
+        sheetName,
+      };
+
+      // Store by normalized name for fuzzy lookup
+      const key = name.toLowerCase().replace(/[^a-z0-9]/g,'');
+      contracts[key] = contract;
+
+      // Also store by last name for fallback lookup
+      const parts = name.split(/\s+/);
+      const lastName = parts[parts.length - 1].toLowerCase().replace(/[^a-z]/g,'');
+      if (!contracts[`_last_${lastName}`]) contracts[`_last_${lastName}`] = [];
+      contracts[`_last_${lastName}`].push(contract);
+    });
+  });
+
+  return {
+    contracts,
+    teamCount: wb.SheetNames.length,
+    playerCount: Object.keys(contracts).filter(k => !k.startsWith('_last_')).length,
+    fetchedAt: new Date().toISOString(),
+    sheets: wb.SheetNames,
+  };
+}
+
+// Lookup a contract by player name (fuzzy)
+function lookupContract(contractData, playerName) {
+  if (!contractData || !contractData.contracts || !playerName) return null;
+  const c = contractData.contracts;
+  // Exact normalized match
+  const key = playerName.toLowerCase().replace(/[^a-z0-9]/g,'');
+  if (c[key]) return c[key];
+  // Partial match — try last name
+  const parts = playerName.split(/\s+/);
+  const lastName = parts[parts.length-1].toLowerCase().replace(/[^a-z]/g,'');
+  const lastMatches = c[`_last_${lastName}`];
+  if (lastMatches && lastMatches.length === 1) return lastMatches[0];
+  if (lastMatches && lastMatches.length > 1) {
+    // Try first initial match
+    const firstInitial = (parts[0] || '').toLowerCase()[0];
+    const m = lastMatches.find(x => x.playerName.toLowerCase().startsWith(firstInitial));
+    if (m) return m;
+    return lastMatches[0];
+  }
+  return null;
+}
+
+// Format a salary value for display
+function fmtSalary(val) {
+  if (!val && val !== 0) return null;
+  const n = parseFloat(String(val).replace(/[$,]/g,''));
+  if (isNaN(n)) return String(val) || null;
+  if (n >= 1000000) return `$${(n/1000000).toFixed(2)}M`;
+  if (n >= 1000) return `$${(n/1000).toFixed(0)}K`;
+  return `$${n}`;
+}
 
 // ── Placeholder Roster (module-level so all components can access) ──
 function buildPlaceholderRoster(teamName){
@@ -2596,9 +2796,12 @@ function TeamLogo({ teamName, size = "medium" }) {
 }
 
 // ── Roster Fetch Banner ──
-function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache }) {
+function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchContracts, fetchingContracts, contractData }) {
   const isLive = rosterMeta && rosterMeta.source === 'live';
   const isHardcoded = rosterMeta && rosterMeta.source === 'hardcoded';
+  const rosterLoaded = isLive; // Core Data only unlocks after a real live fetch
+  const contractLoaded = !!(contractData && contractData.playerCount > 0);
+
   return (
     <div style={{
       background:'linear-gradient(135deg, rgba(10,22,40,0.97) 0%, rgba(13,40,24,0.97) 100%)',
@@ -2638,28 +2841,82 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache }) {
           </div>
         )}
       </div>
+
+      {/* Action buttons */}
       <div style={{display:'flex',gap:'10px',alignItems:'center',flexWrap:'wrap'}}>
-      <button onClick={()=>{haptic('medium');onFetch();}} disabled={fetching} className="haptic-btn"
-        style={{
-          background: fetching ? 'rgba(45,90,45,0.4)' : 'linear-gradient(135deg, #2d5a2d, #1a6a1a)',
-          border:'2px solid #ffd700', borderRadius:'8px', color:'#fff',
-          fontFamily:'Orbitron', fontWeight:'700', fontSize:'0.85rem',
-          padding:'10px 20px', cursor: fetching ? 'not-allowed' : 'pointer',
-          textTransform:'uppercase', letterSpacing:'1px',
-          boxShadow: fetching ? 'none' : '0 0 15px rgba(255,215,0,0.3)',
-          display:'flex', alignItems:'center', gap:'8px', transition:'all 0.3s'
-        }}>
-        {fetching
-          ? <><span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span> Fetching...</>
-          : <>⟳ Fetch Rosters</>
-        }
-      </button>
-      <button onClick={onClearCache} title="Clear cached roster data and reset app state"
-        style={{background:'linear-gradient(135deg,#5a1414,#3d0d0d)',border:'2px solid #ff6644',borderRadius:'8px',
-          color:'#ffaa88',fontFamily:'Orbitron',fontWeight:'700',fontSize:'0.75rem',padding:'10px 14px',
-          cursor:'pointer',textTransform:'uppercase',letterSpacing:'1px',transition:'all 0.3s',whiteSpace:'nowrap'}}>
-        🗑️ Clear Cache
-      </button>
+
+        {/* Fetch Rosters */}
+        <button onClick={()=>{haptic('medium');onFetch();}} disabled={fetching} className="haptic-btn"
+          style={{
+            background: fetching ? 'rgba(45,90,45,0.4)' : 'linear-gradient(135deg, #2d5a2d, #1a6a1a)',
+            border:'2px solid #ffd700', borderRadius:'8px', color:'#fff',
+            fontFamily:'Orbitron', fontWeight:'700', fontSize:'0.85rem',
+            padding:'10px 20px', cursor: fetching ? 'not-allowed' : 'pointer',
+            textTransform:'uppercase', letterSpacing:'1px',
+            boxShadow: fetching ? 'none' : '0 0 15px rgba(255,215,0,0.3)',
+            display:'flex', alignItems:'center', gap:'8px', transition:'all 0.3s'
+          }}>
+          {fetching
+            ? <><span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span> Fetching...</>
+            : <>⟳ Fetch Rosters</>
+          }
+        </button>
+
+        {/* Core Data — shown inline, dithered until live roster loaded */}
+        <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:'3px'}}>
+          <button
+            className="haptic-btn"
+            disabled={!rosterLoaded || fetchingContracts}
+            onClick={()=>{haptic('medium');onFetchContracts();}}
+            title={!rosterLoaded ? 'Fetch live rosters first to enable contract data' : contractLoaded ? 'Reload contract data' : 'Load player contract data'}
+            style={{
+              background: !rosterLoaded
+                ? 'rgba(30,40,50,0.4)'
+                : fetchingContracts
+                  ? 'rgba(26,58,108,0.5)'
+                  : contractLoaded
+                    ? 'linear-gradient(135deg,rgba(74,255,74,0.15),rgba(26,58,108,0.6))'
+                    : 'linear-gradient(135deg,#1a3a6c,#0d2450)',
+              border: !rosterLoaded
+                ? '2px solid #2a3a4a'
+                : contractLoaded
+                  ? '2px solid #4aff4a'
+                  : '2px solid #4a9eff',
+              borderRadius:'8px',
+              color: !rosterLoaded ? '#3a5060' : contractLoaded ? '#4aff4a' : '#7ec8ff',
+              fontFamily:'Orbitron', fontWeight:'700', fontSize:'0.82rem',
+              padding:'10px 18px',
+              cursor: !rosterLoaded ? 'not-allowed' : 'pointer',
+              textTransform:'uppercase', letterSpacing:'1px',
+              boxShadow: !rosterLoaded ? 'none' : contractLoaded ? '0 0 12px rgba(74,255,74,0.2)' : '0 0 12px rgba(74,158,255,0.25)',
+              display:'flex', alignItems:'center', gap:'8px', transition:'all 0.35s',
+              opacity: !rosterLoaded ? 0.45 : 1,
+            }}>
+            {fetchingContracts
+              ? <><span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span> Loading...</>
+              : contractLoaded
+                ? <>✅ Contracts Loaded</>
+                : <>📄 Core Data</>
+            }
+          </button>
+          {!rosterLoaded && (
+            <div style={{fontSize:'0.58rem',color:'#3a5060',fontFamily:'Roboto Condensed',letterSpacing:'0.5px',textAlign:'center'}}>
+              Fetch rosters first
+            </div>
+          )}
+          {contractLoaded && (
+            <div style={{fontSize:'0.58rem',color:'#4a8a4a',fontFamily:'Roboto Condensed',textAlign:'center'}}>
+              {contractData.playerCount} players · {new Date(contractData.fetchedAt).toLocaleDateString()}
+            </div>
+          )}
+        </div>
+
+        <button onClick={onClearCache} title="Clear cached roster data and reset app state"
+          style={{background:'linear-gradient(135deg,#5a1414,#3d0d0d)',border:'2px solid #ff6644',borderRadius:'8px',
+            color:'#ffaa88',fontFamily:'Orbitron',fontWeight:'700',fontSize:'0.75rem',padding:'10px 14px',
+            cursor:'pointer',textTransform:'uppercase',letterSpacing:'1px',transition:'all 0.3s',whiteSpace:'nowrap'}}>
+          🗑️ Clear Cache
+        </button>
       </div>
       <style>{`@keyframes spin2{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
     </div>
@@ -2822,7 +3079,7 @@ function TeamSelector({ selectedTeams, onTeamsChange }) {
 }
 
 // ── Comparison Table ──
-function ComparisonTable({ teams, data }) {
+function ComparisonTable({ teams, data, contractData }) {
   const [expandedPos, setExpandedPos] = useState(null);
   const [lightbox, setLightbox] = useState(null); // {player, position, teamName}
   if (!data||teams.length<2) return null;
@@ -2981,6 +3238,7 @@ function ComparisonTable({ teams, data }) {
           position={lightbox.position}
           teamName={lightbox.teamName}
           allTeamsRosterData={data.rosterData}
+          contractData={contractData}
           onClose={()=>setLightbox(null)}
         />
       )}
@@ -3276,7 +3534,7 @@ function PosAttrRanges() {
 }
 
 // ── Player Lightbox ──
-function PlayerLightbox({ player, position, teamName, allTeamsRosterData, onClose }) {
+function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contractData, onClose }) {
   if (!player || !position) return null;
   const aMax = POS_ACTUAL_MAX[position] || POS_ACTUAL_MAX.LB;
   const pMax = POS_POTENTIAL_MAX[position] || POS_POTENTIAL_MAX.LB;
@@ -3308,6 +3566,10 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, onClos
   const leagueTotal = allSamePos.length;
 
   const barColor = pctOfMax >= 90 ? '#4aff4a' : pctOfMax >= 75 ? '#ffd700' : pctOfMax >= 55 ? '#4a9eff' : '#ff6b6b';
+
+  // Contract data lookup
+  const contract = lookupContract(contractData, player.name);
+  const hasContract = !!contract;
 
   return (
     <div onClick={onClose} className="lightbox-outer" style={{
@@ -3478,6 +3740,50 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, onClos
             </div>
           </div>
 
+          {/* Contract Data Section */}
+          {hasContract ? (
+            <div style={{marginBottom:'14px',borderRadius:'10px',overflow:'hidden',border:'1px solid rgba(74,255,74,0.2)'}}>
+              {/* Contract header */}
+              <div style={{padding:'8px 14px',background:'linear-gradient(90deg,rgba(13,40,24,0.95),rgba(10,22,40,0.95))',borderBottom:'1px solid rgba(74,255,74,0.15)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <span style={{fontFamily:'Orbitron',fontSize:'0.72rem',color:'#4aff4a',letterSpacing:'1px',fontWeight:'700'}}>📄 CONTRACT DATA</span>
+                {contract.playerId && <span style={{fontSize:'0.65rem',color:'#608060',fontFamily:'Roboto Condensed'}}>ID: {contract.playerId}</span>}
+              </div>
+              {/* Contract grid */}
+              <div style={{padding:'12px 14px',background:'rgba(0,0,0,0.2)'}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:'8px'}}>
+                  {[
+                    contract.salary         && { label:'Annual Salary',    val: fmtSalary(contract.salary) || String(contract.salary),    color:'#4aff4a' },
+                    contract.salaryTotal    && { label:'Contract Value',   val: fmtSalary(contract.salaryTotal) || String(contract.salaryTotal), color:'#ffd700' },
+                    contract.contractYears  && { label:'Contract Length',  val: `${contract.contractYears} yr${contract.contractYears==1?'':'s'}`, color:'#7ec8ff' },
+                    contract.yearsLeft      && { label:'Years Remaining',  val: `${contract.yearsLeft} yr${contract.yearsLeft==1?'':'s'}`, color:'#7ec8ff' },
+                    contract.contractEnd    && { label:'Expires',          val: String(contract.contractEnd),  color:'#a0a0b0' },
+                    contract.bonus          && { label:'Signing Bonus',    val: fmtSalary(contract.bonus) || String(contract.bonus),     color:'#ff9944' },
+                    contract.draftSlot      && { label:'Draft Slot',       val: contract.draftRound ? `Rd ${contract.draftRound}, Pick ${contract.draftSlot}` : `Pick ${contract.draftSlot}`, color:'#c0a0ff' },
+                    contract.draftYear      && { label:'Draft Year',       val: String(contract.draftYear),    color:'#c0a0ff' },
+                    contract.age            && { label:'Age',              val: String(contract.age),          color:'#a0d2a0' },
+                    contract.experience     && { label:'Experience',       val: `${contract.experience} yr${contract.experience==1?'':'s'}`, color:'#a0d2a0' },
+                    contract.college        && { label:'College',          val: String(contract.college),      color:'#a0b8a0' },
+                    contract.injuryStatus   && { label:'Injury',           val: String(contract.injuryStatus), color:'#ff6b6b' },
+                  ].filter(Boolean).map(({label,val,color})=>(
+                    <div key={label} style={{padding:'7px 10px',background:'rgba(0,0,0,0.25)',borderRadius:'6px',border:`1px solid ${color}22`}}>
+                      <div style={{fontSize:'0.58rem',color:'#5a7a5a',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'2px'}}>{label}</div>
+                      <div style={{fontSize:'0.88rem',fontWeight:'700',color,fontFamily:'Roboto Condensed'}}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+                {contract.notes && (
+                  <div style={{marginTop:'8px',padding:'7px 10px',background:'rgba(0,0,0,0.2)',borderRadius:'6px',border:'1px solid rgba(255,255,255,0.06)',fontSize:'0.75rem',color:'#808080',fontFamily:'Roboto Condensed',fontStyle:'italic'}}>
+                    {contract.notes}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : contractData ? (
+            <div style={{marginBottom:'14px',padding:'8px 12px',background:'rgba(0,0,0,0.15)',borderRadius:'8px',border:'1px solid rgba(255,255,255,0.05)',fontSize:'0.72rem',color:'#404050',fontFamily:'Roboto Condensed',textAlign:'center'}}>
+              No contract record found for this player
+            </div>
+          ) : null}
+
           <div style={{marginTop:'8px',fontSize:'0.65rem',color:'#3a5a3a',fontFamily:'Roboto Condensed',textAlign:'center'}}>
             🟢 Actual at player potential ceiling &nbsp;|&nbsp; 🔵 Player potential at position max &nbsp;|&nbsp; Click outside to close
           </div>
@@ -3487,10 +3793,12 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, onClos
   );
 }
 
-function DataHelpers() {
+function DataHelpers({ contractData, onFetchContracts, fetchingContracts, rosterMeta }) {
   const [paste,setPaste]=useState('');
   const [show,setShow]=useState(false);
   const [showAttr,setShowAttr]=useState(false);
+  const contractLoaded = !!(contractData && contractData.playerCount > 0);
+  const rosterLoaded = !!(rosterMeta && rosterMeta.source === 'live');
   const copy=()=>{
     const s=`// PNFL Console Parser — paste in browser console on the roster page\nfunction parsePNFL(){\nconst out=document.body.innerText;\nconsole.log(out);\nreturn out;\n}\nparsePNFL();`;
     if(navigator.clipboard){navigator.clipboard.writeText(s).then(()=>alert('✓ Copied! Run in console on PNFL roster page, then paste the output below.'));}
@@ -3510,8 +3818,53 @@ function DataHelpers() {
           ✓ Load Pasted Text
         </button>
       </>)}
-      <button type="button" onClick={()=>setShowAttr(!showAttr)} className="btn-secondary"
-        style={{marginTop:'8px',width:'100%',borderColor: showAttr?'#7ec8ff':'',color: showAttr?'#7ec8ff':''}}>
+
+      {/* Core Data — Contracts */}
+      <button type="button"
+        className="haptic-btn"
+        disabled={!rosterLoaded || fetchingContracts}
+        onClick={()=>{haptic('medium');onFetchContracts();}}
+        title={!rosterLoaded ? 'Fetch live rosters first to enable contract data' : contractLoaded ? 'Reload contract data' : 'Load player contract data'}
+        style={{
+          marginTop:'8px',width:'100%',
+          background: !rosterLoaded
+            ? 'rgba(30,40,50,0.4)'
+            : fetchingContracts
+              ? 'rgba(26,58,108,0.5)'
+              : contractLoaded
+                ? 'linear-gradient(135deg,rgba(74,255,74,0.12),rgba(26,58,108,0.5))'
+                : 'linear-gradient(135deg,#1a3a6c,#0d2450)',
+          border: !rosterLoaded ? '2px solid #2a3a4a' : contractLoaded ? '2px solid #4aff4a' : '2px solid #4a9eff',
+          borderRadius:'8px',
+          color: !rosterLoaded ? '#3a5060' : contractLoaded ? '#4aff4a' : '#7ec8ff',
+          fontFamily:'Orbitron', fontWeight:'700', fontSize:'0.78rem',
+          padding:'10px 16px',
+          cursor: !rosterLoaded ? 'not-allowed' : 'pointer',
+          textTransform:'uppercase', letterSpacing:'1px',
+          opacity: !rosterLoaded ? 0.45 : 1,
+          display:'flex', alignItems:'center', justifyContent:'center', gap:'8px',
+          transition:'all 0.3s',
+        }}>
+        {fetchingContracts
+          ? <><span>⏳</span><span>Loading Contracts...</span></>
+          : contractLoaded
+            ? <><span>✅</span><span>Contract File Activated</span></>
+            : <><span>📄</span><span>Core Data — Load Contracts</span></>
+        }
+      </button>
+      {!rosterLoaded && (
+        <div style={{fontSize:'0.65rem',color:'#3a5060',fontFamily:'Roboto Condensed',marginTop:'3px',textAlign:'center'}}>
+          Fetch live rosters first to unlock
+        </div>
+      )}
+      {contractLoaded && (
+        <div style={{fontSize:'0.68rem',color:'#4a8a4a',fontFamily:'Roboto Condensed',marginTop:'4px',textAlign:'center'}}>
+          {contractData.playerCount} players · {contractData.teamCount} teams · {new Date(contractData.fetchedAt).toLocaleString()}
+        </div>
+      )}
+
+      <button type="button" onClick={()=>setShowAttr(!showAttr)} className="btn-secondary haptic-btn"
+        style={{marginTop:'8px',width:'100%',borderColor:showAttr?'#7ec8ff':'',color:showAttr?'#7ec8ff':''}}>
         📐 {showAttr?'▲ Hide':'▼ Positional Attribute Rankings'}
       </button>
       {showAttr&&(
@@ -4034,7 +4387,9 @@ function App() {
   const [depth,setDepth]=useState(loadDepth);
   const [rosterData,setRosterData]=useState(()=>loadRosterCache());
   const [standingsData,setStandingsData]=useState(()=>loadStandingsCache());
+  const [contractData,setContractData]=useState(()=>loadContractCache());
   const [fetching,setFetching]=useState(false);
+  const [fetchingContracts,setFetchingContracts]=useState(false);
   const [fetchError,setFetchError]=useState(null);
   const [designation,setDesignation]=useState('AO');
   const [activePanel,setActivePanel]=useState(null);
@@ -4045,6 +4400,7 @@ function App() {
     storage.clear();
     setRosterData(null);
     setStandingsData(null);
+    setContractData(null);
     setData(null);
     setWeights(JSON.parse(JSON.stringify(DEFAULT_WEIGHTS)));
     setDepth(JSON.parse(JSON.stringify(DEFAULT_DEPTH)));
@@ -4138,7 +4494,49 @@ function App() {
     setFetching(false);
   },[]);
 
-  // Get roster for a team — use fetched data if available, else hardcoded 2048 S1 data, else null
+  // Fetch and parse the contracts XLSX file
+  const fetchContracts=useCallback(async()=>{
+    setFetchingContracts(true);
+    const CONTRACT_URL = 'https://pnfl.biz/pnflstats/Contracts.xlsx';
+    const PROXIES = [
+      url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+      url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+      url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+    ];
+    let arrayBuffer = null;
+    let lastError = '';
+
+    for (let i = 0; i < PROXIES.length; i++) {
+      try {
+        const res = await fetch(PROXIES[i](CONTRACT_URL), {signal: AbortSignal.timeout(30000)});
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buf = await res.arrayBuffer();
+        if (buf.byteLength < 1000) throw new Error('Response too small to be a valid xlsx');
+        arrayBuffer = buf;
+        break;
+      } catch(e) {
+        lastError = e.message;
+        console.warn(`Contract proxy ${i+1} failed:`, e.message);
+      }
+    }
+
+    if (!arrayBuffer) {
+      alert(`⚠️ Contract file fetch failed.\n${lastError}\n\nTry again in a moment.`);
+      setFetchingContracts(false);
+      return;
+    }
+
+    try {
+      const parsed = parseContractXLSX(arrayBuffer);
+      if (parsed.playerCount === 0) throw new Error('No player contracts found in file');
+      saveContractCache(parsed);
+      setContractData(parsed);
+      alert(`✓ Contracts loaded!\n${parsed.playerCount} players across ${parsed.teamCount} teams.\nLast updated: ${new Date().toLocaleString()}`);
+    } catch(e) {
+      alert(`⚠️ Contract parse failed: ${e.message}`);
+    }
+    setFetchingContracts(false);
+  },[]);
   const getTeamData=(team)=>{
     if(rosterData&&rosterData.teams&&rosterData.teams[team]) return rosterData.teams[team];
     if(HARDCODED_ROSTER_DATA&&HARDCODED_ROSTER_DATA.teams&&HARDCODED_ROSTER_DATA.teams[team]) return HARDCODED_ROSTER_DATA.teams[team];
@@ -4209,7 +4607,7 @@ function App() {
         </div>
       </header>
 
-      <RosterBanner rosterMeta={rosterMeta} onFetch={fetchRosters} fetching={fetching} onClearCache={clearCache}/>
+      <RosterBanner rosterMeta={rosterMeta} onFetch={fetchRosters} fetching={fetching} onClearCache={clearCache} onFetchContracts={fetchContracts} fetchingContracts={fetchingContracts} contractData={contractData}/>
 
       {/* ── 2×3 Panel Grid ── */}
       {(()=>{
@@ -4294,7 +4692,7 @@ function App() {
       <div className="game-panel">
         <div className="controls">
           <TeamSelector selectedTeams={teams} onTeamsChange={setTeams}/>
-          <DataHelpers/>
+          <DataHelpers contractData={contractData} onFetchContracts={fetchContracts} fetchingContracts={fetchingContracts} rosterMeta={rosterMeta}/>
           <div style={{display:'flex',flexDirection:'column',gap:'12px',minWidth:'220px'}}>
             <button onClick={()=>{haptic('medium');compare();}} disabled={loading} className="btn-primary haptic-btn" style={{fontSize:'1.2rem',padding:'16px'}}>
               {loading?'⏳ Analyzing...':'▶️ COMPARE TEAMS'}
@@ -4317,7 +4715,7 @@ function App() {
 
       {data&&!loading&&(
         <div className="results-container">
-          <ComparisonTable teams={teams.filter(t=>t)} data={data}/>
+          <ComparisonTable teams={teams.filter(t=>t)} data={data} contractData={contractData}/>
           <ChartsPanel teams={teams.filter(t=>t)} data={data}/>
           {data.overall.winner&&(
             <div className="winner-banner full-width">
