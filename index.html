@@ -15,6 +15,59 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script type="module">
+// ── Transformers.js — Qwen2.5-1.5B-Instruct AI assistant ──
+// Loaded as ES module, exposes window.pnflAI for the React app to call
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
+env.allowLocalModels = false;
+env.useBrowserCache = true; // cache model weights in browser after first load
+
+let _pipe = null;
+let _loading = false;
+let _ready = false;
+
+window.pnflAI = {
+  isReady: () => _ready,
+  isLoading: () => _loading,
+
+  // Load the model — call once, subsequent calls are no-ops
+  load: async (onProgress) => {
+    if (_ready || _loading) return;
+    _loading = true;
+    try {
+      _pipe = await pipeline(
+        'text-generation',
+        'Qwen/Qwen2.5-1.5B-Instruct',
+        {
+          dtype: 'q4',  // 4-bit quantized — runs in ~600MB RAM
+          progress_callback: onProgress || null,
+        }
+      );
+      _ready = true;
+    } catch(e) {
+      console.error('Qwen load error:', e);
+      throw e;
+    } finally {
+      _loading = false;
+    }
+  },
+
+  // Ask the model a question about a player given context
+  ask: async (systemPrompt, userMessage, maxTokens = 200) => {
+    if (!_ready || !_pipe) throw new Error('Model not loaded');
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userMessage  },
+    ];
+    const out = await _pipe(messages, {
+      max_new_tokens: maxTokens,
+      temperature: 0.3,
+      do_sample: false,
+    });
+    return out[0]?.generated_text?.slice(-1)[0]?.content || '';
+  },
+};
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -397,7 +450,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v4.2...</div>
+  <div class="pl-sub">Loading v4.3...</div>
 </div>
 <div id="root"></div>
 <script type="text/babel">
@@ -452,7 +505,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '4.2';
+const APP_VERSION = '4.3';
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
 
@@ -590,11 +643,10 @@ function parsePNFLRosterText(rawText) {
 }
 
 function parsePNFLRosterHTML(html, result) {
-  // Parse HTML using a temporary DOM element
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
 
-  // Extract header info from full text
+  // Extract header info
   const bodyText = doc.body ? doc.body.innerText || doc.body.textContent : html;
   const seasonMatch = bodyText.match(/(\d{4})\s*season/i);
   if (seasonMatch) result.season = seasonMatch[1];
@@ -603,7 +655,7 @@ function parsePNFLRosterHTML(html, result) {
   const dateMatch = bodyText.match(/([A-Za-z]+ \d+,\s*\d{4})/);
   if (dateMatch) result.date = dateMatch[1];
 
-  const teamNameMap = {
+  const TEAM_NAME_MAP = {
     'Jacksonville':'Jacksonville','Buffalo':'Buffalo','New England':'New England',
     'Miami':'Miami','Denver':'Denver','Las Vegas':'Las Vegas',
     'Cincinnati':'Cincinnati','Los Angeles':'Los Angeles','Pittsburgh':'Pittsburgh',
@@ -614,84 +666,120 @@ function parsePNFLRosterHTML(html, result) {
   };
   const VALID_POS = new Set(['QB','HB','FB','TE','WR','C','G','T','K','P','DE','DT','LB','CB','S']);
 
-  // Find all tables in the document
-  const tables = doc.querySelectorAll('table');
   let currentTeam = null;
 
-  tables.forEach(table => {
-    // Check if preceding heading/text identifies a team
-    let el = table.previousElementSibling;
-    while (el) {
-      const txt = el.textContent.trim();
-      const m = txt.match(/Team Roster:\s*(.+)/i) || txt.match(/^(.+?)\s+Team Roster/i);
-      if (m) {
-        const tName = m[1].trim();
-        const mapped = teamNameMap[tName];
-        currentTeam = (mapped !== undefined) ? mapped : tName;
-        if (currentTeam && !result.teams[currentTeam]) result.teams[currentTeam] = {};
-        break;
-      }
-      // Also check headings containing team names
-      for (const [key] of Object.entries(teamNameMap)) {
-        if (key && txt.includes(key)) {
-          const mapped = teamNameMap[key];
-          currentTeam = (mapped !== undefined) ? mapped : key;
-          if (currentTeam && !result.teams[currentTeam]) result.teams[currentTeam] = {};
-          break;
+  // Walk ALL elements to find team headers and table rows in document order
+  const allElements = doc.body ? Array.from(doc.body.querySelectorAll('*')) : [];
+
+  // Strategy: collect all <tr> rows in document order with their team context
+  // Team headers appear as headings/text before each roster table
+
+  // First pass: build a flat list of [teamName, rows[]] blocks
+  const blocks = [];
+  let pendingTeam = null;
+
+  // Scan headings and text nodes for team names
+  const headingEls = doc.body ? doc.body.querySelectorAll('h1,h2,h3,h4,h5,h6,p,div,td,th,caption') : [];
+  headingEls.forEach(el => {
+    const txt = el.textContent.trim();
+    const m = txt.match(/Team Roster[:\s]+(.+?)(?:\s*$)/im);
+    if (m) {
+      const tName = m[1].trim().replace(/\s+/g,' ');
+      const mapped = TEAM_NAME_MAP[tName];
+      if (mapped !== undefined) pendingTeam = mapped;
+      else {
+        // Check if any known team name is in the text
+        for (const [k,v] of Object.entries(TEAM_NAME_MAP)) {
+          if (k && txt.includes(k)) { pendingTeam = v; break; }
         }
       }
-      if (currentTeam) break;
-      el = el.previousElementSibling;
     }
-    if (!currentTeam) return;
-
-    // Each row in this table = one player (or potential row)
-    const rows = table.querySelectorAll('tr');
-    let lastPlayer = null;
-
-    rows.forEach(row => {
-      const cells = Array.from(row.querySelectorAll('td,th'));
-      if (cells.length < 6) return;
-
-      const cellTexts = cells.map(c => c.textContent.trim());
-
-      // Detect player row: first cell is status A/O/I/IR
-      const status = cellTexts[0];
-      if (!['A','O','I','IR'].includes(status)) {
-        // Might be a potential row — look for 8 numeric values
-        if (lastPlayer && !lastPlayer.pattrs) {
-          const nums = cellTexts.filter(t => /^\d{2,3}$/.test(t)).map(Number);
-          if (nums.length >= 8) {
-            lastPlayer.pattrs = nums.slice(0, 8);
-          }
-        }
-        lastPlayer = null;
-        return;
-      }
-
-      // Position is second cell e.g. "QB1", "HB2"
-      const posRaw = cellTexts[1] || '';
-      const pos = posRaw.replace(/\d+$/, '').toUpperCase();
-      if (!VALID_POS.has(pos)) { lastPlayer = null; return; }
-
-      // Extract 8 attribute numbers from the row — last 8 numeric cells
-      const allNums = cellTexts.filter(t => /^\d{2,3}$/.test(t)).map(Number);
-      if (allNums.length < 8) { lastPlayer = null; return; }
-      const attrs = allNums.slice(-8);
-
-      // Jersey number and name
-      const num = parseInt(cellTexts[2]) || 0;
-      // Name is typically 4th cell (index 3), clean it up
-      const name = (cellTexts[3] || '').replace(/\s+/g,' ').trim();
-
-      if (!result.teams[currentTeam][pos]) result.teams[currentTeam][pos] = [];
-      const playerObj = { name, num, status, attrs, pattrs: null };
-      result.teams[currentTeam][pos].push(playerObj);
-      lastPlayer = playerObj;
-    });
   });
 
-  // Fallback: if HTML parsing got 0 teams, try plain text
+  // Simpler approach: just scan all tables, detect team from preceding text in DOM
+  const tables = doc.querySelectorAll('table');
+  tables.forEach(table => {
+    // Walk backward through siblings/ancestors to find team name
+    let teamFound = null;
+    let node = table;
+    for (let attempts = 0; attempts < 20 && !teamFound; attempts++) {
+      node = node.previousElementSibling || node.parentElement;
+      if (!node) break;
+      const txt = (node.textContent || '').trim();
+      // Direct "Team Roster: Miami" pattern
+      const m = txt.match(/Team Roster[:\s]+([A-Za-z ]+?)(?:\s{2,}|\n|$)/im);
+      if (m) {
+        const tName = m[1].trim();
+        teamFound = TEAM_NAME_MAP[tName] !== undefined ? TEAM_NAME_MAP[tName] : null;
+        if (teamFound === undefined) teamFound = null;
+        break;
+      }
+      // Any known team name in short text
+      if (txt.length < 60) {
+        for (const [k,v] of Object.entries(TEAM_NAME_MAP)) {
+          if (k && v && txt.includes(k)) { teamFound = v; break; }
+        }
+      }
+    }
+    if (teamFound === null) return; // null means Free Agent or unknown
+    if (!teamFound) return;
+    if (!result.teams[teamFound]) result.teams[teamFound] = {};
+    currentTeam = teamFound;
+
+    // Get all rows as arrays of cell text
+    const allRows = Array.from(table.querySelectorAll('tr')).map(tr =>
+      Array.from(tr.querySelectorAll('td,th')).map(c => c.textContent.trim())
+    );
+
+    // Process rows in pairs: player row + potential row
+    let i = 0;
+    while (i < allRows.length) {
+      const row = allRows[i];
+      if (!row || row.length < 6) { i++; continue; }
+
+      const status = (row[0] || '').toUpperCase();
+      if (!['A','O','I','IR'].includes(status)) { i++; continue; }
+
+      const posRaw = (row[1] || '').replace(/\d+$/,'').toUpperCase();
+      if (!VALID_POS.has(posRaw)) { i++; continue; }
+
+      // Extract 8 attribute numbers from current row (actual stats)
+      const rowNums = row.filter(t => /^\d{2,3}$/.test(t)).map(Number)
+        .filter(n => n >= 10 && n <= 99);
+      if (rowNums.length < 8) { i++; continue; }
+      const attrs = rowNums.slice(-8);
+
+      const num = parseInt(row[2]) || 0;
+      const name = (row[3] || '').replace(/\s+/g,' ').trim();
+      if (!name) { i++; continue; }
+
+      // Look ahead: next row is the potential/projected row if it has no status prefix
+      let pattrs = null;
+      const nextRow = allRows[i + 1];
+      if (nextRow) {
+        const nextStatus = (nextRow[0] || '').toUpperCase();
+        if (!['A','O','I','IR'].includes(nextStatus)) {
+          // This is the projected row — extract 8 numbers
+          const nextNums = nextRow
+            .join(' ')
+            .match(/\b\d{2,3}\b/g);
+          if (nextNums) {
+            const valid = nextNums.map(Number).filter(n => n >= 10 && n <= 99);
+            if (valid.length >= 8) {
+              pattrs = valid.slice(0, 8);
+              i++; // consume the potential row
+            }
+          }
+        }
+      }
+
+      if (!result.teams[currentTeam][posRaw]) result.teams[currentTeam][posRaw] = [];
+      result.teams[currentTeam][posRaw].push({ name, num, status, attrs, pattrs });
+      i++;
+    }
+  });
+
+  // If table-based parsing got 0 teams, fall back to plain text
   if (Object.keys(result.teams).length === 0) {
     return parsePNFLRosterPlainText(doc.body ? doc.body.innerText || doc.body.textContent : '', result);
   }
@@ -2597,38 +2685,37 @@ function saveContractCache(c){ storage.set('pnfl_contracts', c); }
 // ── Contract Data Parser (SheetJS) ──
 // Parses PNFL Contracts.xlsx and returns a map keyed by player name
 function parseContractXLSX(arrayBuffer) {
-  // Read workbook — handles .xlsx and .xls formats
-  const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true, raw: false });
+  const wb = XLSX.read(arrayBuffer, { type: 'array', raw: false });
   const contracts = {};
   let totalPlayers = 0;
 
-  const TEAM_NAME_MAP = {
+  // ONLY process the 18 known PNFL team sheet abbreviations — ignore all other tabs
+  const TEAM_SHEET_MAP = {
     'JAX':'Jacksonville','BUF':'Buffalo','NE':'New England','MIA':'Miami',
     'DEN':'Denver','LVR':'Las Vegas','LV':'Las Vegas','CIN':'Cincinnati',
-    'LAC':'Los Angeles','LAR':'Los Angeles','PIT':'Pittsburgh','ATL':'Atlanta',
+    'LAC':'Los Angeles','PIT':'Pittsburgh','ATL':'Atlanta',
     'WSH':'Washington','NYG':'New York','PHI':'Philadelphia','SF':'San Francisco',
     'ARI':'Chicago','MIN':'Minnesota','SEA':'Seattle','GB':'Green Bay',
-    'Green Bay':'Green Bay','Packers':'Green Bay','Washington':'Washington',
-    'Jacksonville':'Jacksonville','Buffalo':'Buffalo','New England':'New England',
-    'Miami':'Miami','Denver':'Denver','Las Vegas':'Las Vegas',
-    'Cincinnati':'Cincinnati','Los Angeles':'Los Angeles','Pittsburgh':'Pittsburgh',
-    'Atlanta':'Atlanta','Philadelphia':'Philadelphia','San Francisco':'San Francisco',
-    'Chicago':'Chicago','Minnesota':'Minnesota','Seattle':'Seattle',
   };
 
-  wb.SheetNames.forEach(sheetName => {
+  // Filter to only process known team sheets
+  const teamSheets = wb.SheetNames.filter(name => TEAM_SHEET_MAP[name.trim()] !== undefined);
+
+  teamSheets.forEach(sheetName => {
     const ws = wb.Sheets[sheetName];
     if (!ws) return;
+    const teamName = TEAM_SHEET_MAP[sheetName.trim()];
 
-    // Get raw row arrays to inspect structure
+    // Get raw rows — the file has row 1 as merged nav headers, row 2 as real column headers
+    // Row 2: PID | Draft Slot | First | Last | Team | Pos | Year | 2045 | 2046 | 2047...
     const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
     if (!rawRows || rawRows.length < 3) return;
 
-    // Find header row — look for row containing PID or First+Last columns
+    // Find the real header row — contains PID and First and Last
     let headerRowIdx = -1;
     for (let i = 0; i < Math.min(5, rawRows.length); i++) {
       const row = rawRows[i].map(c => String(c).trim().toLowerCase());
-      if (row.includes('pid') || (row.includes('first') && row.includes('last')) || row.includes('draft slot')) {
+      if (row.includes('pid') && row.includes('first') && row.includes('last')) {
         headerRowIdx = i;
         break;
       }
@@ -2637,116 +2724,104 @@ function parseContractXLSX(arrayBuffer) {
 
     const headers = rawRows[headerRowIdx].map(c => String(c).trim());
 
-    // Map column indices from actual PNFL Contracts.xlsx structure:
-    // PID | Draft Slot | First | Last | Team | Pos | Year | 2045 | 2046 | 2047...
+    // Map column indices
     const col = {};
     const contractYearCols = [];
     headers.forEach((h, i) => {
       const lh = h.toLowerCase().replace(/\s+/g,'');
-      if (lh === 'pid') col.pid = i;
+      if      (lh === 'pid')                         col.pid       = i;
       else if (lh === 'draftslot' || lh === 'draft') col.draftSlot = i;
-      else if (lh === 'first' || lh === 'firstname') col.first = i;
-      else if (lh === 'last' || lh === 'lastname') col.last = i;
-      else if (lh === 'team') col.team = i;
-      else if (lh === 'pos' || lh === 'position') col.pos = i;
-      else if (lh === 'year' || lh === 'years' || lh === 'yr') col.year = i;
-      // Contract year columns: 4-digit years like 2045, 2046...
+      else if (lh === 'first')                        col.first     = i;
+      else if (lh === 'last')                         col.last      = i;
+      else if (lh === 'team')                         col.team      = i;
+      else if (lh === 'pos' || lh === 'position')     col.pos       = i;
+      else if (lh === 'year' || lh === 'years')       col.year      = i;
       else if (/^20\d{2}$/.test(h.trim())) {
         contractYearCols.push({ year: parseInt(h.trim()), idx: i });
       }
     });
 
-    const mappedTeam = TEAM_NAME_MAP[sheetName.trim()] || sheetName.trim();
+    // Must have at minimum first + last to build a player name
+    if (col.first === undefined || col.last === undefined) return;
 
-    // Process data rows (skip header row and any summary/total rows)
     for (let ri = headerRowIdx + 1; ri < rawRows.length; ri++) {
       const row = rawRows[ri];
       if (!row || row.length < 3) continue;
 
-      const firstName = col.first !== undefined ? String(row[col.first] || '').trim() : '';
-      const lastName  = col.last  !== undefined ? String(row[col.last]  || '').trim() : '';
+      const firstName = String(row[col.first] || '').trim();
+      const lastName  = String(row[col.last]  || '').trim();
       if (!firstName && !lastName) continue;
       const fullName = [firstName, lastName].filter(Boolean).join(' ');
-      if (!fullName || fullName.length < 2) continue;
+      if (fullName.length < 2) continue;
 
       const pid       = col.pid       !== undefined ? String(row[col.pid]       || '').trim() : '';
       const draftSlot = col.draftSlot !== undefined ? String(row[col.draftSlot] || '').trim() : '';
-      const teamRaw   = col.team      !== undefined ? String(row[col.team]      || '').trim() : '';
       const pos       = col.pos       !== undefined ? String(row[col.pos]       || '').trim().toUpperCase() : '';
       const yearsLeft = col.year      !== undefined ? String(row[col.year]      || '').trim() : '';
 
-      // Parse draft slot format: "GB 1-2" = Green Bay round 1 pick 2, or "48-GB-3-9" style
+      // Parse draft slot: "GB 1-2", "LAC 6-15", "48-BUF-1-1", "X" (UDFA)
       let draftRound = '', draftPick = '', draftTeam = '';
-      const dsMatch1 = draftSlot.match(/^([A-Z]+)\s*(\d+)-(\d+)$/i);
-      const dsMatch2 = draftSlot.match(/^(\d+)-([A-Z]+)-(\d+)-(\d+)$/i);
-      if (dsMatch2) {
-        draftTeam = dsMatch2[2].toUpperCase();
-        draftRound = dsMatch2[3];
-        draftPick = dsMatch2[4];
-      } else if (dsMatch1) {
-        draftTeam = dsMatch1[1].toUpperCase();
-        draftRound = dsMatch1[2];
-        draftPick = dsMatch1[3];
-      } else if (draftSlot === 'X' || draftSlot === '') {
-        draftRound = 'UDFA';
-      }
+      const ds = draftSlot.toUpperCase().trim();
+      const m1 = ds.match(/^([A-Z]+)\s+(\d+)-(\d+)$/);      // "GB 1-2"
+      const m2 = ds.match(/^(\d+)-([A-Z]+)-(\d+)-(\d+)$/);  // "48-BUF-1-1"
+      const m3 = ds.match(/^([A-Z]+)\s*(\d+)-(\d+)$/);       // "LAC6-15" compact
+      if (m2) { draftTeam = m2[2]; draftRound = m2[3]; draftPick = m2[4]; }
+      else if (m1) { draftTeam = m1[1]; draftRound = m1[2]; draftPick = m1[3]; }
+      else if (m3) { draftTeam = m3[1]; draftRound = m3[2]; draftPick = m3[3]; }
+      else if (ds === 'X' || ds === '') draftRound = 'UDFA';
+      else draftRound = ds; // store raw
 
-      // Which years is player under contract (X = yes in that year column)
+      // Determine contracted years (X in that year column)
       const contractedYears = contractYearCols
         .filter(({idx}) => {
           const v = String(row[idx] || '').trim().toUpperCase();
-          return v === 'X' || v === '1' || v === 'TRUE';
+          return v === 'X' || v === '1';
         })
         .map(({year}) => year);
 
-      const contractStart = contractedYears.length ? Math.min(...contractedYears) : null;
-      const contractEnd   = contractedYears.length ? Math.max(...contractedYears) : null;
-      const contractLen   = contractedYears.length;
-
-      const resolvedTeam = TEAM_NAME_MAP[teamRaw] || TEAM_NAME_MAP[mappedTeam] || mappedTeam;
+      const contractStart  = contractedYears.length ? Math.min(...contractedYears) : null;
+      const contractEnd    = contractedYears.length ? Math.max(...contractedYears) : null;
+      const contractLength = contractedYears.length;
 
       const contract = {
         playerName:       fullName,
         firstName,
         lastName,
-        team:             resolvedTeam,
+        team:             teamName,
         position:         pos,
         playerId:         pid,
-        draftSlot,
+        draftSlot:        draftSlot,
         draftRound,
         draftPick,
         draftTeam,
-        yearsLeft:        yearsLeft || String(contractLen),
-        contractLength:   contractLen,
+        yearsLeft:        yearsLeft !== '' ? yearsLeft : String(contractLength),
+        contractLength,
         contractStart,
         contractEnd,
         contractYearList: contractedYears,
         sheetName,
       };
 
-      // Primary index: normalized full name
+      // Index: normalized full name
       const key = fullName.toLowerCase().replace(/[^a-z0-9]/g,'');
-      if (key.length > 1) {
-        contracts[key] = contract;
-        totalPlayers++;
-      }
+      if (key.length > 1) { contracts[key] = contract; totalPlayers++; }
 
-      // Last-name fallback index
+      // Index: last name fallback
       const lnKey = '_last_' + lastName.toLowerCase().replace(/[^a-z]/g,'');
       if (!contracts[lnKey]) contracts[lnKey] = [];
       contracts[lnKey].push(contract);
 
-      // PID direct index
-      if (pid) contracts['_pid_' + pid] = contract;
+      // Index: PID direct
+      if (pid && pid !== 'X') contracts['_pid_' + pid] = contract;
     }
   });
 
   return {
     contracts,
-    teamCount: wb.SheetNames.length,
+    teamCount: teamSheets.length,
     playerCount: totalPlayers,
     fetchedAt: new Date().toISOString(),
-    sheets: wb.SheetNames,
+    sheets: teamSheets,
   };
 }
 
@@ -3637,6 +3712,48 @@ function PosAttrRanges() {
 // ── Player Lightbox ──
 function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contractData, onClose }) {
   if (!player || !position) return null;
+  const [aiQuery, setAiQuery] = useState('');
+  const [aiResponse, setAiResponse] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiModelState, setAiModelState] = useState('idle'); // idle | loading | ready | error
+  const [aiLoadProgress, setAiLoadProgress] = useState(0);
+
+  const loadAI = async () => {
+    if (!window.pnflAI) { setAiModelState('error'); return; }
+    if (window.pnflAI.isReady()) { setAiModelState('ready'); return; }
+    setAiModelState('loading');
+    try {
+      await window.pnflAI.load((progress) => {
+        if (progress?.progress) setAiLoadProgress(Math.round(progress.progress));
+      });
+      setAiModelState('ready');
+    } catch(e) {
+      setAiModelState('error');
+    }
+  };
+
+  const askAI = async () => {
+    if (!aiQuery.trim() || !window.pnflAI?.isReady()) return;
+    setAiLoading(true);
+    setAiResponse('');
+    try {
+      const contract = lookupContract(contractData, player.name, player.num);
+      const systemPrompt = `You are a PNFL fantasy football analyst. Answer questions about players concisely (2-3 sentences max). Use only the data provided.`;
+      const userMsg = `Player: ${player.name} | Team: ${teamName} | Position: ${POSITION_DISPLAY[position]||position} | Status: ${player.status}
+Attributes (SP/AC/AG/ST/HA/EN/IN/DI): ${player.attrs.join('/')} (actual) | ${pattrs.join('/')} (potential)
+Attribute total: ${actualTotal}/${playerPotentialTotal} (${pctOfMax}% developed) | ${maxedCount}/8 attrs maxed
+League rank at ${position}: #${leagueRank} of ${leagueTotal}
+${contract ? `Contract: ${contract.contractLength} years (${contract.contractStart}-${contract.contractEnd}), Draft: ${contract.draftSlot||'N/A'}, Years left: ${contract.yearsLeft}` : 'No contract data'}
+
+Question: ${aiQuery}`;
+      const answer = await window.pnflAI.ask(systemPrompt, userMsg, 250);
+      setAiResponse(answer);
+    } catch(e) {
+      setAiResponse('Error: ' + e.message);
+    }
+    setAiLoading(false);
+  };
+
   const aMax = POS_ACTUAL_MAX[position] || POS_ACTUAL_MAX.LB;
   const pMax = POS_POTENTIAL_MAX[position] || POS_POTENTIAL_MAX.LB;
   // Player's own potential attrs (from roster fetch), or fall back to position max if not available
@@ -3891,6 +4008,80 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
               No contract record found for this player
             </div>
           ) : null}
+
+          {/* AI Assistant Panel */}
+          <div style={{marginBottom:'14px',borderRadius:'10px',overflow:'hidden',border:'1px solid rgba(160,100,255,0.25)'}}>
+            <div style={{padding:'8px 14px',background:'linear-gradient(90deg,rgba(40,20,60,0.95),rgba(10,22,40,0.95))',borderBottom:'1px solid rgba(160,100,255,0.2)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <span style={{fontFamily:'Orbitron',fontSize:'0.72rem',color:'#c090ff',letterSpacing:'1px',fontWeight:'700'}}>🤖 AI ANALYST — Qwen2.5</span>
+              {aiModelState === 'idle' && (
+                <button onClick={loadAI} className="haptic-btn" style={{fontSize:'0.65rem',padding:'4px 10px',background:'rgba(160,100,255,0.15)',border:'1px solid #c090ff44',borderRadius:'6px',color:'#c090ff',cursor:'pointer',fontFamily:'Orbitron',letterSpacing:'0.5px'}}>
+                  Load Model
+                </button>
+              )}
+              {aiModelState === 'loading' && (
+                <span style={{fontSize:'0.65rem',color:'#c090ff',fontFamily:'Roboto Condensed'}}>Loading... {aiLoadProgress}%</span>
+              )}
+              {aiModelState === 'ready' && (
+                <span style={{fontSize:'0.65rem',color:'#4aff4a',fontFamily:'Roboto Condensed'}}>✓ Ready</span>
+              )}
+              {aiModelState === 'error' && (
+                <span style={{fontSize:'0.65rem',color:'#ff6b6b',fontFamily:'Roboto Condensed'}}>⚠ Unavailable</span>
+              )}
+            </div>
+            <div style={{padding:'10px 14px',background:'rgba(0,0,0,0.2)'}}>
+              {aiModelState === 'idle' && (
+                <div style={{fontSize:'0.75rem',color:'#604080',fontFamily:'Roboto Condensed',fontStyle:'italic'}}>
+                  Load the Qwen2.5-1.5B AI model (~800MB) to ask questions about this player.
+                  First load takes 1-2 minutes, then runs instantly offline.
+                </div>
+              )}
+              {aiModelState === 'loading' && (
+                <div>
+                  <div style={{background:'rgba(255,255,255,0.05)',borderRadius:'6px',height:'6px',overflow:'hidden',marginBottom:'8px'}}>
+                    <div style={{height:'100%',width:`${aiLoadProgress}%`,background:'linear-gradient(90deg,#6040a0,#c090ff)',transition:'width 0.3s'}}/>
+                  </div>
+                  <div style={{fontSize:'0.72rem',color:'#806090',fontFamily:'Roboto Condensed',fontStyle:'italic'}}>
+                    Downloading model weights — cached after first load...
+                  </div>
+                </div>
+              )}
+              {(aiModelState === 'ready' || aiModelState === 'error') && (
+                <div>
+                  <div style={{display:'flex',gap:'8px',marginBottom:'8px'}}>
+                    <input
+                      type="text"
+                      value={aiQuery}
+                      onChange={e=>setAiQuery(e.target.value)}
+                      onKeyDown={e=>e.key==='Enter'&&askAI()}
+                      placeholder="Ask about this player..."
+                      disabled={aiModelState !== 'ready' || aiLoading}
+                      style={{
+                        flex:1,padding:'7px 10px',borderRadius:'6px',
+                        background:'rgba(10,22,40,0.8)',border:'1px solid rgba(160,100,255,0.3)',
+                        color:'#d0c0ff',fontFamily:'Roboto Condensed',fontSize:'0.82rem',outline:'none',
+                      }}
+                    />
+                    <button onClick={askAI} disabled={!aiQuery.trim()||aiLoading||aiModelState!=='ready'} className="haptic-btn"
+                      style={{padding:'7px 14px',background:'rgba(160,100,255,0.2)',border:'1px solid #c090ff55',borderRadius:'6px',
+                        color:'#c090ff',cursor:'pointer',fontFamily:'Orbitron',fontSize:'0.68rem',whiteSpace:'nowrap',
+                        opacity:(!aiQuery.trim()||aiLoading)?0.5:1}}>
+                      {aiLoading ? '...' : 'Ask'}
+                    </button>
+                  </div>
+                  {aiResponse && (
+                    <div style={{padding:'8px 10px',background:'rgba(40,20,60,0.4)',borderRadius:'6px',border:'1px solid rgba(160,100,255,0.15)',fontSize:'0.8rem',color:'#c0b0e0',fontFamily:'Roboto Condensed',lineHeight:1.5}}>
+                      {aiResponse}
+                    </div>
+                  )}
+                  {!aiResponse && !aiLoading && (
+                    <div style={{fontSize:'0.68rem',color:'#503060',fontFamily:'Roboto Condensed',fontStyle:'italic'}}>
+                      Try: "How developed is this player?" · "Is this a good contract value?" · "What position aspects are strongest?"
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
 
           <div style={{marginTop:'8px',fontSize:'0.65rem',color:'#3a5a3a',fontFamily:'Roboto Condensed',textAlign:'center'}}>
             🟢 Actual at player potential ceiling &nbsp;|&nbsp; 🔵 Player potential at position max &nbsp;|&nbsp; Click outside to close
