@@ -396,7 +396,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v3.8...</div>
+  <div class="pl-sub">Loading v3.9...</div>
 </div>
 <div id="root"></div>
 <script type="text/babel">
@@ -443,7 +443,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '3.8';
+const APP_VERSION = '3.9';
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
 
@@ -653,18 +653,16 @@ function parsePNFLRosterText(rawText) {
       continue;
     }
 
-    // Capture the projected/potential row (second line per player — just 8 indented numbers)
+    // Capture the projected/potential row (second line per player — 8 numbers)
+    // The line may contain HTML or extra whitespace — just extract 8 consecutive integers
     if (captureNext) {
-      const projMatch = line.match(/^\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/);
-      if (projMatch && lastPlayer) {
-        lastPlayer.pattrs = [
-          parseInt(projMatch[1]), parseInt(projMatch[2]),
-          parseInt(projMatch[3]), parseInt(projMatch[4]),
-          parseInt(projMatch[5]), parseInt(projMatch[6]),
-          parseInt(projMatch[7]), parseInt(projMatch[8])
-        ];
-      }
       captureNext = false;
+      // Strip any HTML tags first, then look for 8 numbers
+      const stripped = line.replace(/<[^>]*>/g, ' ');
+      const nums = stripped.match(/\b(\d{2,3})\b/g);
+      if (nums && nums.length >= 8 && lastPlayer) {
+        lastPlayer.pattrs = nums.slice(0, 8).map(Number);
+      }
       lastPlayer = null;
       continue;
     }
@@ -3283,8 +3281,9 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, onClos
   const aMax = POS_ACTUAL_MAX[position] || POS_ACTUAL_MAX.LB;
   const pMax = POS_POTENTIAL_MAX[position] || POS_POTENTIAL_MAX.LB;
   // Player's own potential attrs (from roster fetch), or fall back to position max if not available
-  const pattrs = (player.pattrs && player.pattrs.length === 8) ? player.pattrs : pMax;
-  const hasPattrs = !!(player.pattrs && player.pattrs.length === 8);
+  const pattrs = (player.pattrs && player.pattrs.length === 8 && player.pattrs.every(v => v > 0))
+    ? player.pattrs : pMax;
+  const hasPattrs = !!(player.pattrs && player.pattrs.length === 8 && player.pattrs.every(v => v > 0));
 
   const actualTotal = player.attrs.reduce((s,v)=>s+v,0);
   const playerPotentialTotal = pattrs.reduce((s,v)=>s+v,0);
