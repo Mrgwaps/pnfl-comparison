@@ -583,7 +583,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v4.7...</div>
+  <div class="pl-sub">Loading v4.8...</div>
 </div>
 <div id="root"></div>
 <script type="text/babel">
@@ -663,7 +663,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '4.7';
+const APP_VERSION = '4.8';
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
 
@@ -3188,13 +3188,192 @@ function TeamLogo({ teamName, size = "medium" }) {
 }
 
 // ── Roster Fetch Banner ──
+// ── Shared AI Connect Modal ──
+function AIConnectModal({ onClose, onConnected }) {
+  const [keyInput, setKeyInput] = useState('');
+  const [status, setStatus] = useState('idle'); // idle | connecting | success | error
+  const [errorMsg, setErrorMsg] = useState('');
+
+  // Pre-fill if key already saved
+  React.useEffect(() => {
+    const saved = sessionStorage.getItem('pnfl_hf_key');
+    if (saved) setKeyInput(saved);
+    if (window.pnflAI?.isReady()) setStatus('success');
+  }, []);
+
+  const connect = async () => {
+    const key = keyInput.trim();
+    if (!key) return;
+    setStatus('connecting');
+    setErrorMsg('');
+    try {
+      await window.pnflAI.load(key);
+      setStatus('success');
+      haptic('medium');
+      setTimeout(() => { onConnected && onConnected(); onClose && onClose(); }, 800);
+    } catch(e) {
+      setStatus('error');
+      setErrorMsg(e.message || String(e));
+    }
+  };
+
+  const disconnect = () => {
+    window.pnflAI._ready = false;
+    window.pnflAI._apiKey = '';
+    sessionStorage.removeItem('pnfl_hf_key');
+    sessionStorage.removeItem('pnfl_hf_ep');
+    setStatus('idle');
+    setKeyInput('');
+    onConnected && onConnected();
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position:'fixed',inset:0,zIndex:9999,
+      background:'rgba(0,0,0,0.75)',
+      display:'flex',alignItems:'center',justifyContent:'center',
+      backdropFilter:'blur(4px)',
+    }}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        background:'linear-gradient(135deg,rgba(25,12,45,0.99),rgba(10,22,40,0.99))',
+        border:'2px solid rgba(160,100,255,0.5)',
+        borderRadius:'16px',padding:'28px 32px',
+        width:'min(460px,92vw)',
+        boxShadow:'0 0 40px rgba(160,100,255,0.25), 0 20px 60px rgba(0,0,0,0.7)',
+      }}>
+        {/* Header */}
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'20px'}}>
+          <div>
+            <div style={{fontFamily:'Orbitron',fontSize:'1rem',fontWeight:'900',color:'#c090ff',letterSpacing:'1px'}}>🤖 AI ANALYST</div>
+            <div style={{fontSize:'0.72rem',color:'#806090',fontFamily:'Roboto Condensed',marginTop:'2px'}}>Qwen2.5-1.5B-Instruct · HuggingFace Inference</div>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#604080',fontSize:'1.4rem',cursor:'pointer',lineHeight:1,padding:'2px 6px'}}>✕</button>
+        </div>
+
+        {status === 'success' ? (
+          /* Connected state */
+          <div>
+            <div style={{display:'flex',alignItems:'center',gap:'12px',padding:'14px 16px',background:'rgba(74,255,74,0.07)',border:'1px solid rgba(74,255,74,0.25)',borderRadius:'10px',marginBottom:'16px'}}>
+              <div style={{width:'12px',height:'12px',borderRadius:'50%',background:'#4aff4a',boxShadow:'0 0 8px #4aff4a',flexShrink:0}}/>
+              <div>
+                <div style={{fontFamily:'Orbitron',fontSize:'0.78rem',color:'#4aff4a',fontWeight:'700'}}>CONNECTED</div>
+                <div style={{fontSize:'0.7rem',color:'#4a8a4a',fontFamily:'Roboto Condensed',marginTop:'1px'}}>Qwen2.5-1.5B ready · key saved for session</div>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:'10px'}}>
+              <button onClick={()=>{ onConnected && onConnected(); onClose && onClose(); }} className="haptic-btn"
+                style={{flex:1,padding:'10px',background:'linear-gradient(135deg,rgba(160,100,255,0.2),rgba(100,60,180,0.3))',border:'2px solid #c090ff66',borderRadius:'8px',color:'#c090ff',fontFamily:'Orbitron',fontSize:'0.78rem',fontWeight:'700',cursor:'pointer'}}>
+                ✓ Done
+              </button>
+              <button onClick={disconnect} className="haptic-btn"
+                style={{padding:'10px 16px',background:'rgba(255,80,80,0.1)',border:'1px solid rgba(255,80,80,0.3)',borderRadius:'8px',color:'#ff8080',fontFamily:'Roboto Condensed',fontSize:'0.78rem',cursor:'pointer'}}>
+                Disconnect
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Connect form */
+          <div>
+            <div style={{fontSize:'0.78rem',color:'#a080c0',fontFamily:'Roboto Condensed',lineHeight:1.5,marginBottom:'16px'}}>
+              Enter a free HuggingFace token to enable AI player analysis. Requires <strong style={{color:'#c090ff'}}>"Make calls to Inference API"</strong> permission.
+            </div>
+
+            {/* Steps */}
+            <div style={{display:'flex',flexDirection:'column',gap:'6px',marginBottom:'18px',padding:'12px 14px',background:'rgba(0,0,0,0.25)',borderRadius:'8px',border:'1px solid rgba(160,100,255,0.1)'}}>
+              {[
+                ['1', 'Go to', 'huggingface.co/settings/tokens', 'https://huggingface.co/settings/tokens'],
+                ['2', 'Click New Token → Type: Read', null, null],
+                ['3', 'Enable "Make calls to Inference API" ✓', null, null],
+                ['4', 'Copy the hf_... token and paste below', null, null],
+              ].map(([n, text, link, href]) => (
+                <div key={n} style={{display:'flex',alignItems:'flex-start',gap:'10px',fontSize:'0.72rem',color:'#806090',fontFamily:'Roboto Condensed'}}>
+                  <span style={{background:'rgba(160,100,255,0.2)',borderRadius:'50%',width:'18px',height:'18px',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Orbitron',fontSize:'0.6rem',color:'#c090ff',flexShrink:0,marginTop:'1px'}}>{n}</span>
+                  <span>{text}{link && <> → <a href={href} target="_blank" rel="noopener noreferrer" style={{color:'#c090ff'}}>{link}</a></>}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Key input */}
+            <div style={{display:'flex',gap:'8px',marginBottom:'10px'}}>
+              <input
+                type="password"
+                value={keyInput}
+                onChange={e=>setKeyInput(e.target.value)}
+                onKeyDown={e=>e.key==='Enter'&&connect()}
+                placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
+                style={{
+                  flex:1,padding:'10px 14px',borderRadius:'8px',
+                  background:'rgba(10,15,30,0.9)',
+                  border:`1px solid ${status==='error'?'rgba(255,100,100,0.5)':'rgba(160,100,255,0.3)'}`,
+                  color:'#e0d0ff',fontFamily:'Roboto Condensed',fontSize:'0.9rem',outline:'none',
+                }}
+              />
+              <button onClick={connect} disabled={!keyInput.trim()||status==='connecting'} className="haptic-btn"
+                style={{
+                  padding:'10px 20px',
+                  background: status==='connecting' ? 'rgba(100,60,180,0.4)' : 'linear-gradient(135deg,#4a20a0,#8040e0)',
+                  border:'2px solid #c090ff66',borderRadius:'8px',
+                  color:'#fff',fontFamily:'Orbitron',fontSize:'0.78rem',fontWeight:'700',
+                  cursor: !keyInput.trim()||status==='connecting' ? 'not-allowed' : 'pointer',
+                  whiteSpace:'nowrap',
+                  opacity: !keyInput.trim() ? 0.5 : 1,
+                  transition:'all 0.2s',
+                }}>
+                {status==='connecting' ? <span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span> : 'Connect'}
+              </button>
+            </div>
+
+            {status==='error' && (
+              <div style={{padding:'8px 12px',background:'rgba(255,60,60,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'7px',fontSize:'0.72rem',color:'#ff9090',fontFamily:'Roboto Condensed',lineHeight:1.4}}>
+                ⚠ {errorMsg}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Roster Banner ──
 function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchContracts, fetchingContracts, contractData }) {
   const isLive = rosterMeta && rosterMeta.source === 'live';
   const isHardcoded = rosterMeta && rosterMeta.source === 'hardcoded';
-  const rosterLoaded = isLive; // Core Data only unlocks after a real live fetch
+  const rosterLoaded = isLive;
   const contractLoaded = !!(contractData && contractData.playerCount > 0);
 
+  // AI slider state — reads from pnflAI on mount, refreshes on toggle
+  const [aiEnabled, setAiEnabled] = useState(() => !!(window.pnflAI?.isReady()));
+  const [showAIModal, setShowAIModal] = useState(false);
+
+  // Sync slider if key was restored from session on page load
+  React.useEffect(() => {
+    setAiEnabled(!!(window.pnflAI?.isReady()));
+  }, []);
+
+  const handleAIToggle = () => {
+    haptic('medium');
+    if (aiEnabled) {
+      // Disconnect
+      window.pnflAI._ready = false;
+      window.pnflAI._apiKey = '';
+      sessionStorage.removeItem('pnfl_hf_key');
+      sessionStorage.removeItem('pnfl_hf_ep');
+      setAiEnabled(false);
+    } else {
+      // Open modal to connect
+      setShowAIModal(true);
+    }
+  };
+
   return (
+    <>
+    {showAIModal && (
+      <AIConnectModal
+        onClose={() => setShowAIModal(false)}
+        onConnected={() => setAiEnabled(!!(window.pnflAI?.isReady()))}
+      />
+    )}
     <div style={{
       background:'linear-gradient(135deg, rgba(10,22,40,0.97) 0%, rgba(13,40,24,0.97) 100%)',
       border:`2px solid ${isLive ? '#ffd700' : isHardcoded ? '#4a9eff' : '#2d5a2d'}`,
@@ -3254,58 +3433,60 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
           }
         </button>
 
-        {/* Core Data — shown inline, dithered until live roster loaded */}
+        {/* Core Data */}
         <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:'3px'}}>
-          <button
-            className="haptic-btn"
-            disabled={!rosterLoaded || fetchingContracts}
+          <button className="haptic-btn" disabled={!rosterLoaded || fetchingContracts}
             onClick={()=>{haptic('medium');onFetchContracts();}}
-            title={!rosterLoaded ? 'Fetch live rosters first to enable contract data' : contractLoaded ? 'Reload contract data' : 'Load player contract data'}
+            title={!rosterLoaded ? 'Fetch live rosters first' : contractLoaded ? 'Reload contract data' : 'Load player contract data'}
             style={{
-              background: !rosterLoaded
-                ? 'rgba(30,40,50,0.4)'
-                : fetchingContracts
-                  ? 'rgba(26,58,108,0.5)'
-                  : contractLoaded
-                    ? 'linear-gradient(135deg,rgba(74,255,74,0.15),rgba(26,58,108,0.6))'
-                    : 'linear-gradient(135deg,#1a3a6c,#0d2450)',
-              border: !rosterLoaded
-                ? '2px solid #2a3a4a'
-                : contractLoaded
-                  ? '2px solid #4aff4a'
-                  : '2px solid #4a9eff',
-              borderRadius:'8px',
-              color: !rosterLoaded ? '#3a5060' : contractLoaded ? '#4aff4a' : '#7ec8ff',
-              fontFamily:'Orbitron', fontWeight:'700', fontSize:'0.82rem',
-              padding:'6px 18px',
-              cursor: !rosterLoaded ? 'not-allowed' : 'pointer',
-              textTransform:'uppercase', letterSpacing:'1px',
+              background: !rosterLoaded ? 'rgba(30,40,50,0.4)' : fetchingContracts ? 'rgba(26,58,108,0.5)' : contractLoaded ? 'linear-gradient(135deg,rgba(74,255,74,0.15),rgba(26,58,108,0.6))' : 'linear-gradient(135deg,#1a3a6c,#0d2450)',
+              border: !rosterLoaded ? '2px solid #2a3a4a' : contractLoaded ? '2px solid #4aff4a' : '2px solid #4a9eff',
+              borderRadius:'8px', color: !rosterLoaded ? '#3a5060' : contractLoaded ? '#4aff4a' : '#7ec8ff',
+              fontFamily:'Orbitron', fontWeight:'700', fontSize:'0.82rem', padding:'6px 18px',
+              cursor: !rosterLoaded ? 'not-allowed' : 'pointer', textTransform:'uppercase', letterSpacing:'1px',
               boxShadow: !rosterLoaded ? 'none' : contractLoaded ? '0 0 12px rgba(74,255,74,0.2)' : '0 0 12px rgba(74,158,255,0.25)',
               display:'flex', flexDirection:'column', alignItems:'center', gap:'1px',
               transition:'all 0.35s', opacity: !rosterLoaded ? 0.45 : 1,
               minWidth:'160px', whiteSpace:'nowrap',
             }}>
             <span style={{display:'flex',alignItems:'center',gap:'6px'}}>
-              {fetchingContracts
-                ? <><span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span><span>Loading...</span></>
-                : contractLoaded
-                  ? <><span>✅</span><span>Contracts Loaded</span></>
-                  : <><span>📄</span><span>Core Data</span></>
-              }
+              {fetchingContracts ? <><span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span><span>Loading...</span></> : contractLoaded ? <><span>✅</span><span>Contracts Loaded</span></> : <><span>📄</span><span>Core Data</span></>}
             </span>
-            {contractLoaded && (
-              <span style={{fontSize:'0.55rem',color:'#4a9a4a',fontFamily:'Roboto Condensed',fontWeight:'400',letterSpacing:'0.3px',textTransform:'none',lineHeight:1}}>
-                {contractData.playerCount} players · {new Date(contractData.fetchedAt).toLocaleDateString()}
-              </span>
-            )}
-            {!rosterLoaded && (
-              <span style={{fontSize:'0.55rem',color:'#3a5060',fontFamily:'Roboto Condensed',fontWeight:'400',letterSpacing:'0.3px',textTransform:'none',lineHeight:1}}>
-                Fetch rosters first
-              </span>
-            )}
+            {contractLoaded && <span style={{fontSize:'0.55rem',color:'#4a9a4a',fontFamily:'Roboto Condensed',fontWeight:'400',letterSpacing:'0.3px',textTransform:'none',lineHeight:1}}>{contractData.playerCount} players · {new Date(contractData.fetchedAt).toLocaleDateString()}</span>}
+            {!rosterLoaded && <span style={{fontSize:'0.55rem',color:'#3a5060',fontFamily:'Roboto Condensed',fontWeight:'400',letterSpacing:'0.3px',textTransform:'none',lineHeight:1}}>Fetch rosters first</span>}
           </button>
         </div>
 
+        {/* AI Enable Slider */}
+        <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:'4px'}}>
+          <div style={{fontSize:'0.58rem',color: aiEnabled ? '#c090ff' : '#4a5060',fontFamily:'Orbitron',letterSpacing:'1px',textTransform:'uppercase',textAlign:'center'}}>
+            AI Analyst
+          </div>
+          <div onClick={handleAIToggle} title={aiEnabled ? 'AI connected — click to disconnect' : 'Click to connect AI'}
+            style={{
+              width:'52px', height:'26px', borderRadius:'13px', cursor:'pointer',
+              background: aiEnabled
+                ? 'linear-gradient(135deg,#6020c0,#a050ff)'
+                : 'rgba(30,20,50,0.7)',
+              border: aiEnabled ? '2px solid #c090ff88' : '2px solid #3a2a5a',
+              position:'relative', transition:'all 0.3s',
+              boxShadow: aiEnabled ? '0 0 12px rgba(160,100,255,0.5)' : 'none',
+            }}>
+            <div style={{
+              position:'absolute', top:'2px',
+              left: aiEnabled ? '26px' : '2px',
+              width:'18px', height:'18px', borderRadius:'50%',
+              background: aiEnabled ? '#fff' : '#5a4a7a',
+              transition:'left 0.25s cubic-bezier(0.34,1.56,0.64,1)',
+              boxShadow: aiEnabled ? '0 1px 4px rgba(0,0,0,0.4)' : 'none',
+            }}/>
+          </div>
+          <div style={{fontSize:'0.55rem',color: aiEnabled ? '#4aff4a' : '#3a4050',fontFamily:'Roboto Condensed',textAlign:'center',letterSpacing:'0.3px'}}>
+            {aiEnabled ? '● Connected' : '○ Disabled'}
+          </div>
+        </div>
+
+        {/* Clear Cache */}
         <button onClick={onClearCache} title="Clear cached roster data and reset app state"
           style={{background:'linear-gradient(135deg,#5a1414,#3d0d0d)',border:'2px solid #ff6644',borderRadius:'8px',
             color:'#ffaa88',fontFamily:'Orbitron',fontWeight:'700',fontSize:'0.75rem',padding:'10px 14px',
@@ -3315,6 +3496,7 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
       </div>
       <style>{`@keyframes spin2{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
     </div>
+    </>
   );
 }
 
@@ -3934,26 +4116,8 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
   const [aiQuery, setAiQuery] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiModelState, setAiModelState] = useState(
-    () => window.pnflAI?.isReady() ? 'ready' : 'idle'
-  );
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [showKeyInput, setShowKeyInput] = useState(false);
-
-  const connectAI = async () => {
-    if (!window.pnflAI) { setAiModelState('error'); return; }
-    if (window.pnflAI.isReady()) { setAiModelState('ready'); return; }
-    const key = apiKeyInput.trim();
-    if (!key) { setShowKeyInput(true); return; }
-    setAiModelState('loading');
-    try {
-      await window.pnflAI.load(key);
-      setAiModelState('ready');
-      setShowKeyInput(false);
-    } catch(e) {
-      setAiModelState('error');
-    }
-  };
+  const [aiReady, setAiReady] = useState(() => !!(window.pnflAI?.isReady()));
+  const [showAIModal, setShowAIModal] = useState(false);
 
   const askAI = async () => {
     if (!aiQuery.trim() || !window.pnflAI?.isReady()) return;
@@ -4236,52 +4400,24 @@ Question: ${aiQuery}`;
           ) : null}
 
           {/* AI Assistant Panel */}
-          <div style={{marginBottom:'14px',borderRadius:'10px',overflow:'hidden',border:'1px solid rgba(160,100,255,0.25)'}}>
-            <div style={{padding:'8px 14px',background:'linear-gradient(90deg,rgba(40,20,60,0.95),rgba(10,22,40,0.95))',borderBottom:'1px solid rgba(160,100,255,0.2)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-              <span style={{fontFamily:'Orbitron',fontSize:'0.72rem',color:'#c090ff',letterSpacing:'1px',fontWeight:'700'}}>🤖 AI ANALYST — Qwen2.5</span>
-              <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
-                {aiModelState === 'ready' && <span style={{fontSize:'0.65rem',color:'#4aff4a',fontFamily:'Roboto Condensed'}}>✓ Connected</span>}
-                {aiModelState === 'loading' && <span style={{fontSize:'0.65rem',color:'#c090ff',fontFamily:'Roboto Condensed'}}>⟳ Connecting...</span>}
-                {aiModelState === 'error' && <span style={{fontSize:'0.62rem',color:'#ff6b6b',fontFamily:'Roboto Condensed',cursor:'pointer',maxWidth:'200px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={window.pnflAI?.getErrorDetail?.()} onClick={()=>{setAiModelState('idle');setShowKeyInput(true);}}>⚠ {window.pnflAI?.getError?.() || 'Error'} — retry</span>}
-                {aiModelState !== 'ready' && (
-                  <button onClick={()=>setShowKeyInput(v=>!v)} className="haptic-btn"
-                    style={{fontSize:'0.62rem',padding:'3px 8px',background:'rgba(160,100,255,0.15)',border:'1px solid #c090ff44',borderRadius:'5px',color:'#c090ff',cursor:'pointer',fontFamily:'Orbitron'}}>
-                    {showKeyInput ? '▲ Hide' : '🔑 Connect'}
+          {showAIModal && <AIConnectModal onClose={()=>setShowAIModal(false)} onConnected={()=>setAiReady(!!(window.pnflAI?.isReady()))}/>}
+          <div style={{marginBottom:'14px',borderRadius:'10px',overflow:'hidden',border:`1px solid ${aiReady?'rgba(160,100,255,0.35)':'rgba(80,50,120,0.2)'}`}}>
+            <div style={{padding:'8px 14px',background:'linear-gradient(90deg,rgba(40,20,60,0.95),rgba(10,22,40,0.95))',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <span style={{fontFamily:'Orbitron',fontSize:'0.72rem',color: aiReady ? '#c090ff' : '#604080',letterSpacing:'1px',fontWeight:'700'}}>🤖 AI ANALYST — Qwen2.5</span>
+              {aiReady
+                ? <span style={{fontSize:'0.65rem',color:'#4aff4a',fontFamily:'Roboto Condensed'}}>● Connected</span>
+                : <button onClick={()=>setShowAIModal(true)} className="haptic-btn"
+                    style={{fontSize:'0.62rem',padding:'3px 10px',background:'linear-gradient(135deg,rgba(100,40,180,0.3),rgba(160,80,255,0.2))',border:'1px solid #c090ff44',borderRadius:'5px',color:'#c090ff',cursor:'pointer',fontFamily:'Orbitron',letterSpacing:'0.5px'}}>
+                    🔑 Connect
                   </button>
-                )}
-              </div>
+              }
             </div>
             <div style={{padding:'10px 14px',background:'rgba(0,0,0,0.2)'}}>
-              {/* API key setup */}
-              {showKeyInput && aiModelState !== 'ready' && (
-                <div style={{marginBottom:'10px'}}>
-                  <div style={{fontSize:'0.72rem',color:'#806090',fontFamily:'Roboto Condensed',marginBottom:'6px'}}>
-                    Enter a free <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" style={{color:'#c090ff'}}>HuggingFace token</a> — must have <strong style={{color:'#d0a0ff'}}>"Make calls to Inference API"</strong> scope:
-                  </div>
-                  <div style={{display:'flex',gap:'6px'}}>
-                    <input type="password" value={apiKeyInput} onChange={e=>setApiKeyInput(e.target.value)}
-                      onKeyDown={e=>e.key==='Enter'&&connectAI()}
-                      placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
-                      style={{flex:1,padding:'6px 10px',borderRadius:'6px',background:'rgba(10,22,40,0.9)',border:'1px solid rgba(160,100,255,0.3)',color:'#d0c0ff',fontFamily:'Roboto Condensed',fontSize:'0.8rem',outline:'none'}}
-                    />
-                    <button onClick={connectAI} disabled={!apiKeyInput.trim()||aiModelState==='loading'} className="haptic-btn"
-                      style={{padding:'6px 12px',background:'rgba(160,100,255,0.2)',border:'1px solid #c090ff55',borderRadius:'6px',color:'#c090ff',cursor:'pointer',fontFamily:'Orbitron',fontSize:'0.65rem',whiteSpace:'nowrap',opacity:apiKeyInput.trim()?1:0.5}}>
-                      Connect
-                    </button>
-                  </div>
-                  <div style={{fontSize:'0.62rem',color:'#503060',fontFamily:'Roboto Condensed',marginTop:'4px'}}>
-                    Free tier: go to HF → Settings → Tokens → New Token → select "Read" type → enable "Make calls to Inference API" ✓
-                  </div>
-                </div>
-              )}
-              {/* Not connected yet */}
-              {aiModelState === 'idle' && !showKeyInput && (
+              {!aiReady ? (
                 <div style={{fontSize:'0.73rem',color:'#604080',fontFamily:'Roboto Condensed',fontStyle:'italic'}}>
-                  Connect a free HuggingFace token to ask AI questions about this player.
+                  Enable the AI Analyst in the header bar, or click Connect to add your HuggingFace token.
                 </div>
-              )}
-              {/* Connected — query input */}
-              {aiModelState === 'ready' && (
+              ) : (
                 <div>
                   <div style={{display:'flex',gap:'8px',marginBottom:'8px'}}>
                     <input type="text" value={aiQuery} onChange={e=>setAiQuery(e.target.value)}
@@ -4291,8 +4427,8 @@ Question: ${aiQuery}`;
                       style={{flex:1,padding:'7px 10px',borderRadius:'6px',background:'rgba(10,22,40,0.8)',border:'1px solid rgba(160,100,255,0.3)',color:'#d0c0ff',fontFamily:'Roboto Condensed',fontSize:'0.82rem',outline:'none'}}
                     />
                     <button onClick={askAI} disabled={!aiQuery.trim()||aiLoading} className="haptic-btn"
-                      style={{padding:'7px 14px',background:'rgba(160,100,255,0.2)',border:'1px solid #c090ff55',borderRadius:'6px',color:'#c090ff',cursor:'pointer',fontFamily:'Orbitron',fontSize:'0.68rem',whiteSpace:'nowrap',opacity:(!aiQuery.trim()||aiLoading)?0.5:1}}>
-                      {aiLoading ? '⟳' : 'Ask'}
+                      style={{padding:'7px 14px',background:'linear-gradient(135deg,rgba(100,40,180,0.4),rgba(160,80,255,0.3))',border:'1px solid #c090ff55',borderRadius:'6px',color:'#c090ff',cursor:'pointer',fontFamily:'Orbitron',fontSize:'0.68rem',whiteSpace:'nowrap',opacity:(!aiQuery.trim()||aiLoading)?0.5:1,transition:'opacity 0.2s'}}>
+                      {aiLoading ? <span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span> : 'Ask'}
                     </button>
                   </div>
                   {aiResponse && (
@@ -4316,6 +4452,7 @@ Question: ${aiQuery}`;
         </div>
       </div>
     </div>
+
 
   );
 }
