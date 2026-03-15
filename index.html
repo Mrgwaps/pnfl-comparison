@@ -16,155 +16,173 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
-// ── PNFL AI Analyst — HuggingFace Inference (Qwen2.5-1.5B-Instruct) ──
-// Uses HF's OpenAI-compatible router endpoint — works from browser, no WASM needed
+// ── PNFL AI Analyst — HuggingFace Serverless Inference (Qwen2.5-1.5B-Instruct) ──
+// Fine-grained token: needs "inference.serverless.write" scope at hf.co/settings/tokens
 window.pnflAI = {
-  _ready: false,
-  _loading: false,
-  _error: null,
-  _errorDetail: null,
-  _apiKey: '',
+  _ready: false, _loading: false, _error: null, _apiKey: '', _activeUrl: '', _chatMode: true,
 
-  isReady:       function() { return window.pnflAI._ready; },
-  isLoading:     function() { return window.pnflAI._loading; },
-  getError:      function() { return window.pnflAI._error; },
-  getErrorDetail:function() { return window.pnflAI._errorDetail; },
+  isReady:   function() { return window.pnflAI._ready; },
+  isLoading: function() { return window.pnflAI._loading; },
+  getError:  function() { return window.pnflAI._error; },
 
   load: async function(apiKey) {
     const ai = window.pnflAI;
     if (ai._loading) return;
     ai._loading = true;
     ai._error = null;
-    ai._errorDetail = null;
     ai._ready = false;
 
     const key = (apiKey || '').trim();
-    if (!key || !key.startsWith('hf_')) {
-      ai._error = 'Key must start with hf_  — get one free at huggingface.co/settings/tokens';
+    if (!key) {
+      ai._error = 'No API key provided';
       ai._loading = false;
       throw new Error(ai._error);
     }
 
-    // Try the modern OpenAI-compatible router endpoint
-    const ENDPOINTS = [
+    // All endpoints to try in order — stops at first success
+    const TESTS = [
       {
-        url: 'https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-1.5B-Instruct/v1/chat/completions',
-        type: 'openai',
-        label: 'HF Router (chat)'
+        label: 'HF Serverless Chat (Qwen2.5-1.5B)',
+        url:   'https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-1.5B-Instruct/v1/chat/completions',
+        chat:  true,
+        model: 'Qwen/Qwen2.5-1.5B-Instruct',
       },
       {
-        url: 'https://api-inference.huggingface.co/models/Qwen/Qwen2.5-1.5B-Instruct',
-        type: 'legacy',
-        label: 'HF Inference (legacy)'
+        label: 'HF Serverless Chat (Qwen2.5-0.5B fallback)',
+        url:   'https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-0.5B-Instruct/v1/chat/completions',
+        chat:  true,
+        model: 'Qwen/Qwen2.5-0.5B-Instruct',
+      },
+      {
+        label: 'HF Legacy Inference API',
+        url:   'https://api-inference.huggingface.co/models/Qwen/Qwen2.5-1.5B-Instruct',
+        chat:  false,
+        model: 'Qwen/Qwen2.5-1.5B-Instruct',
       },
     ];
 
-    let lastErr = null;
-    for (const ep of ENDPOINTS) {
+    for (const t of TESTS) {
+      let status = null, body = '(no response)';
       try {
-        const body = ep.type === 'openai'
-          ? JSON.stringify({ model: 'Qwen/Qwen2.5-1.5B-Instruct', messages: [{ role: 'user', content: 'Reply with the single word: ready' }], max_tokens: 5, stream: false })
-          : JSON.stringify({ inputs: 'Reply with the single word: ready', parameters: { max_new_tokens: 5 } });
+        const payload = t.chat
+          ? { model: t.model, messages: [{ role: 'user', content: 'Say: ok' }], max_tokens: 5 }
+          : { inputs: 'Say: ok', parameters: { max_new_tokens: 5 } };
 
-        const res = await fetch(ep.url, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
-          body,
+        const res = await fetch(t.url, {
+          method:  'POST',
+          headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+          body:    JSON.stringify(payload),
         });
+        status = res.status;
+        body   = await res.text();
+        console.log('[PNFL AI]', t.label, '->', status, body.slice(0, 200));
 
-        const txt = await res.text();
-        console.log(`[PNFL AI] ${ep.label} → ${res.status}:`, txt.slice(0, 200));
-
-        if (res.status === 401) {
-          throw new Error('Invalid token (401) — make sure the token has "Read" or "Inference" scope at huggingface.co/settings/tokens');
-        }
-        if (res.status === 403) {
-          throw new Error('Token lacks inference permission (403) — create a token with "Make calls to serverless Inference API" enabled');
-        }
-        // 200, 503 (model loading), 429 (rate limit) all mean key is valid
-        if (res.status === 200 || res.status === 503 || res.status === 429) {
-          ai._apiKey = key;
-          ai._ready = true;
-          ai._activeEndpoint = ep;
-          sessionStorage.setItem('pnfl_hf_key', key);
-          sessionStorage.setItem('pnfl_hf_ep', JSON.stringify(ep));
+        if (status === 200 || status === 503) {
+          // 200 = working, 503 = model loading (key is valid, will work for actual calls)
+          ai._apiKey     = key;
+          ai._ready      = true;
+          ai._activeUrl  = t.url;
+          ai._chatMode   = t.chat;
+          ai._activeModel = t.model;
+          sessionStorage.setItem('pnfl_ai_key',   key);
+          sessionStorage.setItem('pnfl_ai_url',   t.url);
+          sessionStorage.setItem('pnfl_ai_chat',  String(t.chat));
+          sessionStorage.setItem('pnfl_ai_model', t.model);
           ai._loading = false;
           return;
         }
-        lastErr = new Error(`${ep.label}: HTTP ${res.status} — ${txt.slice(0, 150)}`);
-      } catch(e) {
-        if (e.message.includes('401') || e.message.includes('403') || e.message.includes('Invalid token') || e.message.includes('lacks')) {
-          // Auth errors — no point trying next endpoint
-          ai._error = e.message;
-          ai._errorDetail = e.message;
-          ai._loading = false;
-          throw e;
+
+        // For any error status, parse HF error body for a human-readable message
+        let hfMsg = '';
+        try {
+          const j = JSON.parse(body);
+          hfMsg = j?.error?.message || j?.error || j?.message || '';
+          if (typeof hfMsg !== 'string') hfMsg = JSON.stringify(hfMsg);
+        } catch { hfMsg = body.slice(0, 200); }
+
+        if (status === 401) {
+          ai._error = 'Invalid token (401). Double-check the key was copied correctly.';
+          ai._loading = false; throw new Error(ai._error);
         }
-        lastErr = e;
-        console.warn(`[PNFL AI] ${ep.label} failed:`, e.message);
+        if (status === 403) {
+          ai._error = 'Permission denied (403). Your fine-grained token needs the "inference.serverless.write" scope. At huggingface.co/settings/tokens: Edit your token → Permissions → check "Make calls to the serverless Inference API".' + (hfMsg ? ' HF says: ' + hfMsg : '');
+          ai._loading = false; throw new Error(ai._error);
+        }
+        if (status === 422) {
+          // Wrong format for this endpoint — try next
+          console.warn('[PNFL AI] 422 on', t.label, '— trying next endpoint');
+          continue;
+        }
+        if (status === 404) {
+          console.warn('[PNFL AI] 404 on', t.label, '— trying next endpoint');
+          continue;
+        }
+        // Any other error — record and try next
+        console.warn('[PNFL AI]', t.label, 'returned', status, ':', hfMsg || body.slice(0,100));
+
+      } catch(e) {
+        // Re-throw auth errors immediately
+        if (ai._error) { ai._loading = false; throw e; }
+        // Network/CORS errors — show clearly
+        console.warn('[PNFL AI]', t.label, 'threw:', e.message);
+        if (e.message && (e.message.includes('Failed to fetch') || e.message.includes('NetworkError') || e.message.includes('CORS'))) {
+          ai._error = 'Network error reaching HuggingFace. Check your internet connection. (' + e.message + ')';
+          ai._loading = false; throw new Error(ai._error);
+        }
       }
     }
 
-    ai._error = lastErr ? lastErr.message : 'All endpoints failed';
-    ai._errorDetail = ai._error;
+    ai._error = 'All HF endpoints failed. Open browser DevTools → Console and look for [PNFL AI] lines to see the exact error from HuggingFace.';
     ai._loading = false;
     throw new Error(ai._error);
   },
 
   ask: async function(systemPrompt, userMessage, maxTokens) {
     const ai = window.pnflAI;
-    if (!ai._apiKey) throw new Error('Not connected');
-    const ep = ai._activeEndpoint || {
-      url: 'https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-1.5B-Instruct/v1/chat/completions',
-      type: 'openai'
-    };
+    if (!ai._ready || !ai._apiKey) throw new Error('Not connected');
 
-    const body = ep.type === 'openai'
-      ? JSON.stringify({
-          model: 'Qwen/Qwen2.5-1.5B-Instruct',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user',   content: userMessage  },
-          ],
-          max_tokens: maxTokens || 220,
-          temperature: 0.4,
-          stream: false,
-        })
-      : JSON.stringify({
-          inputs: `<|im_start|>system\n${systemPrompt}<|im_end|>\n<|im_start|>user\n${userMessage}<|im_end|>\n<|im_start|>assistant\n`,
-          parameters: { max_new_tokens: maxTokens || 220, temperature: 0.4, return_full_text: false },
-        });
+    const payload = ai._chatMode
+      ? { model: ai._activeModel, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }], max_tokens: maxTokens || 250, temperature: 0.4 }
+      : { inputs: '<|im_start|>system
+' + systemPrompt + '<|im_end|>
+<|im_start|>user
+' + userMessage + '<|im_end|>
+<|im_start|>assistant
+', parameters: { max_new_tokens: maxTokens || 250, temperature: 0.4, return_full_text: false } };
 
-    const res = await fetch(ep.url, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${ai._apiKey}`, 'Content-Type': 'application/json' },
-      body,
+    const res = await fetch(ai._activeUrl, {
+      method:  'POST',
+      headers: { 'Authorization': 'Bearer ' + ai._apiKey, 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
     });
 
+    if (res.status === 503) return '⏳ Model is warming up — wait 20 seconds and try again.';
+    if (res.status === 429) return '⏳ Rate limit — wait a moment and try again.';
     const txt = await res.text();
-    if (res.status === 503) return '⏳ Model warming up on HF servers — wait 15s and try again.';
-    if (res.status === 429) return '⏳ Rate limit hit — wait a moment and try again.';
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${txt.slice(0, 150)}`);
+    if (!res.ok) throw new Error('HF API error ' + res.status + ': ' + txt.slice(0, 150));
 
     try {
-      const data = JSON.parse(txt);
-      // OpenAI format
-      if (data.choices?.[0]?.message?.content) return data.choices[0].message.content.trim();
-      // Legacy format
-      if (Array.isArray(data) && data[0]?.generated_text) return data[0].generated_text.trim();
-      if (data.generated_text) return String(data.generated_text).trim();
-      return JSON.stringify(data).slice(0, 300);
+      const d = JSON.parse(txt);
+      if (d.choices?.[0]?.message?.content) return d.choices[0].message.content.trim();
+      if (Array.isArray(d) && d[0]?.generated_text) return d[0].generated_text.trim();
+      if (d.generated_text) return String(d.generated_text).trim();
+      return JSON.stringify(d).slice(0, 300);
     } catch { return txt.slice(0, 500); }
   },
 
   restore: function() {
     try {
-      const key = sessionStorage.getItem('pnfl_hf_key');
-      const ep  = sessionStorage.getItem('pnfl_hf_ep');
+      const key   = sessionStorage.getItem('pnfl_ai_key');
+      const url   = sessionStorage.getItem('pnfl_ai_url');
+      const chat  = sessionStorage.getItem('pnfl_ai_chat');
+      const model = sessionStorage.getItem('pnfl_ai_model');
       if (key && key.startsWith('hf_')) {
-        window.pnflAI._apiKey = key;
-        window.pnflAI._ready  = true;
-        if (ep) window.pnflAI._activeEndpoint = JSON.parse(ep);
+        Object.assign(window.pnflAI, {
+          _apiKey: key, _ready: true,
+          _activeUrl: url || 'https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-1.5B-Instruct/v1/chat/completions',
+          _chatMode: chat !== 'false',
+          _activeModel: model || 'Qwen/Qwen2.5-1.5B-Instruct',
+        });
         return true;
       }
     } catch {}
@@ -3281,14 +3299,14 @@ function AIConnectModal({ onClose, onConnected }) {
             {/* Steps */}
             <div style={{display:'flex',flexDirection:'column',gap:'6px',marginBottom:'18px',padding:'12px 14px',background:'rgba(0,0,0,0.25)',borderRadius:'8px',border:'1px solid rgba(160,100,255,0.1)'}}>
               {[
-                ['1', 'Go to', 'huggingface.co/settings/tokens', 'https://huggingface.co/settings/tokens'],
-                ['2', 'Click New Token → Type: Read', null, null],
-                ['3', 'Enable "Make calls to Inference API" ✓', null, null],
+                ['1', 'Go to ', 'huggingface.co/settings/tokens', 'https://huggingface.co/settings/tokens'],
+                ['2', 'Click "Create new token" → Token type: Fine-grained', null, null],
+                ['3', 'Under Permissions → check "Make calls to the serverless Inference API"', null, null],
                 ['4', 'Copy the hf_... token and paste below', null, null],
               ].map(([n, text, link, href]) => (
                 <div key={n} style={{display:'flex',alignItems:'flex-start',gap:'10px',fontSize:'0.72rem',color:'#806090',fontFamily:'Roboto Condensed'}}>
                   <span style={{background:'rgba(160,100,255,0.2)',borderRadius:'50%',width:'18px',height:'18px',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Orbitron',fontSize:'0.6rem',color:'#c090ff',flexShrink:0,marginTop:'1px'}}>{n}</span>
-                  <span>{text}{link && <> → <a href={href} target="_blank" rel="noopener noreferrer" style={{color:'#c090ff'}}>{link}</a></>}</span>
+                  <span>{text}{link && <a href={href} target="_blank" rel="noopener noreferrer" style={{color:'#c090ff'}}>{link}</a>}</span>
                 </div>
               ))}
             </div>
@@ -3324,7 +3342,7 @@ function AIConnectModal({ onClose, onConnected }) {
             </div>
 
             {status==='error' && (
-              <div style={{padding:'8px 12px',background:'rgba(255,60,60,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'7px',fontSize:'0.72rem',color:'#ff9090',fontFamily:'Roboto Condensed',lineHeight:1.4}}>
+              <div style={{padding:'8px 12px',background:'rgba(255,60,60,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'7px',fontSize:'0.7rem',color:'#ff9090',fontFamily:'Roboto Condensed',lineHeight:1.5,maxHeight:'100px',overflowY:'auto',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
                 ⚠ {errorMsg}
               </div>
             )}
