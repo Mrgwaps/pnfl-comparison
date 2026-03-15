@@ -397,7 +397,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v4.1...</div>
+  <div class="pl-sub">Loading v4.2...</div>
 </div>
 <div id="root"></div>
 <script type="text/babel">
@@ -452,7 +452,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '4.1';
+const APP_VERSION = '4.2';
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
 
@@ -2597,86 +2597,187 @@ function saveContractCache(c){ storage.set('pnfl_contracts', c); }
 // ── Contract Data Parser (SheetJS) ──
 // Parses PNFL Contracts.xlsx and returns a map keyed by player name
 function parseContractXLSX(arrayBuffer) {
-  const wb = XLSX.read(arrayBuffer, { type: 'array' });
-  const contracts = {}; // keyed by normalized player name
+  // Read workbook — handles .xlsx and .xls formats
+  const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true, raw: false });
+  const contracts = {};
+  let totalPlayers = 0;
+
+  const TEAM_NAME_MAP = {
+    'JAX':'Jacksonville','BUF':'Buffalo','NE':'New England','MIA':'Miami',
+    'DEN':'Denver','LVR':'Las Vegas','LV':'Las Vegas','CIN':'Cincinnati',
+    'LAC':'Los Angeles','LAR':'Los Angeles','PIT':'Pittsburgh','ATL':'Atlanta',
+    'WSH':'Washington','NYG':'New York','PHI':'Philadelphia','SF':'San Francisco',
+    'ARI':'Chicago','MIN':'Minnesota','SEA':'Seattle','GB':'Green Bay',
+    'Green Bay':'Green Bay','Packers':'Green Bay','Washington':'Washington',
+    'Jacksonville':'Jacksonville','Buffalo':'Buffalo','New England':'New England',
+    'Miami':'Miami','Denver':'Denver','Las Vegas':'Las Vegas',
+    'Cincinnati':'Cincinnati','Los Angeles':'Los Angeles','Pittsburgh':'Pittsburgh',
+    'Atlanta':'Atlanta','Philadelphia':'Philadelphia','San Francisco':'San Francisco',
+    'Chicago':'Chicago','Minnesota':'Minnesota','Seattle':'Seattle',
+  };
 
   wb.SheetNames.forEach(sheetName => {
     const ws = wb.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-    if (!rows.length) return;
+    if (!ws) return;
 
-    rows.forEach(row => {
-      // Normalize column names (handle varied casing/spacing)
-      const r = {};
-      Object.entries(row).forEach(([k,v]) => { r[k.trim().toLowerCase().replace(/\s+/g,'_')] = v; });
+    // Get raw row arrays to inspect structure
+    const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    if (!rawRows || rawRows.length < 3) return;
 
-      // Try to find player name field
-      const name = (r.player_name || r.player || r.name || r.full_name || '').toString().trim();
-      if (!name) return;
+    // Find header row — look for row containing PID or First+Last columns
+    let headerRowIdx = -1;
+    for (let i = 0; i < Math.min(5, rawRows.length); i++) {
+      const row = rawRows[i].map(c => String(c).trim().toLowerCase());
+      if (row.includes('pid') || (row.includes('first') && row.includes('last')) || row.includes('draft slot')) {
+        headerRowIdx = i;
+        break;
+      }
+    }
+    if (headerRowIdx === -1) return;
+
+    const headers = rawRows[headerRowIdx].map(c => String(c).trim());
+
+    // Map column indices from actual PNFL Contracts.xlsx structure:
+    // PID | Draft Slot | First | Last | Team | Pos | Year | 2045 | 2046 | 2047...
+    const col = {};
+    const contractYearCols = [];
+    headers.forEach((h, i) => {
+      const lh = h.toLowerCase().replace(/\s+/g,'');
+      if (lh === 'pid') col.pid = i;
+      else if (lh === 'draftslot' || lh === 'draft') col.draftSlot = i;
+      else if (lh === 'first' || lh === 'firstname') col.first = i;
+      else if (lh === 'last' || lh === 'lastname') col.last = i;
+      else if (lh === 'team') col.team = i;
+      else if (lh === 'pos' || lh === 'position') col.pos = i;
+      else if (lh === 'year' || lh === 'years' || lh === 'yr') col.year = i;
+      // Contract year columns: 4-digit years like 2045, 2046...
+      else if (/^20\d{2}$/.test(h.trim())) {
+        contractYearCols.push({ year: parseInt(h.trim()), idx: i });
+      }
+    });
+
+    const mappedTeam = TEAM_NAME_MAP[sheetName.trim()] || sheetName.trim();
+
+    // Process data rows (skip header row and any summary/total rows)
+    for (let ri = headerRowIdx + 1; ri < rawRows.length; ri++) {
+      const row = rawRows[ri];
+      if (!row || row.length < 3) continue;
+
+      const firstName = col.first !== undefined ? String(row[col.first] || '').trim() : '';
+      const lastName  = col.last  !== undefined ? String(row[col.last]  || '').trim() : '';
+      if (!firstName && !lastName) continue;
+      const fullName = [firstName, lastName].filter(Boolean).join(' ');
+      if (!fullName || fullName.length < 2) continue;
+
+      const pid       = col.pid       !== undefined ? String(row[col.pid]       || '').trim() : '';
+      const draftSlot = col.draftSlot !== undefined ? String(row[col.draftSlot] || '').trim() : '';
+      const teamRaw   = col.team      !== undefined ? String(row[col.team]      || '').trim() : '';
+      const pos       = col.pos       !== undefined ? String(row[col.pos]       || '').trim().toUpperCase() : '';
+      const yearsLeft = col.year      !== undefined ? String(row[col.year]      || '').trim() : '';
+
+      // Parse draft slot format: "GB 1-2" = Green Bay round 1 pick 2, or "48-GB-3-9" style
+      let draftRound = '', draftPick = '', draftTeam = '';
+      const dsMatch1 = draftSlot.match(/^([A-Z]+)\s*(\d+)-(\d+)$/i);
+      const dsMatch2 = draftSlot.match(/^(\d+)-([A-Z]+)-(\d+)-(\d+)$/i);
+      if (dsMatch2) {
+        draftTeam = dsMatch2[2].toUpperCase();
+        draftRound = dsMatch2[3];
+        draftPick = dsMatch2[4];
+      } else if (dsMatch1) {
+        draftTeam = dsMatch1[1].toUpperCase();
+        draftRound = dsMatch1[2];
+        draftPick = dsMatch1[3];
+      } else if (draftSlot === 'X' || draftSlot === '') {
+        draftRound = 'UDFA';
+      }
+
+      // Which years is player under contract (X = yes in that year column)
+      const contractedYears = contractYearCols
+        .filter(({idx}) => {
+          const v = String(row[idx] || '').trim().toUpperCase();
+          return v === 'X' || v === '1' || v === 'TRUE';
+        })
+        .map(({year}) => year);
+
+      const contractStart = contractedYears.length ? Math.min(...contractedYears) : null;
+      const contractEnd   = contractedYears.length ? Math.max(...contractedYears) : null;
+      const contractLen   = contractedYears.length;
+
+      const resolvedTeam = TEAM_NAME_MAP[teamRaw] || TEAM_NAME_MAP[mappedTeam] || mappedTeam;
 
       const contract = {
-        playerName:    name,
-        team:          (r.team || r.team_name || sheetName || '').toString().trim(),
-        position:      (r.position || r.pos || '').toString().trim().toUpperCase(),
-        playerId:      (r.player_id || r.id || r.pid || '').toString().trim(),
-        draftSlot:     (r.draft_slot || r.draft || r.pick || '').toString().trim(),
-        draftRound:    (r.draft_round || r.round || '').toString().trim(),
-        draftYear:     (r.draft_year || r.year_drafted || '').toString().trim(),
-        salary:        r.salary || r.cap_hit || r.annual_salary || '',
-        salaryTotal:   r.total_value || r.total || r.contract_value || '',
-        yearsLeft:     r.years_remaining || r.years_left || r.yrs_left || '',
-        contractYears: r.contract_years || r.years || r.contract_length || '',
-        contractEnd:   r.contract_end || r.expiry || r.expires || '',
-        bonus:         r.bonus || r.signing_bonus || '',
-        age:           r.age || '',
-        college:       r.college || r.school || '',
-        experience:    r.exp || r.experience || r.years_exp || '',
-        injuryStatus:  r.injury || r.injury_status || '',
-        notes:         r.notes || r.note || '',
+        playerName:       fullName,
+        firstName,
+        lastName,
+        team:             resolvedTeam,
+        position:         pos,
+        playerId:         pid,
+        draftSlot,
+        draftRound,
+        draftPick,
+        draftTeam,
+        yearsLeft:        yearsLeft || String(contractLen),
+        contractLength:   contractLen,
+        contractStart,
+        contractEnd,
+        contractYearList: contractedYears,
         sheetName,
       };
 
-      // Store by normalized name for fuzzy lookup
-      const key = name.toLowerCase().replace(/[^a-z0-9]/g,'');
-      contracts[key] = contract;
+      // Primary index: normalized full name
+      const key = fullName.toLowerCase().replace(/[^a-z0-9]/g,'');
+      if (key.length > 1) {
+        contracts[key] = contract;
+        totalPlayers++;
+      }
 
-      // Also store by last name for fallback lookup
-      const parts = name.split(/\s+/);
-      const lastName = parts[parts.length - 1].toLowerCase().replace(/[^a-z]/g,'');
-      if (!contracts[`_last_${lastName}`]) contracts[`_last_${lastName}`] = [];
-      contracts[`_last_${lastName}`].push(contract);
-    });
+      // Last-name fallback index
+      const lnKey = '_last_' + lastName.toLowerCase().replace(/[^a-z]/g,'');
+      if (!contracts[lnKey]) contracts[lnKey] = [];
+      contracts[lnKey].push(contract);
+
+      // PID direct index
+      if (pid) contracts['_pid_' + pid] = contract;
+    }
   });
 
   return {
     contracts,
     teamCount: wb.SheetNames.length,
-    playerCount: Object.keys(contracts).filter(k => !k.startsWith('_last_')).length,
+    playerCount: totalPlayers,
     fetchedAt: new Date().toISOString(),
     sheets: wb.SheetNames,
   };
 }
 
-// Lookup a contract by player name (fuzzy)
-function lookupContract(contractData, playerName) {
-  if (!contractData || !contractData.contracts || !playerName) return null;
+// Lookup a contract by player name or PID (fuzzy)
+function lookupContract(contractData, playerName, pid) {
+  if (!contractData || !contractData.contracts) return null;
   const c = contractData.contracts;
-  // Exact normalized match
+
+  // Direct PID lookup
+  if (pid && c['_pid_' + pid]) return c['_pid_' + pid];
+
+  if (!playerName) return null;
+
+  // Exact normalized full name
   const key = playerName.toLowerCase().replace(/[^a-z0-9]/g,'');
   if (c[key]) return c[key];
-  // Partial match — try last name
-  const parts = playerName.split(/\s+/);
-  const lastName = parts[parts.length-1].toLowerCase().replace(/[^a-z]/g,'');
-  const lastMatches = c[`_last_${lastName}`];
-  if (lastMatches && lastMatches.length === 1) return lastMatches[0];
-  if (lastMatches && lastMatches.length > 1) {
-    // Try first initial match
-    const firstInitial = (parts[0] || '').toLowerCase()[0];
-    const m = lastMatches.find(x => x.playerName.toLowerCase().startsWith(firstInitial));
+
+  // Last name fallback
+  const parts = playerName.trim().split(/\s+/);
+  const lastName = (parts[parts.length-1] || '').toLowerCase().replace(/[^a-z]/g,'');
+  const lastMatches = c['_last_' + lastName];
+  if (!lastMatches || !lastMatches.length) return null;
+  if (lastMatches.length === 1) return lastMatches[0];
+
+  // Multiple last-name matches — try first initial
+  const firstInitial = (parts[0] || '').toLowerCase()[0];
+  if (firstInitial) {
+    const m = lastMatches.find(x => x.firstName && x.firstName.toLowerCase().startsWith(firstInitial));
     if (m) return m;
-    return lastMatches[0];
   }
-  return null;
+  return lastMatches[0];
 }
 
 // Format a salary value for display
@@ -3567,8 +3668,8 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
 
   const barColor = pctOfMax >= 90 ? '#4aff4a' : pctOfMax >= 75 ? '#ffd700' : pctOfMax >= 55 ? '#4a9eff' : '#ff6b6b';
 
-  // Contract data lookup
-  const contract = lookupContract(contractData, player.name);
+  // Contract data lookup — try by name and player num as PID
+  const contract = lookupContract(contractData, player.name, player.num);
   const hasContract = !!contract;
 
   return (
@@ -3752,18 +3853,25 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
               <div style={{padding:'12px 14px',background:'rgba(0,0,0,0.2)'}}>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:'8px'}}>
                   {[
-                    contract.salary         && { label:'Annual Salary',    val: fmtSalary(contract.salary) || String(contract.salary),    color:'#4aff4a' },
-                    contract.salaryTotal    && { label:'Contract Value',   val: fmtSalary(contract.salaryTotal) || String(contract.salaryTotal), color:'#ffd700' },
-                    contract.contractYears  && { label:'Contract Length',  val: `${contract.contractYears} yr${contract.contractYears==1?'':'s'}`, color:'#7ec8ff' },
-                    contract.yearsLeft      && { label:'Years Remaining',  val: `${contract.yearsLeft} yr${contract.yearsLeft==1?'':'s'}`, color:'#7ec8ff' },
-                    contract.contractEnd    && { label:'Expires',          val: String(contract.contractEnd),  color:'#a0a0b0' },
-                    contract.bonus          && { label:'Signing Bonus',    val: fmtSalary(contract.bonus) || String(contract.bonus),     color:'#ff9944' },
-                    contract.draftSlot      && { label:'Draft Slot',       val: contract.draftRound ? `Rd ${contract.draftRound}, Pick ${contract.draftSlot}` : `Pick ${contract.draftSlot}`, color:'#c0a0ff' },
-                    contract.draftYear      && { label:'Draft Year',       val: String(contract.draftYear),    color:'#c0a0ff' },
-                    contract.age            && { label:'Age',              val: String(contract.age),          color:'#a0d2a0' },
-                    contract.experience     && { label:'Experience',       val: `${contract.experience} yr${contract.experience==1?'':'s'}`, color:'#a0d2a0' },
-                    contract.college        && { label:'College',          val: String(contract.college),      color:'#a0b8a0' },
-                    contract.injuryStatus   && { label:'Injury',           val: String(contract.injuryStatus), color:'#ff6b6b' },
+                    contract.playerId       && { label:'Player ID',        val: contract.playerId,       color:'#a0c0ff' },
+                    contract.position       && { label:'Position',         val: contract.position,       color:'#ffd700' },
+                    contract.contractLength && { label:'Contract Length',  val: `${contract.contractLength} yr${contract.contractLength==1?'':'s'}`, color:'#7ec8ff' },
+                    contract.yearsLeft      && contract.yearsLeft !== '0' && { label:'Years Remaining', val: `${contract.yearsLeft} yr${contract.yearsLeft==1?'':'s'}`, color:'#7ec8ff' },
+                    contract.contractStart  && { label:'Contract Start',   val: String(contract.contractStart), color:'#a0d2a0' },
+                    contract.contractEnd    && { label:'Contract Expires', val: String(contract.contractEnd),   color:'#ff9944' },
+                    (contract.draftSlot && contract.draftSlot !== 'X') && {
+                      label:'Draft Slot',
+                      val: contract.draftRound && contract.draftRound !== 'UDFA'
+                        ? `${contract.draftTeam ? contract.draftTeam+' ' : ''}Rd ${contract.draftRound} · Pk ${contract.draftPick}`
+                        : contract.draftSlot,
+                      color:'#c0a0ff'
+                    },
+                    contract.draftRound === 'UDFA' && { label:'Draft Status', val: 'Undrafted FA', color:'#808090' },
+                    contract.contractYearList && contract.contractYearList.length > 0 && {
+                      label:'Active Years',
+                      val: contract.contractYearList.join(', '),
+                      color:'#5a9a7a'
+                    },
                   ].filter(Boolean).map(({label,val,color})=>(
                     <div key={label} style={{padding:'7px 10px',background:'rgba(0,0,0,0.25)',borderRadius:'6px',border:`1px solid ${color}22`}}>
                       <div style={{fontSize:'0.58rem',color:'#5a7a5a',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'2px'}}>{label}</div>
