@@ -16,35 +16,52 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
-// ── Qwen2.5-1.5B-Instruct AI — initialized as stub, loaded on demand ──
-// Uses dynamic ES module import so it doesn't block page load
+// ── PNFL AI Analyst — Hugging Face Inference API ──
+// Uses HF serverless inference (free tier) — no WASM, no SharedArrayBuffer needed
+// Model: Qwen/Qwen2.5-1.5B-Instruct via HF API
 window.pnflAI = {
-  _pipe: null,
-  _loading: false,
   _ready: false,
+  _loading: false,
   _error: null,
+  _apiKey: '',   // Set by user in the UI — stored in sessionStorage
+
   isReady:   function() { return window.pnflAI._ready; },
   isLoading: function() { return window.pnflAI._loading; },
   getError:  function() { return window.pnflAI._error; },
 
-  load: async function(onProgress) {
+  // "Load" just validates the API key works
+  load: async function(apiKey, onProgress) {
     const ai = window.pnflAI;
-    if (ai._ready || ai._loading) return;
+    if (ai._loading) return;
     ai._loading = true;
     ai._error = null;
+    ai._ready = false;
+    if (onProgress) onProgress({ status: 'Validating API key...' });
     try {
-      // Dynamic import of Transformers.js
-      const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3');
-      env.allowLocalModels = false;
-      env.useBrowserCache = true;
-      ai._pipe = await pipeline('text-generation', 'Qwen/Qwen2.5-1.5B-Instruct', {
-        dtype: 'q4',
-        progress_callback: (p) => { if (onProgress && p?.progress) onProgress(p); }
+      const key = (apiKey || '').trim();
+      if (!key) throw new Error('No API key provided');
+      // Quick test call
+      const res = await fetch('https://api-inference.huggingface.co/models/Qwen/Qwen2.5-1.5B-Instruct', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inputs: 'Hi', parameters: { max_new_tokens: 5 } })
       });
-      ai._ready = true;
+      if (res.status === 401) throw new Error('Invalid API key — get a free key at huggingface.co/settings/tokens');
+      if (res.status === 503) {
+        // Model loading on HF side — this is OK, means key is valid
+        ai._apiKey = key;
+        ai._ready = true;
+        sessionStorage.setItem('pnfl_hf_key', key);
+      } else if (res.ok || res.status === 200) {
+        ai._apiKey = key;
+        ai._ready = true;
+        sessionStorage.setItem('pnfl_hf_key', key);
+      } else {
+        const txt = await res.text();
+        throw new Error(`API error ${res.status}: ${txt.slice(0,120)}`);
+      }
     } catch(e) {
       ai._error = e.message || String(e);
-      console.error('Qwen load error:', e);
       throw e;
     } finally {
       ai._loading = false;
@@ -53,21 +70,36 @@ window.pnflAI = {
 
   ask: async function(systemPrompt, userMessage, maxTokens) {
     const ai = window.pnflAI;
-    if (!ai._ready || !ai._pipe) throw new Error('Model not loaded');
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user',   content: userMessage  },
-    ];
-    const out = await ai._pipe(messages, {
-      max_new_tokens: maxTokens || 200,
-      temperature: 0.3,
-      do_sample: false,
+    if (!ai._apiKey) throw new Error('No API key set');
+    const prompt = `<|im_start|>system\n${systemPrompt}<|im_end|>\n<|im_start|>user\n${userMessage}<|im_end|>\n<|im_start|>assistant\n`;
+    const res = await fetch('https://api-inference.huggingface.co/models/Qwen/Qwen2.5-1.5B-Instruct', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${ai._apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        inputs: prompt,
+        parameters: { max_new_tokens: maxTokens || 200, temperature: 0.4, return_full_text: false }
+      })
     });
-    const content = out?.[0]?.generated_text;
-    if (Array.isArray(content)) return content[content.length - 1]?.content || '';
-    return String(content || '');
+    if (!res.ok) {
+      const txt = await res.text();
+      if (res.status === 503) return '⏳ Model is warming up on HF servers (cold start). Try again in 10-20 seconds.';
+      throw new Error(`API ${res.status}: ${txt.slice(0,120)}`);
+    }
+    const data = await res.json();
+    if (Array.isArray(data) && data[0]?.generated_text) return data[0].generated_text.trim();
+    if (data?.generated_text) return data.generated_text.trim();
+    return JSON.stringify(data).slice(0,300);
+  },
+
+  // Restore key from session if available
+  restore: function() {
+    const saved = sessionStorage.getItem('pnfl_hf_key');
+    if (saved) { window.pnflAI._apiKey = saved; window.pnflAI._ready = true; return true; }
+    return false;
   }
 };
+// Auto-restore key on page load
+window.pnflAI.restore();
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
 <style>
@@ -479,7 +511,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v4.5...</div>
+  <div class="pl-sub">Loading v4.6...</div>
 </div>
 <div id="root"></div>
 <script type="text/babel">
@@ -559,7 +591,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '4.5';
+const APP_VERSION = '4.6';
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
 
@@ -2744,21 +2776,79 @@ function parseContractXLSX(arrayBuffer) {
   let totalPlayers = 0;
 
   // ONLY process the 18 known PNFL team sheet abbreviations — ignore all other tabs
+  // Exhaustive map of every possible tab abbreviation for all 18 PNFL teams
+  // Covers official NFL abbrevs, common variants, and full names
   const TEAM_SHEET_MAP = {
-    'JAX':'Jacksonville','BUF':'Buffalo','NE':'New England','MIA':'Miami',
-    'DEN':'Denver','LVR':'Las Vegas','LV':'Las Vegas','CIN':'Cincinnati',
-    'LAC':'Los Angeles','PIT':'Pittsburgh','ATL':'Atlanta',
-    'WSH':'Washington','NYG':'New York','PHI':'Philadelphia','SF':'San Francisco',
-    'ARI':'Chicago','MIN':'Minnesota','SEA':'Seattle','GB':'Green Bay',
+    // Jacksonville
+    'JAX':'Jacksonville','JACK':'Jacksonville',
+    // Buffalo
+    'BUF':'Buffalo','BUFF':'Buffalo',
+    // New England
+    'NE':'New England','NEP':'New England','NWE':'New England',
+    // Miami
+    'MIA':'Miami','MIA ':'Miami',
+    // Denver
+    'DEN':'Denver',
+    // Las Vegas
+    'LVR':'Las Vegas','LV':'Las Vegas','LAS':'Las Vegas','OAK':'Las Vegas','LVG':'Las Vegas',
+    // Cincinnati
+    'CIN':'Cincinnati','CINC':'Cincinnati',
+    // Los Angeles (Rams/Chargers — PNFL uses one LA team)
+    'LAC':'Los Angeles','LAR':'Los Angeles','LA':'Los Angeles','LAL':'Los Angeles','LOS':'Los Angeles',
+    // Pittsburgh
+    'PIT':'Pittsburgh','PITT':'Pittsburgh',
+    // Atlanta
+    'ATL':'Atlanta',
+    // Washington
+    'WSH':'Washington','WAS':'Washington','WASH':'Washington','DC':'Washington',
+    // New York
+    'NYG':'New York','NYJ':'New York','NY':'New York','NYG ':'New York',
+    // Philadelphia
+    'PHI':'Philadelphia','PHIL':'Philadelphia',
+    // San Francisco
+    'SF':'San Francisco','SFO':'San Francisco','SF ':'San Francisco',
+    // Chicago (uses Arizona Cardinals logo in PNFL)
+    'ARI':'Chicago','CHI':'Chicago','CHIC':'Chicago','ARZ':'Chicago',
+    // Minnesota
+    'MIN':'Minnesota','MINN':'Minnesota',
+    // Seattle
+    'SEA':'Seattle',
+    // Green Bay
+    'GB':'Green Bay','GNB':'Green Bay','GRN':'Green Bay',
   };
 
-  // Filter to only process known team sheets
-  const teamSheets = wb.SheetNames.filter(name => TEAM_SHEET_MAP[name.trim()] !== undefined);
+  // Also match by full team name in case some tabs use full names
+  const FULL_NAME_MAP = {
+    'Jacksonville':'Jacksonville','Buffalo':'Buffalo','New England':'New England',
+    'Miami':'Miami','Denver':'Denver','Las Vegas':'Las Vegas','Cincinnati':'Cincinnati',
+    'Los Angeles':'Los Angeles','Pittsburgh':'Pittsburgh','Atlanta':'Atlanta',
+    'Washington':'Washington','New York':'New York','Philadelphia':'Philadelphia',
+    'San Francisco':'San Francisco','Chicago':'Chicago','Minnesota':'Minnesota',
+    'Seattle':'Seattle','Green Bay':'Green Bay',
+  };
+
+  const resolveSheetTeam = (name) => {
+    const trimmed = name.trim();
+    // Exact abbrev match
+    if (TEAM_SHEET_MAP[trimmed]) return TEAM_SHEET_MAP[trimmed];
+    // Uppercase match
+    if (TEAM_SHEET_MAP[trimmed.toUpperCase()]) return TEAM_SHEET_MAP[trimmed.toUpperCase()];
+    // Full name match
+    if (FULL_NAME_MAP[trimmed]) return FULL_NAME_MAP[trimmed];
+    return null;
+  };
+
+  // Log all sheet names for debugging (visible in browser console)
+  console.log('[PNFL Contracts] All sheets:', wb.SheetNames.join(', '));
+
+  // Filter to only the 18 known PNFL teams
+  const teamSheets = wb.SheetNames.filter(name => resolveSheetTeam(name) !== null);
+  console.log('[PNFL Contracts] Team sheets found:', teamSheets.join(', '));
 
   teamSheets.forEach(sheetName => {
     const ws = wb.Sheets[sheetName];
     if (!ws) return;
-    const teamName = TEAM_SHEET_MAP[sheetName.trim()];
+    const teamName = resolveSheetTeam(sheetName);
 
     // Get raw rows — the file has row 1 as merged nav headers, row 2 as real column headers
     // Row 2: PID | Draft Slot | First | Last | Team | Pos | Year | 2045 | 2046 | 2047...
@@ -3772,20 +3862,22 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
   const [aiQuery, setAiQuery] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiModelState, setAiModelState] = useState('idle'); // idle | loading | ready | error
-  const [aiLoadProgress, setAiLoadProgress] = useState(0);
+  const [aiModelState, setAiModelState] = useState(
+    () => window.pnflAI?.isReady() ? 'ready' : 'idle'
+  );
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [showKeyInput, setShowKeyInput] = useState(false);
 
-  const loadAI = async () => {
+  const connectAI = async () => {
     if (!window.pnflAI) { setAiModelState('error'); return; }
     if (window.pnflAI.isReady()) { setAiModelState('ready'); return; }
-    if (window.pnflAI.isLoading()) return;
+    const key = apiKeyInput.trim();
+    if (!key) { setShowKeyInput(true); return; }
     setAiModelState('loading');
-    setAiLoadProgress(0);
     try {
-      await window.pnflAI.load((p) => {
-        if (p?.progress != null) setAiLoadProgress(Math.round(p.progress));
-      });
+      await window.pnflAI.load(key);
       setAiModelState('ready');
+      setShowKeyInput(false);
     } catch(e) {
       setAiModelState('error');
     }
@@ -4075,69 +4167,70 @@ Question: ${aiQuery}`;
           <div style={{marginBottom:'14px',borderRadius:'10px',overflow:'hidden',border:'1px solid rgba(160,100,255,0.25)'}}>
             <div style={{padding:'8px 14px',background:'linear-gradient(90deg,rgba(40,20,60,0.95),rgba(10,22,40,0.95))',borderBottom:'1px solid rgba(160,100,255,0.2)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
               <span style={{fontFamily:'Orbitron',fontSize:'0.72rem',color:'#c090ff',letterSpacing:'1px',fontWeight:'700'}}>🤖 AI ANALYST — Qwen2.5</span>
-              {aiModelState === 'idle' && (
-                <button onClick={loadAI} className="haptic-btn" style={{fontSize:'0.65rem',padding:'4px 10px',background:'rgba(160,100,255,0.15)',border:'1px solid #c090ff44',borderRadius:'6px',color:'#c090ff',cursor:'pointer',fontFamily:'Orbitron',letterSpacing:'0.5px'}}>
-                  Load Model
-                </button>
-              )}
-              {aiModelState === 'loading' && (
-                <span style={{fontSize:'0.65rem',color:'#c090ff',fontFamily:'Roboto Condensed'}}>Loading... {aiLoadProgress}%</span>
-              )}
-              {aiModelState === 'ready' && (
-                <span style={{fontSize:'0.65rem',color:'#4aff4a',fontFamily:'Roboto Condensed'}}>✓ Ready</span>
-              )}
-              {aiModelState === 'error' && (
-                <span style={{fontSize:'0.65rem',color:'#ff6b6b',fontFamily:'Roboto Condensed',cursor:'pointer'}} onClick={()=>setAiModelState('idle')}>⚠ Error — click to retry</span>
-              )}
+              <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                {aiModelState === 'ready' && <span style={{fontSize:'0.65rem',color:'#4aff4a',fontFamily:'Roboto Condensed'}}>✓ Connected</span>}
+                {aiModelState === 'loading' && <span style={{fontSize:'0.65rem',color:'#c090ff',fontFamily:'Roboto Condensed'}}>⟳ Connecting...</span>}
+                {aiModelState === 'error' && <span style={{fontSize:'0.65rem',color:'#ff6b6b',fontFamily:'Roboto Condensed',cursor:'pointer'}} onClick={()=>{setAiModelState('idle');setShowKeyInput(true);}}>⚠ Error — retry</span>}
+                {aiModelState !== 'ready' && (
+                  <button onClick={()=>setShowKeyInput(v=>!v)} className="haptic-btn"
+                    style={{fontSize:'0.62rem',padding:'3px 8px',background:'rgba(160,100,255,0.15)',border:'1px solid #c090ff44',borderRadius:'5px',color:'#c090ff',cursor:'pointer',fontFamily:'Orbitron'}}>
+                    {showKeyInput ? '▲ Hide' : '🔑 Connect'}
+                  </button>
+                )}
+              </div>
             </div>
             <div style={{padding:'10px 14px',background:'rgba(0,0,0,0.2)'}}>
-              {aiModelState === 'idle' && (
-                <div style={{fontSize:'0.75rem',color:'#604080',fontFamily:'Roboto Condensed',fontStyle:'italic'}}>
-                  Load the Qwen2.5-1.5B AI model (~800MB) to ask questions about this player.
-                  First load takes 1-2 minutes, then runs instantly offline.
+              {/* API key setup */}
+              {showKeyInput && aiModelState !== 'ready' && (
+                <div style={{marginBottom:'10px'}}>
+                  <div style={{fontSize:'0.72rem',color:'#806090',fontFamily:'Roboto Condensed',marginBottom:'6px'}}>
+                    Enter your free <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer" style={{color:'#c090ff'}}>HuggingFace token</a> (hf_...) to enable AI analysis:
+                  </div>
+                  <div style={{display:'flex',gap:'6px'}}>
+                    <input type="password" value={apiKeyInput} onChange={e=>setApiKeyInput(e.target.value)}
+                      onKeyDown={e=>e.key==='Enter'&&connectAI()}
+                      placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
+                      style={{flex:1,padding:'6px 10px',borderRadius:'6px',background:'rgba(10,22,40,0.9)',border:'1px solid rgba(160,100,255,0.3)',color:'#d0c0ff',fontFamily:'Roboto Condensed',fontSize:'0.8rem',outline:'none'}}
+                    />
+                    <button onClick={connectAI} disabled={!apiKeyInput.trim()||aiModelState==='loading'} className="haptic-btn"
+                      style={{padding:'6px 12px',background:'rgba(160,100,255,0.2)',border:'1px solid #c090ff55',borderRadius:'6px',color:'#c090ff',cursor:'pointer',fontFamily:'Orbitron',fontSize:'0.65rem',whiteSpace:'nowrap',opacity:apiKeyInput.trim()?1:0.5}}>
+                      Connect
+                    </button>
+                  </div>
+                  <div style={{fontSize:'0.62rem',color:'#503060',fontFamily:'Roboto Condensed',marginTop:'4px'}}>
+                    Free at huggingface.co — key is stored in session only, never sent anywhere except HF API
+                  </div>
                 </div>
               )}
-              {aiModelState === 'loading' && (
-                <div>
-                  <div style={{background:'rgba(255,255,255,0.05)',borderRadius:'6px',height:'6px',overflow:'hidden',marginBottom:'8px'}}>
-                    <div style={{height:'100%',width:`${aiLoadProgress}%`,background:'linear-gradient(90deg,#6040a0,#c090ff)',transition:'width 0.3s'}}/>
-                  </div>
-                  <div style={{fontSize:'0.72rem',color:'#806090',fontFamily:'Roboto Condensed',fontStyle:'italic'}}>
-                    Downloading model weights — cached after first load...
-                  </div>
+              {/* Not connected yet */}
+              {aiModelState === 'idle' && !showKeyInput && (
+                <div style={{fontSize:'0.73rem',color:'#604080',fontFamily:'Roboto Condensed',fontStyle:'italic'}}>
+                  Connect a free HuggingFace token to ask AI questions about this player.
                 </div>
               )}
-              {(aiModelState === 'ready' || aiModelState === 'error') && (
+              {/* Connected — query input */}
+              {aiModelState === 'ready' && (
                 <div>
                   <div style={{display:'flex',gap:'8px',marginBottom:'8px'}}>
-                    <input
-                      type="text"
-                      value={aiQuery}
-                      onChange={e=>setAiQuery(e.target.value)}
-                      onKeyDown={e=>e.key==='Enter'&&askAI()}
+                    <input type="text" value={aiQuery} onChange={e=>setAiQuery(e.target.value)}
+                      onKeyDown={e=>e.key==='Enter'&&!aiLoading&&askAI()}
                       placeholder="Ask about this player..."
-                      disabled={aiModelState !== 'ready' || aiLoading}
-                      style={{
-                        flex:1,padding:'7px 10px',borderRadius:'6px',
-                        background:'rgba(10,22,40,0.8)',border:'1px solid rgba(160,100,255,0.3)',
-                        color:'#d0c0ff',fontFamily:'Roboto Condensed',fontSize:'0.82rem',outline:'none',
-                      }}
+                      disabled={aiLoading}
+                      style={{flex:1,padding:'7px 10px',borderRadius:'6px',background:'rgba(10,22,40,0.8)',border:'1px solid rgba(160,100,255,0.3)',color:'#d0c0ff',fontFamily:'Roboto Condensed',fontSize:'0.82rem',outline:'none'}}
                     />
-                    <button onClick={askAI} disabled={!aiQuery.trim()||aiLoading||aiModelState!=='ready'} className="haptic-btn"
-                      style={{padding:'7px 14px',background:'rgba(160,100,255,0.2)',border:'1px solid #c090ff55',borderRadius:'6px',
-                        color:'#c090ff',cursor:'pointer',fontFamily:'Orbitron',fontSize:'0.68rem',whiteSpace:'nowrap',
-                        opacity:(!aiQuery.trim()||aiLoading)?0.5:1}}>
-                      {aiLoading ? '...' : 'Ask'}
+                    <button onClick={askAI} disabled={!aiQuery.trim()||aiLoading} className="haptic-btn"
+                      style={{padding:'7px 14px',background:'rgba(160,100,255,0.2)',border:'1px solid #c090ff55',borderRadius:'6px',color:'#c090ff',cursor:'pointer',fontFamily:'Orbitron',fontSize:'0.68rem',whiteSpace:'nowrap',opacity:(!aiQuery.trim()||aiLoading)?0.5:1}}>
+                      {aiLoading ? '⟳' : 'Ask'}
                     </button>
                   </div>
                   {aiResponse && (
-                    <div style={{padding:'8px 10px',background:'rgba(40,20,60,0.4)',borderRadius:'6px',border:'1px solid rgba(160,100,255,0.15)',fontSize:'0.8rem',color:'#c0b0e0',fontFamily:'Roboto Condensed',lineHeight:1.5}}>
+                    <div style={{padding:'8px 10px',background:'rgba(40,20,60,0.4)',borderRadius:'6px',border:'1px solid rgba(160,100,255,0.15)',fontSize:'0.8rem',color:'#c0b0e0',fontFamily:'Roboto Condensed',lineHeight:1.5,whiteSpace:'pre-wrap'}}>
                       {aiResponse}
                     </div>
                   )}
                   {!aiResponse && !aiLoading && (
                     <div style={{fontSize:'0.68rem',color:'#503060',fontFamily:'Roboto Condensed',fontStyle:'italic'}}>
-                      Try: "How developed is this player?" · "Is this a good contract value?" · "What position aspects are strongest?"
+                      Try: "How developed is this player?" · "Best position aspects?" · "Contract value?"
                     </div>
                   )}
                 </div>
@@ -4151,6 +4244,7 @@ Question: ${aiQuery}`;
         </div>
       </div>
     </div>
+
   );
 }
 
