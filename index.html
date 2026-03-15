@@ -396,7 +396,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v3.7...</div>
+  <div class="pl-sub">Loading v3.8...</div>
 </div>
 <div id="root"></div>
 <script type="text/babel">
@@ -443,7 +443,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '3.7';
+const APP_VERSION = '3.8';
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
 
@@ -586,7 +586,6 @@ function parsePNFLRosterText(rawText) {
   // Identify team sections
   // Pattern: "### Team Roster: TeamName" or "Team Roster: TeamName"
   let currentTeam = null;
-  let skipNextRow = false; // skip the projected-stats duplicate line
 
   // Map from page team name to our internal name
   const teamNameMap = {
@@ -602,7 +601,8 @@ function parsePNFLRosterText(rawText) {
   // Valid position codes from the page
   const VALID_POS = new Set(['QB','HB','FB','TE','WR','C','G','T','K','P','DE','DT','LB','CB','S','FB']);
 
-  let lastPlayerKey = null; // to detect duplicate projected row
+  let lastPlayer = null; // reference to last pushed player to attach pattrs
+  let captureNext = false; // capture next indented row as pattrs
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -616,7 +616,7 @@ function parsePNFLRosterText(rawText) {
       if (currentTeam && !result.teams[currentTeam]) {
         result.teams[currentTeam] = {};
       }
-      lastPlayerKey = null;
+      lastPlayer = null;
       continue;
     }
 
@@ -631,8 +631,8 @@ function parsePNFLRosterText(rawText) {
     const playerMatch = line.match(/^\s*(A|O|I|IR)\s+(QB\d*|HB\d*|FB\d*|TE\d*|WR\d*|C\d*|G\d*|T\d*|K\d*|P\d*|DE\d*|DT\d*|LB\d*|CB\d*|S\d*)\s+(\d+)\s+(.+?)\s{2,}(OK|P-\d+|Q-\d+|S-\d+)\s+(\d+|R)\s+[\d-]+\s+\d+\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/);
     
     if (playerMatch) {
-      const status = playerMatch[1]; // A, O, I, IR
-      const posRaw = playerMatch[2]; // QB1, HB2, DE3 etc
+      const status = playerMatch[1];
+      const posRaw = playerMatch[2];
       const num = playerMatch[3];
       const name = playerMatch[4].trim().replace(/\s+/g, ' ');
       const attrs = [
@@ -642,23 +642,31 @@ function parsePNFLRosterText(rawText) {
         parseInt(playerMatch[13]),parseInt(playerMatch[14])
       ];
 
-      // Extract base position (strip trailing digits)
       const pos = posRaw.replace(/\d+$/, '');
-      
       if (!VALID_POS.has(pos)) continue;
       if (!result.teams[currentTeam][pos]) result.teams[currentTeam][pos] = [];
 
-      result.teams[currentTeam][pos].push({ name, num: parseInt(num), status, attrs });
-      lastPlayerKey = `${pos}_${name}`;
-      skipNextRow = true; // next indented row is projected stats — skip it
+      const playerObj = { name, num: parseInt(num), status, attrs, pattrs: null };
+      result.teams[currentTeam][pos].push(playerObj);
+      lastPlayer = playerObj;
+      captureNext = true; // next indented line = potential attrs
       continue;
     }
 
-    // Skip the projected row (second line per player, just 8 numbers indented)
-    if (skipNextRow) {
+    // Capture the projected/potential row (second line per player — just 8 indented numbers)
+    if (captureNext) {
       const projMatch = line.match(/^\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/);
-      if (projMatch) { skipNextRow = false; continue; }
-      skipNextRow = false;
+      if (projMatch && lastPlayer) {
+        lastPlayer.pattrs = [
+          parseInt(projMatch[1]), parseInt(projMatch[2]),
+          parseInt(projMatch[3]), parseInt(projMatch[4]),
+          parseInt(projMatch[5]), parseInt(projMatch[6]),
+          parseInt(projMatch[7]), parseInt(projMatch[8])
+        ];
+      }
+      captureNext = false;
+      lastPlayer = null;
+      continue;
     }
   }
 
@@ -3274,9 +3282,18 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, onClos
   if (!player || !position) return null;
   const aMax = POS_ACTUAL_MAX[position] || POS_ACTUAL_MAX.LB;
   const pMax = POS_POTENTIAL_MAX[position] || POS_POTENTIAL_MAX.LB;
+  // Player's own potential attrs (from roster fetch), or fall back to position max if not available
+  const pattrs = (player.pattrs && player.pattrs.length === 8) ? player.pattrs : pMax;
+  const hasPattrs = !!(player.pattrs && player.pattrs.length === 8);
+
   const actualTotal = player.attrs.reduce((s,v)=>s+v,0);
+  const playerPotentialTotal = pattrs.reduce((s,v)=>s+v,0);
   const potentialTotal = pMax.reduce((s,v)=>s+v,0);
-  const pctOfMax = Math.round((actualTotal / potentialTotal) * 100);
+  // % of player's own potential (not position max)
+  const pctOfPlayerPotential = Math.round((actualTotal / playerPotentialTotal) * 100);
+  // Count how many attrs are at or above the player's potential ceiling
+  const maxedCount = player.attrs.filter((v,i) => v >= pattrs[i]).length;
+  const pctOfMax = pctOfPlayerPotential;
 
   // League ranking: compare player's score vs all same-position players across all teams
   const weights = loadWeights();
@@ -3344,8 +3361,13 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, onClos
         {/* Attribute table */}
         <div style={{padding:'16px 24px'}}>
           <div style={{marginBottom:'8px',fontSize:'0.72rem',color:'#608060',fontFamily:'Orbitron',letterSpacing:'1.5px',textTransform:'uppercase'}}>Attribute Breakdown</div>
+          {!hasPattrs && (
+            <div style={{marginBottom:'8px',padding:'6px 10px',background:'rgba(255,153,68,0.08)',border:'1px solid rgba(255,153,68,0.2)',borderRadius:'6px',fontSize:'0.72rem',color:'#ff9944',fontFamily:'Roboto Condensed'}}>
+              ⚠️ Player potential data requires a live roster fetch — showing position max as potential reference.
+            </div>
+          )}
           {/* Header row */}
-          <div style={{display:'grid',gridTemplateColumns:'100px repeat(8,1fr)',gap:'4px',marginBottom:'6px'}}>
+          <div style={{display:'grid',gridTemplateColumns:'104px repeat(8,1fr)',gap:'4px',marginBottom:'6px'}}>
             <div/>
             {ATTRIBUTES.map(attr=>(
               <div key={attr} style={{
@@ -3355,53 +3377,85 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, onClos
               }}>{attr}</div>
             ))}
           </div>
-          {/* Player actual attrs */}
-          <div style={{display:'grid',gridTemplateColumns:'100px repeat(8,1fr)',gap:'4px',marginBottom:'4px'}}>
+
+          {/* Row 1: Player Actuals */}
+          <div style={{display:'grid',gridTemplateColumns:'104px repeat(8,1fr)',gap:'4px',marginBottom:'4px'}}>
             <div style={{fontSize:'0.62rem',color:'#a0d2a0',fontFamily:'Roboto Condensed',display:'flex',alignItems:'center',fontWeight:'700'}}>Actuals</div>
             {player.attrs.map((v,i)=>{
-              const isAtOrAbovePMax = v >= pMax[i];
+              const isMaxed = v >= pattrs[i];
               return (
                 <div key={i} style={{
                   textAlign:'center',padding:'5px 0',borderRadius:'6px',
-                  background: isAtOrAbovePMax ? 'rgba(74,255,74,0.15)' : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${isAtOrAbovePMax ? '#4aff4a44' : 'rgba(255,255,255,0.08)'}`,
+                  background: isMaxed ? 'rgba(74,255,74,0.15)' : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${isMaxed ? '#4aff4a44' : 'rgba(255,255,255,0.08)'}`,
                   fontSize:'0.88rem',fontWeight:'700',
-                  color: isAtOrAbovePMax ? '#4aff4a' : '#d0d8d0',
+                  color: isMaxed ? '#4aff4a' : '#d0d8d0',
+                  fontFamily:'Orbitron',
+                  position:'relative'
+                }}>
+                  {v}
+                  {isMaxed && <span style={{position:'absolute',top:'-4px',right:'1px',fontSize:'0.45rem',color:'#4aff4a'}}>MAX</span>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Row 2: Player Potentials */}
+          <div style={{display:'grid',gridTemplateColumns:'104px repeat(8,1fr)',gap:'4px',marginBottom:'4px'}}>
+            <div style={{fontSize:'0.62rem',color:'#7ec8ff',fontFamily:'Roboto Condensed',display:'flex',alignItems:'center',fontWeight:'700'}}>
+              {hasPattrs ? 'Potentials' : 'Pos. Potential'}
+            </div>
+            {pattrs.map((v,i)=>{
+              const isPosCeiling = v >= pMax[i];
+              return (
+                <div key={i} style={{
+                  textAlign:'center',padding:'4px 0',borderRadius:'6px',
+                  background: isPosCeiling ? 'rgba(74,158,255,0.15)' : 'rgba(74,158,255,0.06)',
+                  border: `1px solid ${isPosCeiling ? '#4a9eff55' : 'rgba(74,158,255,0.18)'}`,
+                  fontSize:'0.82rem',fontWeight:'700',
+                  color: isPosCeiling ? '#7ec8ff' : '#5a8ab8',
                   fontFamily:'Orbitron'
                 }}>{v}</div>
               );
             })}
           </div>
-          {/* Max potential row */}
-          <div style={{display:'grid',gridTemplateColumns:'100px repeat(8,1fr)',gap:'4px',marginBottom:'12px'}}>
-            <div style={{fontSize:'0.62rem',color:'#ff9944',fontFamily:'Roboto Condensed',display:'flex',alignItems:'center',fontWeight:'700'}}>Max Potential</div>
-            {pMax.map((v,i)=>(
-              <div key={i} style={{textAlign:'center',padding:'4px 0',borderRadius:'6px',background:'rgba(255,153,68,0.07)',border:'1px solid rgba(255,153,68,0.18)',fontSize:'0.82rem',fontWeight:'700',color:'#ffb870',fontFamily:'Orbitron'}}>{v}</div>
-            ))}
-          </div>
+
+          {/* Row 3: Position Max Potential (only show if we have real pattrs) */}
+          {hasPattrs && (
+            <div style={{display:'grid',gridTemplateColumns:'104px repeat(8,1fr)',gap:'4px',marginBottom:'12px'}}>
+              <div style={{fontSize:'0.62rem',color:'#ff9944',fontFamily:'Roboto Condensed',display:'flex',alignItems:'center',fontWeight:'700'}}>Pos. Max</div>
+              {pMax.map((v,i)=>(
+                <div key={i} style={{textAlign:'center',padding:'3px 0',borderRadius:'6px',background:'rgba(255,153,68,0.07)',border:'1px solid rgba(255,153,68,0.18)',fontSize:'0.75rem',fontWeight:'700',color:'#ff9944',fontFamily:'Orbitron'}}>{v}</div>
+              ))}
+            </div>
+          )}
+          {!hasPattrs && <div style={{marginBottom:'12px'}}/>}
 
           {/* Score summary cards */}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:'10px',marginBottom:'14px'}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px',marginBottom:'14px'}}>
             {[
-              { label:'Actual Total', val:actualTotal, sub:`Out of potential max ${potentialTotal}`, color:'#a0d2a0' },
-              { label:'Potential Total', val:potentialTotal, sub:'Max possible at this position', color:'#ff9944' },
+              { label:'Actual Total',    val:actualTotal,          sub:'Current combined', color:'#a0d2a0' },
+              { label:'Player Potential',val:playerPotentialTotal, sub: hasPattrs ? 'Player ceiling total' : 'Pos. max total', color:'#7ec8ff' },
+              { label:'Maxed Attrs',     val:`${maxedCount}/8`,    sub:'At potential ceiling', color: maxedCount===8?'#4aff4a':maxedCount>=5?'#ffd700':'#ff9944' },
             ].map(({label,val,sub,color})=>(
-              <div key={label} style={{padding:'12px',background:'rgba(0,0,0,0.3)',borderRadius:'8px',border:`1px solid ${color}33`,textAlign:'center'}}>
-                <div style={{fontSize:'0.65rem',color:'#608060',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'4px',textTransform:'uppercase'}}>{label}</div>
-                <div style={{fontSize:'1.6rem',fontWeight:'900',color,fontFamily:'Orbitron'}}>{val}</div>
-                <div style={{fontSize:'0.68rem',color:'#506050',fontFamily:'Roboto Condensed',marginTop:'3px'}}>{sub}</div>
+              <div key={label} style={{padding:'10px 8px',background:'rgba(0,0,0,0.3)',borderRadius:'8px',border:`1px solid ${color}33`,textAlign:'center'}}>
+                <div style={{fontSize:'0.58rem',color:'#608060',fontFamily:'Orbitron',letterSpacing:'0.5px',marginBottom:'4px',textTransform:'uppercase'}}>{label}</div>
+                <div style={{fontSize:'1.4rem',fontWeight:'900',color,fontFamily:'Orbitron'}}>{val}</div>
+                <div style={{fontSize:'0.65rem',color:'#506050',fontFamily:'Roboto Condensed',marginTop:'2px'}}>{sub}</div>
               </div>
             ))}
           </div>
 
-          {/* % of max potential bar */}
+          {/* % of player's own potential bar */}
           <div style={{marginBottom:'14px'}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:'5px'}}>
-              <span style={{fontSize:'0.72rem',color:'#608060',fontFamily:'Orbitron',letterSpacing:'1px',textTransform:'uppercase'}}>Potential Maximized</span>
+              <span style={{fontSize:'0.72rem',color:'#608060',fontFamily:'Orbitron',letterSpacing:'1px',textTransform:'uppercase'}}>
+                {hasPattrs ? 'Player Potential Reached' : 'Potential Reached (Pos. Max)'}
+              </span>
               <span style={{fontSize:'0.9rem',fontWeight:'900',color:barColor,fontFamily:'Orbitron'}}>{pctOfMax}%</span>
             </div>
             <div style={{background:'rgba(255,255,255,0.06)',borderRadius:'8px',height:'10px',overflow:'hidden'}}>
-              <div style={{height:'100%',width:`${pctOfMax}%`,background:`linear-gradient(90deg,${barColor}99,${barColor})`,borderRadius:'8px',transition:'width 0.6s ease'}}/>
+              <div style={{height:'100%',width:`${Math.min(100,pctOfMax)}%`,background:`linear-gradient(90deg,${barColor}99,${barColor})`,borderRadius:'8px',transition:'width 0.6s ease'}}/>
             </div>
           </div>
 
@@ -3426,7 +3480,7 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, onClos
           </div>
 
           <div style={{marginTop:'8px',fontSize:'0.65rem',color:'#3a5a3a',fontFamily:'Roboto Condensed',textAlign:'center'}}>
-            🟢 Attribute at max potential &nbsp;|&nbsp; Click outside to close
+            🟢 Actual at player potential ceiling &nbsp;|&nbsp; 🔵 Player potential at position max &nbsp;|&nbsp; Click outside to close
           </div>
         </div>
       </div>
