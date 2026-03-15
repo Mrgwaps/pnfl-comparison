@@ -15,57 +15,58 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script type="module">
-// ── Transformers.js — Qwen2.5-1.5B-Instruct AI assistant ──
-// Loaded as ES module, exposes window.pnflAI for the React app to call
-import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
-env.allowLocalModels = false;
-env.useBrowserCache = true; // cache model weights in browser after first load
-
-let _pipe = null;
-let _loading = false;
-let _ready = false;
-
+<script>
+// ── Qwen2.5-1.5B-Instruct AI — initialized as stub, loaded on demand ──
+// Uses dynamic ES module import so it doesn't block page load
 window.pnflAI = {
-  isReady: () => _ready,
-  isLoading: () => _loading,
+  _pipe: null,
+  _loading: false,
+  _ready: false,
+  _error: null,
+  isReady:   function() { return window.pnflAI._ready; },
+  isLoading: function() { return window.pnflAI._loading; },
+  getError:  function() { return window.pnflAI._error; },
 
-  // Load the model — call once, subsequent calls are no-ops
-  load: async (onProgress) => {
-    if (_ready || _loading) return;
-    _loading = true;
+  load: async function(onProgress) {
+    const ai = window.pnflAI;
+    if (ai._ready || ai._loading) return;
+    ai._loading = true;
+    ai._error = null;
     try {
-      _pipe = await pipeline(
-        'text-generation',
-        'Qwen/Qwen2.5-1.5B-Instruct',
-        {
-          dtype: 'q4',  // 4-bit quantized — runs in ~600MB RAM
-          progress_callback: onProgress || null,
-        }
-      );
-      _ready = true;
+      // Dynamic import of Transformers.js
+      const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3');
+      env.allowLocalModels = false;
+      env.useBrowserCache = true;
+      ai._pipe = await pipeline('text-generation', 'Qwen/Qwen2.5-1.5B-Instruct', {
+        dtype: 'q4',
+        progress_callback: (p) => { if (onProgress && p?.progress) onProgress(p); }
+      });
+      ai._ready = true;
     } catch(e) {
+      ai._error = e.message || String(e);
       console.error('Qwen load error:', e);
       throw e;
     } finally {
-      _loading = false;
+      ai._loading = false;
     }
   },
 
-  // Ask the model a question about a player given context
-  ask: async (systemPrompt, userMessage, maxTokens = 200) => {
-    if (!_ready || !_pipe) throw new Error('Model not loaded');
+  ask: async function(systemPrompt, userMessage, maxTokens) {
+    const ai = window.pnflAI;
+    if (!ai._ready || !ai._pipe) throw new Error('Model not loaded');
     const messages = [
       { role: 'system', content: systemPrompt },
       { role: 'user',   content: userMessage  },
     ];
-    const out = await _pipe(messages, {
-      max_new_tokens: maxTokens,
+    const out = await ai._pipe(messages, {
+      max_new_tokens: maxTokens || 200,
       temperature: 0.3,
       do_sample: false,
     });
-    return out[0]?.generated_text?.slice(-1)[0]?.content || '';
-  },
+    const content = out?.[0]?.generated_text;
+    if (Array.isArray(content)) return content[content.length - 1]?.content || '';
+    return String(content || '');
+  }
 };
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
@@ -450,7 +451,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v4.3...</div>
+  <div class="pl-sub">Loading v4.4...</div>
 </div>
 <div id="root"></div>
 <script type="text/babel">
@@ -465,19 +466,44 @@ const haptic = (style = 'light') => {
   }
 };
 
-// ── Persistent storage (localStorage, synchronous, survives page close) ──
+// ── Persistent storage (localStorage with error handling) ──
 const storage = {
   get: (key) => {
-    try { const v = localStorage.getItem('pnfl_' + key); return v ? JSON.parse(v) : null; }
-    catch { return null; }
+    try {
+      const v = localStorage.getItem('pnfl_' + key);
+      return v ? JSON.parse(v) : null;
+    } catch { return null; }
   },
   set: (key, val) => {
-    try { localStorage.setItem('pnfl_' + key, JSON.stringify(val)); } catch {}
+    try {
+      const str = JSON.stringify(val);
+      localStorage.setItem('pnfl_' + key, str);
+      return true;
+    } catch(e) {
+      // localStorage quota exceeded — try removing old items and retry
+      try {
+        localStorage.removeItem('pnfl_' + key);
+        localStorage.setItem('pnfl_' + key, JSON.stringify(val));
+        return true;
+      } catch(e2) {
+        console.warn('storage.set failed for', key, e2.message);
+        return false;
+      }
+    }
   },
   clear: () => {
-    try { Object.keys(localStorage).filter(k => k.startsWith('pnfl_')).forEach(k => localStorage.removeItem(k)); }
-    catch {}
+    try {
+      Object.keys(localStorage).filter(k => k.startsWith('pnfl_')).forEach(k => localStorage.removeItem(k));
+    } catch {}
   }
+};
+
+// In-memory session cache — always populated when data is set, survives the session
+const sessionCache = {};
+const storageWithSession = {
+  get: (key) => sessionCache[key] !== undefined ? sessionCache[key] : storage.get(key),
+  set: (key, val) => { sessionCache[key] = val; storage.set(key, val); },
+  clear: () => { Object.keys(sessionCache).forEach(k => delete sessionCache[k]); storage.clear(); }
 };
 
 // ── Constants ──
@@ -505,7 +531,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '4.3';
+const APP_VERSION = '4.4';
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
 
@@ -745,7 +771,7 @@ function parsePNFLRosterHTML(html, result) {
 
       // Extract 8 attribute numbers from current row (actual stats)
       const rowNums = row.filter(t => /^\d{2,3}$/.test(t)).map(Number)
-        .filter(n => n >= 10 && n <= 99);
+        .filter(n => n >= 50 && n <= 99);
       if (rowNums.length < 8) { i++; continue; }
       const attrs = rowNums.slice(-8);
 
@@ -764,7 +790,7 @@ function parsePNFLRosterHTML(html, result) {
             .join(' ')
             .match(/\b\d{2,3}\b/g);
           if (nextNums) {
-            const valid = nextNums.map(Number).filter(n => n >= 10 && n <= 99);
+            const valid = nextNums.map(Number).filter(n => n >= 50 && n <= 99);
             if (valid.length >= 8) {
               pattrs = valid.slice(0, 8);
               i++; // consume the potential row
@@ -851,7 +877,7 @@ function parsePNFLRosterPlainText(rawText, result) {
       captureNext = false;
       // Strip HTML tags, find 8 2-3 digit numbers
       const stripped = line.replace(/<[^>]*>/g,' ');
-      const nums = (stripped.match(/\b\d{2,3}\b/g) || []).map(Number).filter(n => n >= 10 && n <= 999);
+      const nums = (stripped.match(/\b\d{2,3}\b/g) || []).map(Number).filter(n => n >= 50 && n <= 99);
       if (nums.length >= 8 && lastPlayer) {
         lastPlayer.pattrs = nums.slice(0, 8);
       }
@@ -2671,16 +2697,16 @@ function computeTeamResult(team, teamData, weights, depth, designation) {
   return { offenseScore:oS, defenseScore:dS, overallScore:oT, offensePositions:oP, defensePositions:dP };
 }
 
-function loadWeights() { return storage.get('pnfl_weights') || JSON.parse(JSON.stringify(DEFAULT_WEIGHTS)); }
-function loadDepth()   { return storage.get('pnfl_depth')   || JSON.parse(JSON.stringify(DEFAULT_DEPTH)); }
-function saveWeights(w){ storage.set('pnfl_weights', w); }
-function saveDepth(d)  { storage.set('pnfl_depth', d); }
-function loadRosterCache() { return storage.get('pnfl_roster') || null; }
-function saveRosterCache(r){ storage.set('pnfl_roster', r); }
-function loadStandingsCache() { return storage.get('pnfl_standings') || null; }
-function saveStandingsCache(s){ storage.set('pnfl_standings', s); }
-function loadContractCache() { return storage.get('pnfl_contracts') || null; }
-function saveContractCache(c){ storage.set('pnfl_contracts', c); }
+function loadWeights() { return storageWithSession.get('pnfl_weights') || JSON.parse(JSON.stringify(DEFAULT_WEIGHTS)); }
+function loadDepth()   { return storageWithSession.get('pnfl_depth')   || JSON.parse(JSON.stringify(DEFAULT_DEPTH)); }
+function saveWeights(w){ storageWithSession.set('pnfl_weights', w); }
+function saveDepth(d)  { storageWithSession.set('pnfl_depth', d); }
+function loadRosterCache()    { return storageWithSession.get('pnfl_roster')    || null; }
+function saveRosterCache(r)   { storageWithSession.set('pnfl_roster', r); }
+function loadStandingsCache() { return storageWithSession.get('pnfl_standings') || null; }
+function saveStandingsCache(s){ storageWithSession.set('pnfl_standings', s); }
+function loadContractCache()  { return storageWithSession.get('pnfl_contracts') || null; }
+function saveContractCache(c) { storageWithSession.set('pnfl_contracts', c); }
 
 // ── Contract Data Parser (SheetJS) ──
 // Parses PNFL Contracts.xlsx and returns a map keyed by player name
@@ -3061,30 +3087,33 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
               borderRadius:'8px',
               color: !rosterLoaded ? '#3a5060' : contractLoaded ? '#4aff4a' : '#7ec8ff',
               fontFamily:'Orbitron', fontWeight:'700', fontSize:'0.82rem',
-              padding:'10px 18px',
+              padding:'6px 18px',
               cursor: !rosterLoaded ? 'not-allowed' : 'pointer',
               textTransform:'uppercase', letterSpacing:'1px',
               boxShadow: !rosterLoaded ? 'none' : contractLoaded ? '0 0 12px rgba(74,255,74,0.2)' : '0 0 12px rgba(74,158,255,0.25)',
-              display:'flex', alignItems:'center', gap:'8px', transition:'all 0.35s',
-              opacity: !rosterLoaded ? 0.45 : 1,
+              display:'flex', flexDirection:'column', alignItems:'center', gap:'1px',
+              transition:'all 0.35s', opacity: !rosterLoaded ? 0.45 : 1,
+              minWidth:'160px', whiteSpace:'nowrap',
             }}>
-            {fetchingContracts
-              ? <><span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span> Loading...</>
-              : contractLoaded
-                ? <>✅ Contracts Loaded</>
-                : <>📄 Core Data</>
-            }
+            <span style={{display:'flex',alignItems:'center',gap:'6px'}}>
+              {fetchingContracts
+                ? <><span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span><span>Loading...</span></>
+                : contractLoaded
+                  ? <><span>✅</span><span>Contracts Loaded</span></>
+                  : <><span>📄</span><span>Core Data</span></>
+              }
+            </span>
+            {contractLoaded && (
+              <span style={{fontSize:'0.55rem',color:'#4a9a4a',fontFamily:'Roboto Condensed',fontWeight:'400',letterSpacing:'0.3px',textTransform:'none',lineHeight:1}}>
+                {contractData.playerCount} players · {new Date(contractData.fetchedAt).toLocaleDateString()}
+              </span>
+            )}
+            {!rosterLoaded && (
+              <span style={{fontSize:'0.55rem',color:'#3a5060',fontFamily:'Roboto Condensed',fontWeight:'400',letterSpacing:'0.3px',textTransform:'none',lineHeight:1}}>
+                Fetch rosters first
+              </span>
+            )}
           </button>
-          {!rosterLoaded && (
-            <div style={{fontSize:'0.58rem',color:'#3a5060',fontFamily:'Roboto Condensed',letterSpacing:'0.5px',textAlign:'center'}}>
-              Fetch rosters first
-            </div>
-          )}
-          {contractLoaded && (
-            <div style={{fontSize:'0.58rem',color:'#4a8a4a',fontFamily:'Roboto Condensed',textAlign:'center'}}>
-              {contractData.playerCount} players · {new Date(contractData.fetchedAt).toLocaleDateString()}
-            </div>
-          )}
         </div>
 
         <button onClick={onClearCache} title="Clear cached roster data and reset app state"
@@ -3721,10 +3750,12 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
   const loadAI = async () => {
     if (!window.pnflAI) { setAiModelState('error'); return; }
     if (window.pnflAI.isReady()) { setAiModelState('ready'); return; }
+    if (window.pnflAI.isLoading()) return;
     setAiModelState('loading');
+    setAiLoadProgress(0);
     try {
-      await window.pnflAI.load((progress) => {
-        if (progress?.progress) setAiLoadProgress(Math.round(progress.progress));
+      await window.pnflAI.load((p) => {
+        if (p?.progress != null) setAiLoadProgress(Math.round(p.progress));
       });
       setAiModelState('ready');
     } catch(e) {
@@ -3756,10 +3787,12 @@ Question: ${aiQuery}`;
 
   const aMax = POS_ACTUAL_MAX[position] || POS_ACTUAL_MAX.LB;
   const pMax = POS_POTENTIAL_MAX[position] || POS_POTENTIAL_MAX.LB;
-  // Player's own potential attrs (from roster fetch), or fall back to position max if not available
-  const pattrs = (player.pattrs && player.pattrs.length === 8 && player.pattrs.every(v => v > 0))
-    ? player.pattrs : pMax;
-  const hasPattrs = !!(player.pattrs && player.pattrs.length === 8 && player.pattrs.every(v => v > 0));
+  // Validate pattrs: must have 8 values all in realistic attribute range (40-99)
+  const pattrsValid = player.pattrs
+    && player.pattrs.length === 8
+    && player.pattrs.every(v => Number.isInteger(v) && v >= 40 && v <= 99);
+  const pattrs = pattrsValid ? player.pattrs : pMax;
+  const hasPattrs = !!pattrsValid;
 
   const actualTotal = player.attrs.reduce((s,v)=>s+v,0);
   const playerPotentialTotal = pattrs.reduce((s,v)=>s+v,0);
@@ -3841,8 +3874,9 @@ Question: ${aiQuery}`;
         <div style={{padding:'16px 24px'}}>
           <div style={{marginBottom:'8px',fontSize:'0.72rem',color:'#608060',fontFamily:'Orbitron',letterSpacing:'1.5px',textTransform:'uppercase'}}>Attribute Breakdown</div>
           {!hasPattrs && (
-            <div style={{marginBottom:'8px',padding:'6px 10px',background:'rgba(255,153,68,0.08)',border:'1px solid rgba(255,153,68,0.2)',borderRadius:'6px',fontSize:'0.72rem',color:'#ff9944',fontFamily:'Roboto Condensed'}}>
-              ⚠️ Player potential data requires a live roster fetch — showing position max as potential reference.
+            <div style={{marginBottom:'8px',padding:'5px 10px',background:'rgba(74,158,255,0.05)',border:'1px solid rgba(74,158,255,0.12)',borderRadius:'6px',fontSize:'0.68rem',color:'#5a8aaa',fontFamily:'Roboto Condensed',display:'flex',alignItems:'center',gap:'6px'}}>
+              <span>ℹ️</span>
+              <span>Showing position ceiling as potential reference — individual potential available after roster fetch with projected data.</span>
             </div>
           )}
           {/* Header row */}
@@ -4025,7 +4059,7 @@ Question: ${aiQuery}`;
                 <span style={{fontSize:'0.65rem',color:'#4aff4a',fontFamily:'Roboto Condensed'}}>✓ Ready</span>
               )}
               {aiModelState === 'error' && (
-                <span style={{fontSize:'0.65rem',color:'#ff6b6b',fontFamily:'Roboto Condensed'}}>⚠ Unavailable</span>
+                <span style={{fontSize:'0.65rem',color:'#ff6b6b',fontFamily:'Roboto Condensed',cursor:'pointer'}} onClick={()=>setAiModelState('idle')}>⚠ Error — click to retry</span>
               )}
             </div>
             <div style={{padding:'10px 14px',background:'rgba(0,0,0,0.2)'}}>
@@ -4696,7 +4730,7 @@ function App() {
   // Clear all cached data
   const clearCache=()=>{
     if(!window.confirm('Clear all cached roster data and reset settings to defaults?')) return;
-    storage.clear();
+    storageWithSession.clear();
     setRosterData(null);
     setStandingsData(null);
     setContractData(null);
