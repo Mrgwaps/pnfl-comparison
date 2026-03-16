@@ -16,10 +16,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
-// ── PNFL AI Analyst — HuggingFace Serverless Inference (Qwen2.5-1.5B-Instruct) ──
-// Fine-grained token needs "inference.serverless.write" scope at hf.co/settings/tokens
-// NOTE: No validation ping — HF router blocks CORS preflight from browsers.
-//       We trust the key format and surface any errors on first real call instead.
+// ── PNFL AI Analyst — HuggingFace Inference API (Qwen2.5-1.5B-Instruct) ──
+// Uses inference.huggingface.co which has CORS headers set for browser access
 window.pnflAI = {
   _ready: false, _loading: false, _error: null,
   _apiKey: '', _activeUrl: '', _chatMode: true, _activeModel: '',
@@ -28,14 +26,32 @@ window.pnflAI = {
   isLoading: function() { return window.pnflAI._loading; },
   getError:  function() { return window.pnflAI._error; },
 
-  // Ordered list of endpoints to try when asking a question
+  // Endpoints tried in order — both have CORS enabled for browser requests
   _ENDPOINTS: [
-    { url: 'https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-1.5B-Instruct/v1/chat/completions', chat: true,  model: 'Qwen/Qwen2.5-1.5B-Instruct' },
-    { url: 'https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-0.5B-Instruct/v1/chat/completions', chat: true,  model: 'Qwen/Qwen2.5-0.5B-Instruct' },
-    { url: 'https://api-inference.huggingface.co/models/Qwen/Qwen2.5-1.5B-Instruct',                            chat: false, model: 'Qwen/Qwen2.5-1.5B-Instruct' },
+    // New inference providers endpoint (OpenAI-compatible, CORS-enabled)
+    {
+      url:    'https://api-inference.huggingface.co/models/Qwen/Qwen2.5-1.5B-Instruct/v1/chat/completions',
+      chat:   true,
+      model:  'Qwen/Qwen2.5-1.5B-Instruct',
+      label:  'HF Inference v1 chat'
+    },
+    // Legacy inference endpoint (text-generation, also CORS-enabled)
+    {
+      url:    'https://api-inference.huggingface.co/models/Qwen/Qwen2.5-1.5B-Instruct',
+      chat:   false,
+      model:  'Qwen/Qwen2.5-1.5B-Instruct',
+      label:  'HF Inference legacy'
+    },
+    // Smaller fallback model
+    {
+      url:    'https://api-inference.huggingface.co/models/Qwen/Qwen2.5-0.5B-Instruct',
+      chat:   false,
+      model:  'Qwen/Qwen2.5-0.5B-Instruct',
+      label:  'HF Inference 0.5B fallback'
+    },
   ],
 
-  // load() — just validates key format, no network call (CORS blocks HF preflight from browsers)
+  // load() — validates key format only; no network ping (avoids CORS preflight)
   load: async function(apiKey) {
     const ai = window.pnflAI;
     if (ai._loading) return;
@@ -45,30 +61,24 @@ window.pnflAI = {
 
     const key = (apiKey || '').trim();
     if (!key) {
-      ai._error = 'No API key provided.';
+      ai._error   = 'No API key provided.';
       ai._loading = false;
       throw new Error(ai._error);
     }
-    if (!key.startsWith('hf_')) {
-      ai._error = 'HuggingFace tokens start with hf_  — check you copied the full token.';
-      ai._loading = false;
-      throw new Error(ai._error);
-    }
-    if (key.length < 20) {
-      ai._error = 'Token looks too short — copy the full hf_... token from huggingface.co/settings/tokens';
+    if (!key.startsWith('hf_') || key.length < 20) {
+      ai._error   = 'Key must start with hf_ and be at least 20 characters. Copy the full token from huggingface.co/settings/tokens.';
       ai._loading = false;
       throw new Error(ai._error);
     }
 
-    // Accept key — errors will surface on first ask() call
-    ai._apiKey       = key;
-    ai._ready        = true;
-    ai._activeUrl    = ai._ENDPOINTS[0].url;
-    ai._chatMode     = ai._ENDPOINTS[0].chat;
-    ai._activeModel  = ai._ENDPOINTS[0].model;
+    ai._apiKey      = key;
+    ai._ready       = true;
+    ai._activeUrl   = ai._ENDPOINTS[0].url;
+    ai._chatMode    = ai._ENDPOINTS[0].chat;
+    ai._activeModel = ai._ENDPOINTS[0].model;
     sessionStorage.setItem('pnfl_ai_key',   key);
     sessionStorage.setItem('pnfl_ai_url',   ai._activeUrl);
-    sessionStorage.setItem('pnfl_ai_chat',  'true');
+    sessionStorage.setItem('pnfl_ai_chat',  String(ai._chatMode));
     sessionStorage.setItem('pnfl_ai_model', ai._activeModel);
     ai._loading = false;
   },
@@ -77,48 +87,77 @@ window.pnflAI = {
     const ai = window.pnflAI;
     if (!ai._apiKey) throw new Error('Not connected — enter your HF token first.');
 
-    // Try each endpoint in order, fall through on network/format errors
-    let lastErr = null;
     for (const ep of ai._ENDPOINTS) {
       try {
-        const payload = ep.chat
-          ? { model: ep.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }], max_tokens: maxTokens || 250, temperature: 0.4 }
-          : { inputs: '<|im_start|>system\n' + systemPrompt + '<|im_end|>\n<|im_start|>user\n' + userMessage + '<|im_end|>\n<|im_start|>assistant\n', parameters: { max_new_tokens: maxTokens || 250, temperature: 0.4, return_full_text: false } };
+        let payload, body;
+        if (ep.chat) {
+          payload = {
+            model: ep.model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user',   content: userMessage  }
+            ],
+            max_tokens:  maxTokens || 250,
+            temperature: 0.4,
+            stream:      false,
+          };
+        } else {
+          payload = {
+            inputs: userMessage,
+            parameters: {
+              max_new_tokens: maxTokens || 250,
+              temperature:    0.4,
+              return_full_text: false,
+            },
+          };
+        }
 
         const res = await fetch(ep.url, {
           method:  'POST',
-          headers: { 'Authorization': 'Bearer ' + ai._apiKey, 'Content-Type': 'application/json' },
-          body:    JSON.stringify(payload),
+          headers: {
+            'Authorization': 'Bearer ' + ai._apiKey,
+            'Content-Type':  'application/json',
+          },
+          body: JSON.stringify(payload),
         });
 
-        // Parse error body for helpful message
         const txt = await res.text();
-        let hfMsg = txt;
-        try { const j = JSON.parse(txt); hfMsg = j?.error?.message || j?.error || j?.message || txt; if (typeof hfMsg !== 'string') hfMsg = JSON.stringify(hfMsg); } catch {}
-        console.log('[PNFL AI]', ep.url.split('/').slice(-3).join('/'), '->', res.status, hfMsg.slice(0,150));
+        console.log('[PNFL AI]', ep.label, '->', res.status, txt.slice(0,150));
 
-        if (res.status === 503) return '⏳ Model warming up on HuggingFace servers — wait 20 seconds and try again.';
-        if (res.status === 429) return '⏳ Rate limit reached — wait a moment and try again.';
-        if (res.status === 401) throw new Error('Invalid token (401) — check your HuggingFace token is correct.');
-        if (res.status === 403) throw new Error('Permission denied (403). Your token needs "Make calls to the serverless Inference API" scope. Edit your token at huggingface.co/settings/tokens → Permissions → check that box.' + (hfMsg && hfMsg !== txt ? ' HF: ' + hfMsg : ''));
-        if (!res.ok) { lastErr = new Error('HTTP ' + res.status + ': ' + hfMsg.slice(0,120)); continue; }
+        // Handle specific statuses
+        if (res.status === 503) return '⏳ Model is loading on HF servers — wait 20s and try again.';
+        if (res.status === 429) return '⏳ Rate limit — wait a moment and try again.';
+        if (res.status === 401) throw new Error('Invalid token (401). Check your HF token at huggingface.co/settings/tokens.');
+        if (res.status === 403) {
+          let msg = '';
+          try { const j = JSON.parse(txt); msg = j?.error || j?.message || ''; } catch {}
+          throw new Error('Permission denied (403). Edit your token → Permissions → enable "Make calls to the serverless Inference API".' + (msg ? ' HF: ' + msg : ''));
+        }
+        if (!res.ok) {
+          console.warn('[PNFL AI]', ep.label, 'failed with', res.status, '— trying next');
+          continue;
+        }
 
+        // Parse response
         try {
           const d = JSON.parse(txt);
-          if (d.choices?.[0]?.message?.content) return d.choices[0].message.content.trim();
+          if (d.choices?.[0]?.message?.content)  return d.choices[0].message.content.trim();
           if (Array.isArray(d) && d[0]?.generated_text) return d[0].generated_text.trim();
           if (d.generated_text) return String(d.generated_text).trim();
-          return JSON.stringify(d).slice(0,300);
-        } catch { return txt.slice(0,500); }
+          return JSON.stringify(d).slice(0, 400);
+        } catch { return txt.slice(0, 400); }
 
       } catch(e) {
-        // Hard errors (401/403) — stop trying
-        if (e.message && (e.message.includes('401') || e.message.includes('403') || e.message.includes('Permission') || e.message.includes('Invalid token'))) throw e;
-        lastErr = e;
-        console.warn('[PNFL AI] endpoint failed:', ep.url, e.message);
+        // Hard auth errors — stop immediately
+        if (e.message && (e.message.includes('401') || e.message.includes('403') || e.message.includes('Permission denied') || e.message.includes('Invalid token'))) {
+          throw e;
+        }
+        console.warn('[PNFL AI]', ep.label, 'threw:', e.message);
+        // Continue to next endpoint for network/other errors
       }
     }
-    throw lastErr || new Error('All HF endpoints failed. Check your internet connection and token permissions.');
+
+    throw new Error('All HF endpoints failed. Open DevTools → Console for [PNFL AI] details. Ensure your token has "Make calls to serverless Inference API" permission at huggingface.co/settings/tokens.');
   },
 
   restore: function() {
@@ -129,7 +168,8 @@ window.pnflAI = {
       const model = sessionStorage.getItem('pnfl_ai_model');
       if (key && key.startsWith('hf_') && key.length >= 20) {
         Object.assign(window.pnflAI, {
-          _apiKey: key, _ready: true,
+          _apiKey:      key,
+          _ready:       true,
           _activeUrl:   url   || window.pnflAI._ENDPOINTS[0].url,
           _chatMode:    chat  !== 'false',
           _activeModel: model || window.pnflAI._ENDPOINTS[0].model,
@@ -552,7 +592,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v4.8.1...</div>
+  <div class="pl-sub">Loading v4.8.2...</div>
 </div>
 <div id="root"></div>
 <script type="text/babel">
@@ -632,7 +672,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '4.8.1';
+const APP_VERSION = '4.8.2';
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
@@ -2913,6 +2953,10 @@ function parseContractXLSX(arrayBuffer) {
     // Map column indices
     const col = {};
     const contractYearCols = [];
+    // Scan ALL rows to detect if a year column contains dollar amounts (salary) or X marks (active)
+    // We do a quick peek at the first data rows to classify each year column
+    const peekRows = rawRows.slice(headerRowIdx + 1, headerRowIdx + 6);
+
     headers.forEach((h, i) => {
       const lh = h.toLowerCase().replace(/\s+/g,'');
       const hr = h.trim();
@@ -2923,15 +2967,28 @@ function parseContractXLSX(arrayBuffer) {
       else if (lh === 'team')                         col.team      = i;
       else if (lh === 'pos' || lh === 'position')     col.pos       = i;
       else if (lh === 'year' || lh === 'years')       col.year      = i;
-      // Salary columns: "$2048$", "$2049$", "2048$", "2049$" or plain "$2048"
-      else if (/^\$?20\d{2}\$?$/.test(hr) || /^salary.?20\d{2}/i.test(hr)) {
-        const yr = parseInt(hr.replace(/\$/g,''));
-        if (!isNaN(yr)) col['salary_' + yr] = i;
-        // Also still track as contract year marker if contains X values
-        contractYearCols.push({ year: yr, idx: i, isSalary: true });
-      }
-      else if (/^20\d{2}$/.test(hr)) {
-        contractYearCols.push({ year: parseInt(hr), idx: i });
+      else if (/^\$?20\d{2}\$?$/.test(hr) || /^20\d{2}$/.test(hr)) {
+        const yr = parseInt(hr.replace(/[$]/g,''));
+        if (isNaN(yr)) return;
+        // Peek at first few data rows to detect salary vs X-mark column
+        // Salary cols: values like 500000, "$500,000", "500000"
+        // X-mark cols: values like "X", "x", "1", ""
+        let hasDollarVal = false, hasXMark = false;
+        for (const pr of peekRows) {
+          if (!pr) continue;
+          const v = String(pr[i] || '').trim().replace(/[$,]/g,'');
+          if (v === 'X' || v === 'x' || v === '1') { hasXMark = true; break; }
+          const n = parseFloat(v);
+          if (!isNaN(n) && n > 1000) { hasDollarVal = true; break; }
+        }
+        if (hasDollarVal) {
+          // Salary column
+          col['salary_' + yr] = i;
+          contractYearCols.push({ year: yr, idx: i, isSalary: true });
+        } else {
+          // Contract active year (X marks)
+          contractYearCols.push({ year: yr, idx: i, isSalary: false });
+        }
       }
     });
 
