@@ -3214,7 +3214,7 @@ function AIConnectModal({ onClose, onConnected }) {
 
   // Pre-fill if key already saved
   React.useEffect(() => {
-    const saved = sessionStorage.getItem('pnfl_hf_key');
+    const saved = sessionStorage.getItem('pnfl_ai_key');
     if (saved) setKeyInput(saved);
     if (window.pnflAI?.isReady()) setStatus('success');
   }, []);
@@ -3222,6 +3222,11 @@ function AIConnectModal({ onClose, onConnected }) {
   const connect = async () => {
     const key = keyInput.trim();
     if (!key) return;
+    if (!window.pnflAI || typeof window.pnflAI.load !== 'function') {
+      setStatus('error');
+      setErrorMsg('AI module failed to initialize — try refreshing the page.');
+      return;
+    }
     setStatus('connecting');
     setErrorMsg('');
     try {
@@ -3238,8 +3243,8 @@ function AIConnectModal({ onClose, onConnected }) {
   const disconnect = () => {
     window.pnflAI._ready = false;
     window.pnflAI._apiKey = '';
-    sessionStorage.removeItem('pnfl_hf_key');
-    sessionStorage.removeItem('pnfl_hf_ep');
+    sessionStorage.removeItem('pnfl_ai_key');
+    sessionStorage.removeItem('pnfl_ai_url'); sessionStorage.removeItem('pnfl_ai_chat'); sessionStorage.removeItem('pnfl_ai_model');
     setStatus('idle');
     setKeyInput('');
     onConnected && onConnected();
@@ -3361,12 +3366,12 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
   const contractLoaded = !!(contractData && contractData.playerCount > 0);
 
   // AI slider state — reads from pnflAI on mount, refreshes on toggle
-  const [aiEnabled, setAiEnabled] = useState(() => !!(window.pnflAI?.isReady()));
+  const [aiEnabled, setAiEnabled] = useState(() => !!(window.pnflAI && window.pnflAI.isReady && window.pnflAI.isReady()));
   const [showAIModal, setShowAIModal] = useState(false);
 
   // Sync slider if key was restored from session on page load
   React.useEffect(() => {
-    setAiEnabled(!!(window.pnflAI?.isReady()));
+    setAiEnabled(!!(window.pnflAI && window.pnflAI.isReady && window.pnflAI.isReady()));
   }, []);
 
   const handleAIToggle = () => {
@@ -3375,8 +3380,8 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
       // Disconnect
       window.pnflAI._ready = false;
       window.pnflAI._apiKey = '';
-      sessionStorage.removeItem('pnfl_hf_key');
-      sessionStorage.removeItem('pnfl_hf_ep');
+      sessionStorage.removeItem('pnfl_ai_key');
+      sessionStorage.removeItem('pnfl_ai_url'); sessionStorage.removeItem('pnfl_ai_chat'); sessionStorage.removeItem('pnfl_ai_model');
       setAiEnabled(false);
     } else {
       // Open modal to connect
@@ -4134,11 +4139,11 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
   const [aiQuery, setAiQuery] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiReady, setAiReady] = useState(() => !!(window.pnflAI?.isReady()));
+  const [aiReady, setAiReady] = useState(() => !!(window.pnflAI && window.pnflAI.isReady && window.pnflAI.isReady()));
   const [showAIModal, setShowAIModal] = useState(false);
 
   const askAI = async () => {
-    if (!aiQuery.trim() || !window.pnflAI?.isReady()) return;
+    if (!aiQuery.trim() || !window.pnflAI?.isReady?.()) return;
     setAiLoading(true);
     setAiResponse('');
     try {
@@ -4418,7 +4423,7 @@ Question: ${aiQuery}`;
           ) : null}
 
           {/* AI Assistant Panel */}
-          {showAIModal && <AIConnectModal onClose={()=>setShowAIModal(false)} onConnected={()=>setAiReady(!!(window.pnflAI?.isReady()))}/>}
+          {showAIModal && <AIConnectModal onClose={()=>setShowAIModal(false)} onConnected={()=>setAiReady(!!(window.pnflAI && window.pnflAI.isReady && window.pnflAI.isReady()))}/>}
           <div style={{marginBottom:'14px',borderRadius:'10px',overflow:'hidden',border:`1px solid ${aiReady?'rgba(160,100,255,0.35)':'rgba(80,50,120,0.2)'}`}}>
             <div style={{padding:'8px 14px',background:'linear-gradient(90deg,rgba(40,20,60,0.95),rgba(10,22,40,0.95))',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
               <span style={{fontFamily:'Orbitron',fontSize:'0.72rem',color: aiReady ? '#c090ff' : '#604080',letterSpacing:'1px',fontWeight:'700'}}>🤖 AI ANALYST — Qwen2.5</span>
