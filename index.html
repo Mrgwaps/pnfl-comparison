@@ -552,7 +552,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v4.8...</div>
+  <div class="pl-sub">Loading v4.8.1...</div>
 </div>
 <div id="root"></div>
 <script type="text/babel">
@@ -632,7 +632,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '4.8';
+const APP_VERSION = '4.8.1';
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
@@ -2924,7 +2924,7 @@ function parseContractXLSX(arrayBuffer) {
       else if (lh === 'pos' || lh === 'position')     col.pos       = i;
       else if (lh === 'year' || lh === 'years')       col.year      = i;
       // Salary columns: "$2048$", "$2049$", "2048$", "2049$" or plain "$2048"
-      else if (/^\$?20\d{2}\$?$/.test(hr)) {
+      else if (/^\$?20\d{2}\$?$/.test(hr) || /^salary.?20\d{2}/i.test(hr)) {
         const yr = parseInt(hr.replace(/\$/g,''));
         if (!isNaN(yr)) col['salary_' + yr] = i;
         // Also still track as contract year marker if contains X values
@@ -4413,6 +4413,51 @@ Question: ${aiQuery}`;
                 {contract.notes && (
                   <div style={{marginTop:'8px',padding:'7px 10px',background:'rgba(0,0,0,0.2)',borderRadius:'6px',border:'1px solid rgba(255,255,255,0.06)',fontSize:'0.75rem',color:'#808080',fontFamily:'Roboto Condensed',fontStyle:'italic'}}>
                     {contract.notes}
+                  </div>
+                )}
+
+                {/* ── Salary Bar ── */}
+                {(contract.currentSalary || contract.nextSalary) && (
+                  <div style={{
+                    marginTop:'10px',
+                    padding:'10px 14px',
+                    background:'linear-gradient(135deg,rgba(0,40,10,0.5),rgba(0,20,5,0.7))',
+                    borderRadius:'8px',
+                    border:'1px solid rgba(61,220,132,0.3)',
+                    display:'flex',alignItems:'center',gap:'10px',flexWrap:'wrap',
+                    boxShadow:'inset 0 0 12px rgba(61,220,132,0.05)',
+                  }}>
+                    <img src={MONEY_ICON_URI} alt="$"
+                      style={{width:'28px',height:'28px',imageRendering:'crisp-edges',flexShrink:0,filter:'drop-shadow(0 0 4px rgba(61,220,132,0.5))'}}
+                    />
+                    <div>
+                      <div style={{fontSize:'0.58rem',color:'#3a7a5a',fontFamily:'Orbitron',letterSpacing:'1px',textTransform:'uppercase',marginBottom:'3px'}}>Player Salary</div>
+                      <div style={{display:'flex',alignItems:'baseline',gap:'12px',flexWrap:'wrap'}}>
+                        {contract.currentSalary && (
+                          <span>
+                            <span style={{fontSize:'0.62rem',color:'#2a6a4a',fontFamily:'Orbitron',marginRight:'4px'}}>
+                              YR {contract.currentSalaryYear}
+                            </span>
+                            <span style={{fontSize:'1.05rem',fontWeight:'900',color:'#3ddc84',fontFamily:'Roboto Condensed',letterSpacing:'0.5px'}}>
+                              {fmtSalary(contract.currentSalary)}
+                            </span>
+                          </span>
+                        )}
+                        {contract.currentSalary && contract.nextSalary && (
+                          <span style={{color:'#2a5a3a',fontSize:'0.8rem'}}>→</span>
+                        )}
+                        {contract.nextSalary && (
+                          <span>
+                            <span style={{fontSize:'0.62rem',color:'#2a6a4a',fontFamily:'Orbitron',marginRight:'4px'}}>
+                              YR {contract.nextSalaryYear}
+                            </span>
+                            <span style={{fontSize:'1.05rem',fontWeight:'900',color:'#2ab870',fontFamily:'Roboto Condensed',letterSpacing:'0.5px'}}>
+                              {fmtSalary(contract.nextSalary)}
+                            </span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
