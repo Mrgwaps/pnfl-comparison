@@ -225,24 +225,49 @@ function parseContractAsync(arrayBuffer) {
 </script>
 
 <script>
-// ── PNFL AI Analyst ──
-// HuggingFace blocks CORS from browsers on all direct endpoints.
-// Requests are routed through a lightweight Cloudflare Worker proxy (pnfl_ai_proxy_worker.js)
-// that adds Access-Control-Allow-Origin: * and forwards to HF.
-// Set PNFL_PROXY_URL after deploying the worker to Cloudflare.
+// ── PNFL AI Analyst v5.1 ──
+// Smart self-diagnosing AI module.
+// Routes: browser → Cloudflare Worker proxy → router.huggingface.co/hf-inference/...
+// The proxy MUST be running the updated pnfl_ai_proxy_worker.js that targets router.huggingface.co
+// A 410 from the proxy means the DEPLOYED worker still points to the old api-inference endpoint.
 var PNFL_PROXY_URL = sessionStorage.getItem('pnfl_proxy_url') || '';
 
 window.pnflAI = {
-  _ready: false, _loading: false, _error: null,
-  _apiKey: '', _model: 'Qwen/Qwen2.5-1.5B-Instruct',
+  _ready:   false,
+  _loading: false,
+  _error:   null,
+  _apiKey:  '',
+  _model:   'Qwen/Qwen2.5-1.5B-Instruct',
 
   isReady:   function() { return window.pnflAI._ready; },
   isLoading: function() { return window.pnflAI._loading; },
   getError:  function() { return window.pnflAI._error; },
 
   setProxyUrl: function(url) {
-    PNFL_PROXY_URL = url.trim().replace(/\/+$/, '');
+    PNFL_PROXY_URL = (url || '').trim().replace(/\/+$/, '');
     sessionStorage.setItem('pnfl_proxy_url', PNFL_PROXY_URL);
+  },
+
+  // Diagnose a raw HF error response and return a clear human message
+  _diagnose: function(status, body) {
+    const b = (body || '').toLowerCase();
+    if (status === 410 || b.includes('no longer supported') || b.includes('router.huggingface.co')) {
+      return 'WORKER_OUTDATED: Your Cloudflare Worker is using the old HF endpoint. Go to dash.cloudflare.com → your Worker → Edit Code → paste the new pnfl_ai_proxy_worker.js → Deploy. The new file uses router.huggingface.co.';
+    }
+    if (status === 401 || b.includes('invalid') && b.includes('token')) {
+      return 'INVALID_TOKEN: Your HuggingFace token is invalid. Double-check it at huggingface.co/settings/tokens.';
+    }
+    if (status === 403 || b.includes('authorization') || b.includes('permission') || b.includes('inference api')) {
+      return 'NO_PERMISSION: Your token lacks Inference API access. At huggingface.co/settings/tokens → Edit token → Permissions → check "Make calls to the serverless Inference API".';
+    }
+    if (status === 503) return 'MODEL_LOADING: Model is cold-starting on HF. Wait 20 seconds and try again.';
+    if (status === 429) return 'RATE_LIMIT: HuggingFace rate limit hit. Wait a moment and try again.';
+    if (status === 402) return 'PRO_REQUIRED: This model requires HuggingFace PRO. Try a different model.';
+    if (status === 404) return 'NOT_FOUND: Model not found on HuggingFace. Check the model name.';
+    if (b.includes('failed to fetch') || b.includes('networkerror') || status === 0) {
+      return 'NETWORK: Cannot reach your proxy worker. Check the Cloudflare Worker URL is correct and the worker is deployed.';
+    }
+    return 'HTTP_' + status + ': ' + (body || '').slice(0, 200);
   },
 
   load: async function(apiKey, proxyUrl) {
@@ -253,8 +278,13 @@ window.pnflAI = {
     ai._ready   = false;
 
     const key = (apiKey || '').trim();
-    if (!key || !key.startsWith('hf_') || key.length < 20) {
-      ai._error   = 'Token must start with hf_ and be at least 20 characters.';
+    if (!key) {
+      ai._error = 'No API key provided.';
+      ai._loading = false;
+      throw new Error(ai._error);
+    }
+    if (!key.startsWith('hf_') || key.length < 20) {
+      ai._error = 'HuggingFace tokens start with hf_ and are at least 20 characters. Copy the full token.';
       ai._loading = false;
       throw new Error(ai._error);
     }
@@ -262,79 +292,98 @@ window.pnflAI = {
     if (proxyUrl) ai.setProxyUrl(proxyUrl);
 
     if (!PNFL_PROXY_URL) {
-      // No proxy set — save key but show instruction to deploy proxy
-      ai._apiKey  = key;
-      ai._ready   = true;
+      // No proxy — accept key optimistically, surface error on first ask()
+      ai._apiKey = key;
+      ai._ready  = true;
       sessionStorage.setItem('pnfl_ai_key', key);
       ai._loading = false;
       return;
     }
 
-    // Test proxy connection with a minimal request
+    // Validate proxy + key with a minimal test call
+    let testStatus = 0, testBody = '';
     try {
       const res = await fetch(PNFL_PROXY_URL, {
         method:  'POST',
         headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: ai._model, messages: [{ role:'user', content:'Hi' }], max_tokens: 3 }),
+        body:    JSON.stringify({
+          model:       ai._model,
+          messages:    [{ role: 'user', content: 'Reply with one word: ready' }],
+          max_tokens:  5,
+          stream:      false,
+        }),
+        signal: AbortSignal.timeout(15000),
       });
-      const txt = await res.text();
-      console.log('[PNFL AI] Proxy test ->', res.status, txt.slice(0,120));
-      if (res.status === 401) throw new Error('Invalid HF token (401). Check at huggingface.co/settings/tokens.');
-      if (res.status === 403) throw new Error('HF token lacks Inference API access (403). Edit token → enable "Make calls to serverless Inference API".');
-      if (res.ok || res.status === 503) {
-        ai._apiKey  = key;
-        ai._ready   = true;
-        sessionStorage.setItem('pnfl_ai_key', key);
-      } else {
-        throw new Error('Proxy returned HTTP ' + res.status + ': ' + txt.slice(0,120));
-      }
+      testStatus = res.status;
+      testBody   = await res.text();
+      console.log('[PNFL AI] load test ->', testStatus, testBody.slice(0, 150));
     } catch(e) {
-      ai._error   = e.message;
-      ai._loading = false;
-      throw e;
+      testStatus = 0;
+      testBody   = e.message || 'Network error';
+      console.warn('[PNFL AI] load test threw:', e.message);
     }
+
+    // 200 or 503 (cold start) = proxy + key are good
+    if (testStatus === 200 || testStatus === 503) {
+      ai._apiKey = key;
+      ai._ready  = true;
+      sessionStorage.setItem('pnfl_ai_key', key);
+      ai._loading = false;
+      return;
+    }
+
+    // Anything else — diagnose and surface clearly
+    ai._error   = ai._diagnose(testStatus, testBody);
     ai._loading = false;
+    throw new Error(ai._error);
   },
 
   ask: async function(systemPrompt, userMessage, maxTokens) {
     const ai = window.pnflAI;
-    if (!ai._apiKey) throw new Error('Not connected — enter your HF token first.');
+    if (!ai._apiKey) throw new Error('Not connected — add your HF token and proxy URL first.');
 
     if (!PNFL_PROXY_URL) {
-      return '⚠️ Proxy not configured. See the setup instructions in the AI panel to deploy your free Cloudflare Worker proxy.';
+      return '⚠️ No proxy configured. Slide the AI toggle in the header and enter your Cloudflare Worker URL.';
     }
 
-    const res = await fetch(PNFL_PROXY_URL, {
-      method:  'POST',
-      headers: { 'Authorization': 'Bearer ' + ai._apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model:    ai._model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user',   content: userMessage  }
-        ],
-        max_tokens:  maxTokens || 250,
-        temperature: 0.4,
-        stream:      false,
-      }),
-    });
+    let status = 0, txt = '';
+    try {
+      const res = await fetch(PNFL_PROXY_URL, {
+        method:  'POST',
+        headers: { 'Authorization': 'Bearer ' + ai._apiKey, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          model:       ai._model,
+          messages:    [
+            { role: 'system', content: systemPrompt },
+            { role: 'user',   content: userMessage  },
+          ],
+          max_tokens:  maxTokens || 300,
+          temperature: 0.4,
+          stream:      false,
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+      status = res.status;
+      txt    = await res.text();
+      console.log('[PNFL AI] ask ->', status, txt.slice(0, 120));
+    } catch(e) {
+      throw new Error(ai._diagnose(0, e.message));
+    }
 
-    const txt = await res.text();
-    console.log('[PNFL AI] ask ->', res.status, txt.slice(0,120));
-
-    if (res.status === 503) return '⏳ Model loading on HF — wait 20s and try again.';
-    if (res.status === 429) return '⏳ Rate limit — wait a moment and try again.';
-    if (res.status === 401) throw new Error('Invalid HF token. Check huggingface.co/settings/tokens.');
-    if (res.status === 403) throw new Error('Token lacks permission. Edit token → enable "Make calls to serverless Inference API".');
-    if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + txt.slice(0,150));
+    if (status !== 200) {
+      const msg = ai._diagnose(status, txt);
+      // Model loading — return soft message instead of throwing
+      if (msg.startsWith('MODEL_LOADING') || msg.startsWith('RATE_LIMIT')) return '⏳ ' + msg.split(':')[1].trim();
+      throw new Error(msg);
+    }
 
     try {
       const d = JSON.parse(txt);
-      if (d.choices?.[0]?.message?.content)          return d.choices[0].message.content.trim();
-      if (Array.isArray(d) && d[0]?.generated_text)  return d[0].generated_text.trim();
-      if (d.generated_text)                           return String(d.generated_text).trim();
-      return JSON.stringify(d).slice(0,400);
-    } catch { return txt.slice(0,400); }
+      if (d.choices?.[0]?.message?.content) return d.choices[0].message.content.trim();
+      if (Array.isArray(d) && d[0]?.generated_text) return d[0].generated_text.trim();
+      if (d.generated_text) return String(d.generated_text).trim();
+      return JSON.stringify(d).slice(0, 400);
+    } catch { return txt.slice(0, 400); }
   },
 
   restore: function() {
@@ -349,7 +398,7 @@ window.pnflAI = {
       }
     } catch {}
     return false;
-  }
+  },
 };
 window.pnflAI.restore();
 </script>
@@ -793,7 +842,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v5.0...</div>
+  <div class="pl-sub">Loading v5.1...</div>
 </div>
 <div id="root"></div>
 <script type="text/babel">
@@ -868,7 +917,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '5.0';
+const APP_VERSION = '5.1';
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
@@ -3727,8 +3776,30 @@ function AIConnectModal({ onClose, onConnected }) {
             </div>
 
             {status==='error' && (
-              <div style={{padding:'8px 12px',background:'rgba(255,60,60,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'7px',fontSize:'0.7rem',color:'#ff9090',fontFamily:'Roboto Condensed',lineHeight:1.5,maxHeight:'100px',overflowY:'auto',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
-                ⚠ {errorMsg}
+              <div style={{padding:'10px 12px',background:'rgba(255,60,60,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'7px',fontSize:'0.72rem',color:'#ff9090',fontFamily:'Roboto Condensed',lineHeight:1.6,maxHeight:'120px',overflowY:'auto',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
+                {(() => {
+                  const msg = errorMsg || '';
+                  if (msg.startsWith('WORKER_OUTDATED:')) return (
+                    <span>
+                      <strong style={{color:'#ffaa44'}}>⚠ Worker needs update</strong><br/>
+                      {msg.replace('WORKER_OUTDATED:','').trim()}<br/>
+                      <strong style={{color:'#ffd700',marginTop:'4px',display:'block'}}>Steps: dash.cloudflare.com → Workers → your worker → Edit Code → select all → paste new pnfl_ai_proxy_worker.js → Save & Deploy</strong>
+                    </span>
+                  );
+                  if (msg.startsWith('NO_PERMISSION:')) return (
+                    <span>
+                      <strong style={{color:'#ffaa44'}}>⚠ Token missing permission</strong><br/>
+                      huggingface.co/settings/tokens → Edit your token → Permissions → check <strong>"Make calls to the serverless Inference API"</strong> → Save
+                    </span>
+                  );
+                  if (msg.startsWith('INVALID_TOKEN:')) return (
+                    <span><strong style={{color:'#ffaa44'}}>⚠ Invalid token</strong> — copy the full hf_... token from huggingface.co/settings/tokens</span>
+                  );
+                  if (msg.startsWith('NETWORK:')) return (
+                    <span><strong style={{color:'#ffaa44'}}>⚠ Network error</strong> — check your Cloudflare Worker URL is correct and the worker is deployed and active</span>
+                  );
+                  return <span>⚠ {msg}</span>;
+                })()}
               </div>
             )}
           </div>
