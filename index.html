@@ -16,6 +16,215 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
+// ── Contract XLSX Web Worker (Blob URL) ──
+// Parses the contract file off the main thread so UI stays responsive
+const _workerCode = `
+self.importScripts('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+
+const TEAM_SHEET_MAP = {
+  'JAX':'Jacksonville','BUF':'Buffalo','NE':'New England','MIA':'Miami',
+  'DEN':'Denver','LVR':'Las Vegas','LV':'Las Vegas','CIN':'Cincinnati',
+  'LAC':'Los Angeles','PIT':'Pittsburgh','ATL':'Atlanta',
+  'WSH':'Washington','WAS':'Washington','NYG':'New York','NY':'New York',
+  'PHI':'Philadelphia','SF':'San Francisco','ARI':'Chicago','CHI':'Chicago',
+  'MIN':'Minnesota','SEA':'Seattle','GB':'Green Bay',
+};
+const FULL_NAME_MAP = {
+  'Jacksonville':1,'Buffalo':1,'New England':1,'Miami':1,'Denver':1,
+  'Las Vegas':1,'Cincinnati':1,'Los Angeles':1,'Pittsburgh':1,'Atlanta':1,
+  'Washington':1,'New York':1,'Philadelphia':1,'San Francisco':1,
+  'Chicago':1,'Minnesota':1,'Seattle':1,'Green Bay':1,
+};
+function resolveSheetTeam(name) {
+  const t = name.trim();
+  if (TEAM_SHEET_MAP[t]) return TEAM_SHEET_MAP[t];
+  if (TEAM_SHEET_MAP[t.toUpperCase()]) return TEAM_SHEET_MAP[t.toUpperCase()];
+  if (FULL_NAME_MAP[t]) return t;
+  return null;
+}
+
+self.onmessage = function(e) {
+  try {
+    const { arrayBuffer, id } = e.data;
+    const wb = XLSX.read(arrayBuffer, { type: 'array', raw: false });
+    const teamSheets = wb.SheetNames.filter(n => resolveSheetTeam(n) !== null);
+    const contracts = {};
+    let totalPlayers = 0;
+
+    teamSheets.forEach(sheetName => {
+      const ws = wb.Sheets[sheetName];
+      if (!ws) return;
+      const teamName = resolveSheetTeam(sheetName);
+      const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (!rawRows || rawRows.length < 3) return;
+
+      let headerRowIdx = -1;
+      for (let i = 0; i < Math.min(5, rawRows.length); i++) {
+        const row = rawRows[i].map(c => String(c).trim().toLowerCase());
+        if (row.includes('pid') && row.includes('first') && row.includes('last')) { headerRowIdx = i; break; }
+      }
+      if (headerRowIdx === -1) return;
+
+      const headers = rawRows[headerRowIdx].map(c => String(c).trim());
+      const col = {};
+      const contractYearCols = [];
+      const peekRows = rawRows.slice(headerRowIdx + 1, headerRowIdx + 6);
+
+      headers.forEach((h, i) => {
+        const lh = h.toLowerCase().replace(/\\s+/g,'');
+        const hr = h.trim();
+        if      (lh === 'pid')                         col.pid = i;
+        else if (lh === 'draftslot' || lh === 'draft') col.draftSlot = i;
+        else if (lh === 'first')                        col.first = i;
+        else if (lh === 'last')                         col.last = i;
+        else if (lh === 'team')                         col.team = i;
+        else if (lh === 'pos' || lh === 'position')     col.pos = i;
+        else if (lh === 'year' || lh === 'years')       col.year = i;
+        else if (/^\\$?20\\d{2}\\$?$/.test(hr) || /^20\\d{2}$/.test(hr)) {
+          const yr = parseInt(hr.replace(/[$]/g,''));
+          if (isNaN(yr)) return;
+          let hasDollarVal = false, hasXMark = false;
+          for (const pr of peekRows) {
+            if (!pr) continue;
+            const v = String(pr[i] || '').trim().replace(/[$,]/g,'');
+            if (v === 'X' || v === 'x' || v === '1') { hasXMark = true; break; }
+            const n = parseFloat(v);
+            if (!isNaN(n) && n > 1000) { hasDollarVal = true; break; }
+          }
+          if (hasDollarVal) { col['salary_' + yr] = i; contractYearCols.push({ year: yr, idx: i, isSalary: true }); }
+          else              { contractYearCols.push({ year: yr, idx: i, isSalary: false }); }
+        }
+      });
+
+      if (col.first === undefined || col.last === undefined) return;
+
+      for (let ri = headerRowIdx + 1; ri < rawRows.length; ri++) {
+        const row = rawRows[ri];
+        if (!row || row.length < 3) continue;
+        const firstName = String(row[col.first] || '').trim();
+        const lastName  = String(row[col.last]  || '').trim();
+        if (!firstName && !lastName) continue;
+        const fullName = [firstName, lastName].filter(Boolean).join(' ');
+        if (fullName.length < 2) continue;
+
+        const pid       = col.pid       !== undefined ? String(row[col.pid]       || '').trim() : '';
+        const draftSlot = col.draftSlot !== undefined ? String(row[col.draftSlot] || '').trim() : '';
+        const pos       = col.pos       !== undefined ? String(row[col.pos]       || '').trim().toUpperCase() : '';
+        const yearsLeft = col.year      !== undefined ? String(row[col.year]      || '').trim() : '';
+
+        const salaries = {};
+        Object.keys(col).filter(k => k.startsWith('salary_')).forEach(k => {
+          const yr = parseInt(k.replace('salary_',''));
+          const raw = String(row[col[k]] || '').trim().replace(/[$,]/g,'');
+          const num = parseFloat(raw);
+          if (!isNaN(num) && num > 0) salaries[yr] = num;
+        });
+        const salaryYears = Object.keys(salaries).map(Number).sort((a,b)=>a-b);
+        const currentSalaryYear = salaryYears[0] || null;
+        const nextSalaryYear    = salaryYears[1] || null;
+        const currentSalary     = currentSalaryYear ? salaries[currentSalaryYear] : null;
+        const nextSalary        = nextSalaryYear    ? salaries[nextSalaryYear]    : null;
+
+        const ds = draftSlot.toUpperCase().trim();
+        let draftRound = '', draftPick = '', draftTeam = '';
+        const m2 = ds.match(/^(\\d+)-([A-Z]+)-(\\d+)-(\\d+)$/);
+        const m1 = ds.match(/^([A-Z]+)\\s+(\\d+)-(\\d+)$/);
+        const m3 = ds.match(/^([A-Z]+)\\s*(\\d+)-(\\d+)$/);
+        if (m2) { draftTeam=m2[2]; draftRound=m2[3]; draftPick=m2[4]; }
+        else if (m1) { draftTeam=m1[1]; draftRound=m1[2]; draftPick=m1[3]; }
+        else if (m3) { draftTeam=m3[1]; draftRound=m3[2]; draftPick=m3[3]; }
+        else if (ds==='X'||ds==='') draftRound='UDFA';
+        else draftRound=ds;
+
+        const contractedYears = contractYearCols
+          .filter(({idx,isSalary}) => { if (isSalary) return false; const v=String(row[idx]||'').trim().toUpperCase(); return v==='X'||v==='1'; })
+          .map(({year}) => year);
+        const contractStart  = contractedYears.length ? Math.min(...contractedYears) : null;
+        const contractEnd    = contractedYears.length ? Math.max(...contractedYears) : null;
+        const contractLength = contractedYears.length;
+
+        const contract = {
+          playerName:fullName, firstName, lastName, team:teamName, position:pos,
+          playerId:pid, draftSlot, draftRound, draftPick, draftTeam,
+          yearsLeft: yearsLeft !== '' ? yearsLeft : String(contractLength),
+          contractLength, contractStart, contractEnd, contractYearList:contractedYears,
+          salaries, currentSalaryYear, nextSalaryYear, currentSalary, nextSalary, sheetName,
+        };
+
+        const key = fullName.toLowerCase().replace(/[^a-z0-9]/g,'');
+        if (key.length > 1) { contracts[key] = contract; totalPlayers++; }
+        const lnKey = '_last_' + lastName.toLowerCase().replace(/[^a-z]/g,'');
+        if (!contracts[lnKey]) contracts[lnKey] = [];
+        contracts[lnKey].push(contract);
+        if (pid && pid !== 'X') contracts['_pid_' + pid] = contract;
+      }
+    });
+
+    self.postMessage({ id, ok: true, contracts, teamCount: teamSheets.length, playerCount: totalPlayers });
+  } catch(err) {
+    self.postMessage({ id: e.data.id, ok: false, error: err.message });
+  }
+};
+`;
+let _contractWorker = null;
+let _workerCallbacks = {};
+let _workerCallId = 0;
+
+function getContractWorker() {
+  if (_contractWorker) return _contractWorker;
+  try {
+    const blob = new Blob([_workerCode], { type: 'application/javascript' });
+    const url  = URL.createObjectURL(blob);
+    _contractWorker = new Worker(url);
+    _contractWorker.onmessage = (e) => {
+      const { id, ok, contracts, teamCount, playerCount, error } = e.data;
+      const cb = _workerCallbacks[id];
+      if (cb) { delete _workerCallbacks[id]; cb(ok, { contracts, teamCount, playerCount, error }); }
+    };
+    _contractWorker.onerror = (e) => {
+      console.error('[ContractWorker] Error:', e.message);
+      // Terminate and reset so next call falls back to main-thread parsing
+      _contractWorker.terminate();
+      _contractWorker = null;
+    };
+    return _contractWorker;
+  } catch(e) {
+    console.warn('[ContractWorker] Could not create worker:', e.message);
+    return null;
+  }
+}
+
+// Async wrapper: parse off main thread if possible, fall back to parseContractXLSX() sync
+function parseContractAsync(arrayBuffer) {
+  return new Promise((resolve, reject) => {
+    const worker = getContractWorker();
+    if (!worker) {
+      // Fall back to main thread
+      try { resolve(parseContractXLSX(arrayBuffer)); } catch(e) { reject(e); }
+      return;
+    }
+    const id = ++_workerCallId;
+    _workerCallbacks[id] = (ok, data) => {
+      if (ok) {
+        resolve({
+          contracts:   data.contracts,
+          teamCount:   data.teamCount,
+          playerCount: data.playerCount,
+          fetchedAt:   new Date().toISOString(),
+          sheets:      [],
+        });
+      } else {
+        // Worker failed — fall back to main thread
+        console.warn('[ContractWorker] Falling back to main thread:', data.error);
+        try { resolve(parseContractXLSX(arrayBuffer)); } catch(e) { reject(e); }
+      }
+    };
+    worker.postMessage({ id, arrayBuffer }, [arrayBuffer]);
+  });
+}
+</script>
+
+<script>
 // ── PNFL AI Analyst ──
 // HuggingFace blocks CORS from browsers on all direct endpoints.
 // Requests are routed through a lightweight Cloudflare Worker proxy (pnfl_ai_proxy_worker.js)
@@ -584,7 +793,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v4.9.1...</div>
+  <div class="pl-sub">Loading v5.0...</div>
 </div>
 <div id="root"></div>
 <script type="text/babel">
@@ -659,7 +868,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '4.9.1';
+const APP_VERSION = '5.0';
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
@@ -2836,9 +3045,112 @@ function loadStandingsCache() { return storageWithSession.get('pnfl_standings') 
 function saveStandingsCache(s){ storageWithSession.set('pnfl_standings', s); }
 function loadContractCache()  { return storageWithSession.get('pnfl_contracts') || null; }
 function saveContractCache(c) { storageWithSession.set('pnfl_contracts', c); }
+function loadSeasonCache()    { return storageWithSession.get('pnfl_season')    || null; }
+function saveSeasonCache(d)   { storageWithSession.set('pnfl_season', d); }
+function loadGameStatsCache() { return storageWithSession.get('pnfl_gamestats') || null; }
+function saveGameStatsCache(d){ storageWithSession.set('pnfl_gamestats', d); }
 
 // ── Contract Data Parser (SheetJS) ──
 // Parses PNFL Contracts.xlsx and returns a map keyed by player name
+// ── Season Stats Parser ──
+function parseSeasonStats(html) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const text = doc.body ? doc.body.innerText || doc.body.textContent : html;
+
+  const result = { fetchedAt: new Date().toISOString(), teams: {} };
+
+  // Extract season/week
+  const wm = text.match(/Week\s*(\d+)/i);
+  if (wm) result.week = wm[1];
+  const sm = text.match(/(\d{4})\s*season/i);
+  if (sm) result.season = sm[1];
+
+  const TEAM_NAMES_LIST = [
+    'Jacksonville','Buffalo','New England','Miami','Denver','Las Vegas',
+    'Cincinnati','Los Angeles','Pittsburgh','Atlanta','New York','Philadelphia',
+    'Washington','Green Bay','Chicago','Seattle','Minnesota','San Francisco'
+  ];
+
+  // Parse tables for team stats
+  const tables = doc.querySelectorAll('table');
+  tables.forEach(table => {
+    const rows = Array.from(table.querySelectorAll('tr'));
+    rows.forEach(row => {
+      const cells = Array.from(row.querySelectorAll('td,th')).map(c => c.textContent.trim());
+      if (cells.length < 3) return;
+      // Look for team name in first cell
+      const teamName = TEAM_NAMES_LIST.find(t => cells[0].includes(t));
+      if (!teamName) return;
+      if (!result.teams[teamName]) result.teams[teamName] = {};
+      // Store raw stats as key-value pairs from header + row
+      cells.forEach((v, i) => {
+        if (i === 0) return;
+        const num = parseFloat(v.replace(/,/g,''));
+        if (!isNaN(num)) result.teams[teamName]['col_' + i] = num;
+      });
+    });
+  });
+
+  // Also scan plain text for common stat patterns
+  // "Miami  3-0  pts: 142  opp: 98"
+  TEAM_NAMES_LIST.forEach(team => {
+    const re = new RegExp(team + '[\\s\\S]{0,200}?(\\d+)-(\\d+)', 'i');
+    const m = text.match(re);
+    if (m) {
+      if (!result.teams[team]) result.teams[team] = {};
+      result.teams[team].wins   = parseInt(m[1]);
+      result.teams[team].losses = parseInt(m[2]);
+    }
+  });
+
+  return result;
+}
+
+// ── Game Stats Parser ──
+function parseGameStats(html) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const text = doc.body ? doc.body.innerText || doc.body.textContent : html;
+  const result = { fetchedAt: new Date().toISOString(), games: [], week: null, season: null };
+
+  const wm = text.match(/Week\s*(\d+)/i);
+  if (wm) result.week = parseInt(wm[1]);
+  const sm = text.match(/(\d{4})\s*season/i);
+  if (sm) result.season = sm[1];
+
+  // Parse score lines: "TeamA XX - XX TeamB"
+  const scorePattern = /([A-Za-z ]+?)\s+(\d+)\s*[-–]\s*(\d+)\s+([A-Za-z ]+)/g;
+  let m;
+  while ((m = scorePattern.exec(text)) !== null) {
+    const team1 = m[1].trim(), score1 = parseInt(m[2]);
+    const score2 = parseInt(m[3]), team2 = m[4].trim();
+    if (score1 >= 0 && score2 >= 0 && team1.length > 2 && team2.length > 2) {
+      result.games.push({ team1, score1, team2, score2, winner: score1 > score2 ? team1 : team2 });
+    }
+  }
+
+  // Also extract from tables
+  const tables = doc.querySelectorAll('table');
+  tables.forEach(table => {
+    const rows = Array.from(table.querySelectorAll('tr'));
+    let headers = [];
+    rows.forEach(row => {
+      const cells = Array.from(row.querySelectorAll('td,th')).map(c => c.textContent.trim());
+      if (cells.some(c => c.toLowerCase().includes('team') || c.toLowerCase().includes('score'))) {
+        headers = cells;
+      } else if (headers.length && cells.length >= 2) {
+        const entry = {};
+        cells.forEach((v, i) => { if (headers[i]) entry[headers[i].toLowerCase()] = v; });
+        if (entry.team || entry.home || entry.away) result.games.push(entry);
+      }
+    });
+  });
+
+  return result;
+}
+
+
 function parseContractXLSX(arrayBuffer) {
   const wb = XLSX.read(arrayBuffer, { type: 'array', raw: false });
   const contracts = {};
@@ -3084,28 +3396,46 @@ function parseContractXLSX(arrayBuffer) {
   };
 }
 
-// Lookup a contract by player name or PID (fuzzy)
+// Build an indexed Map from contractData for O(1) lookups
+// Called once and cached on the contractData object
+function buildContractIndex(contractData) {
+  if (!contractData || !contractData.contracts) return;
+  if (contractData._index) return; // already built
+  const idx = new Map();
+  const raw = contractData.contracts;
+  Object.keys(raw).forEach(k => {
+    const v = raw[k];
+    if (Array.isArray(v)) {
+      // last-name buckets — store as-is
+      idx.set(k, v);
+    } else if (v && v.playerName) {
+      idx.set(k, v);
+    }
+  });
+  contractData._index = idx;
+}
+
+// Lookup a contract by player name or PID (O(1) via Map index)
 function lookupContract(contractData, playerName, pid) {
   if (!contractData || !contractData.contracts) return null;
-  const c = contractData.contracts;
+  buildContractIndex(contractData);
+  const idx = contractData._index;
 
   // Direct PID lookup
-  if (pid && c['_pid_' + pid]) return c['_pid_' + pid];
-
+  if (pid) { const v = idx.get('_pid_' + pid); if (v) return v; }
   if (!playerName) return null;
 
   // Exact normalized full name
   const key = playerName.toLowerCase().replace(/[^a-z0-9]/g,'');
-  if (c[key]) return c[key];
+  const exact = idx.get(key);
+  if (exact) return exact;
 
   // Last name fallback
   const parts = playerName.trim().split(/\s+/);
   const lastName = (parts[parts.length-1] || '').toLowerCase().replace(/[^a-z]/g,'');
-  const lastMatches = c['_last_' + lastName];
+  const lastMatches = idx.get('_last_' + lastName);
   if (!lastMatches || !lastMatches.length) return null;
   if (lastMatches.length === 1) return lastMatches[0];
-
-  // Multiple last-name matches — try first initial
   const firstInitial = (parts[0] || '').toLowerCase()[0];
   if (firstInitial) {
     const m = lastMatches.find(x => x.firstName && x.firstName.toLowerCase().startsWith(firstInitial));
@@ -4595,6 +4925,173 @@ Question: ${aiQuery}`;
   );
 }
 
+// ── AI Scouting Report Panel ──
+function ScoutingReport({ getTeamData, weights, depth, designation, contractData, standingsData, seasonData, gameStatsData, rosterMeta }) {
+  const [team, setTeam] = useState('');
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const aiReady = !!(window.pnflAI?.isReady?.());
+
+  const generateReport = async () => {
+    if (!team || !aiReady) return;
+    setLoading(true);
+    setError('');
+    setReport(null);
+
+    try {
+      const td = getTeamData(team) || {};
+      const wts = weights || loadWeights();
+      const standing = standingsData?.rankings?.find(r => r.team === team) || {};
+
+      // Build rich context from all data sources
+      const posScores = {};
+      [...POSITION_GROUPS.offense, ...POSITION_GROUPS.defense].forEach(pos => {
+        const score = calculatePositionScore(td, pos, wts, (depth||loadDepth())[pos]||3, designation||'AO');
+        if (score !== null) posScores[pos] = score;
+      });
+      const sortedPos = Object.entries(posScores).sort((a,b)=>b[1]-a[1]);
+      const topPos = sortedPos.slice(0,3).map(([p,s])=>`${POSITION_DISPLAY[p]||p} (${s.toFixed(1)})`).join(', ');
+      const weakPos = sortedPos.slice(-3).reverse().map(([p,s])=>`${POSITION_DISPLAY[p]||p} (${s.toFixed(1)})`).join(', ');
+
+      // Best contract value: high roster score, low salary, years remaining
+      let sleeper = '', valueDeal = '';
+      if (contractData) {
+        let bestValue = null, bestValueScore = -Infinity;
+        let bestSleeper = null, bestSleeperScore = -Infinity;
+        Object.values(td).flat().forEach(p => {
+          if (!p?.attrs) return;
+          const contract = lookupContract(contractData, p.name, p.num);
+          const pScore = calculatePlayerScore(p.attrs, Object.keys(td).find(pos => (td[pos]||[]).includes(p)) || 'QB', wts);
+          // Value = score / salary ratio
+          if (contract?.currentSalary && contract.currentSalary > 0) {
+            const valueScore = pScore / (contract.currentSalary / 1000000);
+            if (valueScore > bestValueScore) { bestValueScore = valueScore; bestValue = { ...p, contract, pScore }; }
+          }
+          // Sleeper = high potential gap, cheap
+          const pPos = Object.keys(td).find(pos => (td[pos]||[]).includes(p)) || 'QB';
+          const pMax = POS_POTENTIAL_MAX[pPos] || POS_POTENTIAL_MAX.LB;
+          const potTotal = pMax.reduce((s,v)=>s+v,0);
+          const actTotal = p.attrs.reduce((s,v)=>s+v,0);
+          const gap = potTotal - actTotal;
+          if (gap > 30 && (!contract?.currentSalary || contract.currentSalary < 2000000)) {
+            if (gap > bestSleeperScore) { bestSleeperScore = gap; bestSleeper = { ...p, contract, gap }; }
+          }
+        });
+        if (bestValue) valueDeal = `${bestValue.name} ($${(bestValue.contract.currentSalary/1000000).toFixed(1)}M/yr, score ${bestValue.pScore.toFixed(0)})`;
+        if (bestSleeper) sleeper = `${bestSleeper.name} (${bestSleeper.gap} potential gap${bestSleeper.contract?.currentSalary ? ', $' + (bestSleeper.contract.currentSalary/1000000).toFixed(1)+'M' : ''})`;
+      }
+
+      // Recent game results from gameStatsData
+      const recentGames = (gameStatsData?.games || [])
+        .filter(g => g.team1 === team || g.team2 === team || String(g.team||'').includes(team))
+        .slice(0,3)
+        .map(g => g.team1 && g.score1 !== undefined ? `${g.team1} ${g.score1}-${g.score2} ${g.team2}` : JSON.stringify(g))
+        .join('; ');
+
+      const season = rosterMeta?.season || '2048';
+      const week   = rosterMeta?.week   || '?';
+
+      const systemPrompt = `You are an expert PNFL fantasy football scout writing a professional scouting report. Be analytical, specific, and concise. Use the provided data only. Format your response with exactly these 5 section headers on separate lines: STRENGTHS:, CONCERNS:, BEST CONTRACT:, SLEEPER:, DRAFT PRIORITY: Each section should be 1-2 sentences.`;
+
+      const userMsg = `Generate a scouting report for the ${team} — Season ${season}, Week ${week}.
+
+STANDINGS: Rank #${standing.rank||'?'}, Record ${standing.wins||0}W-${standing.losses||0}L, ${standing.pts||0} power points
+STRONGEST POSITIONS: ${topPos}
+WEAKEST POSITIONS: ${weakPos}
+BEST CONTRACT VALUE: ${valueDeal || 'Not available'}
+SLEEPER CANDIDATE: ${sleeper || 'None identified'}
+RECENT GAMES: ${recentGames || 'No game data'}
+OFFENSE TOTAL: ${(calculateUnitScore(td,'offense',wts,depth||loadDepth(),designation||'AO')||0).toFixed(1)}
+DEFENSE TOTAL: ${(calculateUnitScore(td,'defense',wts,depth||loadDepth(),designation||'AO')||0).toFixed(1)}`;
+
+      const response = await window.pnflAI.ask(systemPrompt, userMsg, 400);
+      setReport(parseScoutingReport(response));
+      playSound('compareDone');
+      haptic('medium');
+    } catch(e) {
+      setError(e.message || String(e));
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="panel-content">
+      <div style={{marginBottom:'14px',color:'#a0d2a0',fontSize:'0.82rem',fontFamily:'Roboto Condensed',lineHeight:1.5}}>
+        AI-generated scouting report using roster scores, contract value, standings, and game stats for the current week.
+        {!aiReady && <span style={{color:'#ff9944',display:'block',marginTop:'4px'}}>⚠️ Enable AI Analyst in the header bar first.</span>}
+      </div>
+      <div style={{display:'flex',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
+        <select value={team} onChange={e=>setTeam(e.target.value)}
+          style={{flex:1,padding:'8px 12px',background:'rgba(10,22,40,0.9)',border:'1px solid #2d5a2d',borderRadius:'8px',color:'#a0d2a0',fontFamily:'Roboto Condensed',fontSize:'0.9rem',outline:'none',minWidth:'180px'}}>
+          <option value="">Select a team…</option>
+          {TEAM_NAMES.map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+        <button onClick={generateReport} disabled={!team||loading||!aiReady} className="haptic-btn"
+          style={{padding:'8px 20px',background: team&&aiReady?'linear-gradient(135deg,#1a3a6c,#0d2450)':'rgba(30,40,50,0.4)',border:`2px solid ${team&&aiReady?'#4a9eff':'#2a3a4a'}`,borderRadius:'8px',color:team&&aiReady?'#7ec8ff':'#3a5060',fontFamily:'Orbitron',fontSize:'0.78rem',fontWeight:'700',cursor:team&&aiReady?'pointer':'not-allowed',transition:'all 0.2s',opacity:team&&aiReady?1:0.5}}>
+          {loading ? <span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span> : '📋 Generate'}
+        </button>
+      </div>
+      {error && <div style={{padding:'8px 12px',background:'rgba(255,60,60,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'7px',fontSize:'0.75rem',color:'#ff9090',fontFamily:'Roboto Condensed',marginBottom:'12px'}}>{error}</div>}
+      {report && <ScoutingReportCard report={report} team={team} rosterMeta={rosterMeta}/>}
+    </div>
+  );
+}
+
+function parseScoutingReport(text) {
+  const sections = { STRENGTHS:'', CONCERNS:'', 'BEST CONTRACT':'', SLEEPER:'', 'DRAFT PRIORITY':'' };
+  const keys = Object.keys(sections);
+  keys.forEach((key, i) => {
+    const pattern = new RegExp(key + ':?\\s*([\\s\\S]*?)(?=' + (keys[i+1] ? keys[i+1] + ':' : '$') + ')', 'i');
+    const m = text.match(pattern);
+    if (m) sections[key] = m[1].trim();
+  });
+  // If structured parsing fails, return raw text
+  if (!sections.STRENGTHS && !sections.CONCERNS) sections.RAW = text;
+  return sections;
+}
+
+function ScoutingReportCard({ report, team, rosterMeta }) {
+  const sections = [
+    { key:'STRENGTHS',      icon:'💪', color:'#4aff4a', bg:'rgba(74,255,74,0.05)',  border:'rgba(74,255,74,0.2)' },
+    { key:'CONCERNS',       icon:'⚠️', color:'#ff9944', bg:'rgba(255,153,68,0.05)', border:'rgba(255,153,68,0.2)' },
+    { key:'BEST CONTRACT',  icon:'💰', color:'#3ddc84', bg:'rgba(61,220,132,0.05)', border:'rgba(61,220,132,0.2)' },
+    { key:'SLEEPER',        icon:'⚡', color:'#c090ff', bg:'rgba(160,100,255,0.05)','border':'rgba(160,100,255,0.2)' },
+    { key:'DRAFT PRIORITY', icon:'🎯', color:'#ffd700', bg:'rgba(255,215,0,0.05)',  border:'rgba(255,215,0,0.2)' },
+  ];
+  return (
+    <div style={{borderRadius:'10px',overflow:'hidden',border:'1px solid rgba(74,158,255,0.2)'}}>
+      {/* Header */}
+      <div style={{padding:'10px 16px',background:'linear-gradient(90deg,rgba(13,40,24,0.95),rgba(10,22,40,0.95))',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid rgba(74,158,255,0.15)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+          <TeamLogo teamName={team} size="small"/>
+          <div>
+            <div style={{fontFamily:'Orbitron',fontSize:'0.82rem',color:'#4a9eff',fontWeight:'700',letterSpacing:'1px'}}>{team.toUpperCase()} — SCOUTING REPORT</div>
+            <div style={{fontSize:'0.65rem',color:'#5a8a6a',fontFamily:'Roboto Condensed'}}>Season {rosterMeta?.season||'2048'} · Week {rosterMeta?.week||'?'} · AI-Generated</div>
+          </div>
+        </div>
+      </div>
+      {/* Sections */}
+      <div style={{background:'rgba(0,0,0,0.15)'}}>
+        {report.RAW ? (
+          <div style={{padding:'14px 16px',fontSize:'0.82rem',color:'#a0d2a0',fontFamily:'Roboto Condensed',lineHeight:1.6,whiteSpace:'pre-wrap'}}>{report.RAW}</div>
+        ) : (
+          sections.filter(s => report[s.key]).map(s => (
+            <div key={s.key} style={{padding:'10px 16px',background:s.bg,borderLeft:`3px solid ${s.color}`,borderBottom:'1px solid rgba(255,255,255,0.04)',margin:'0'}}>
+              <div style={{display:'flex',alignItems:'baseline',gap:'8px',marginBottom:'4px'}}>
+                <span style={{fontSize:'0.85rem'}}>{s.icon}</span>
+                <span style={{fontFamily:'Orbitron',fontSize:'0.62rem',color:s.color,letterSpacing:'1.5px',fontWeight:'700',textTransform:'uppercase'}}>{s.key}</span>
+              </div>
+              <div style={{fontSize:'0.82rem',color:'#a0c0a0',fontFamily:'Roboto Condensed',lineHeight:1.55,paddingLeft:'28px'}}>{report[s.key]}</div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DataHelpers({ contractData, onFetchContracts, fetchingContracts, rosterMeta }) {
   const [paste,setPaste]=useState('');
   const [show,setShow]=useState(false);
@@ -5190,6 +5687,8 @@ function App() {
   const [rosterData,setRosterData]=useState(()=>loadRosterCache());
   const [standingsData,setStandingsData]=useState(()=>loadStandingsCache());
   const [contractData,setContractData]=useState(()=>loadContractCache());
+  const [seasonData,setSeasonData]=useState(()=>loadSeasonCache());
+  const [gameStatsData,setGameStatsData]=useState(()=>loadGameStatsCache());
   const [fetching,setFetching]=useState(false);
   const [fetchingContracts,setFetchingContracts]=useState(false);
   const [fetchError,setFetchError]=useState(null);
@@ -5242,7 +5741,13 @@ function App() {
     setFetching(true);
     setFetchError(null);
 
-    const [rosterResult, standingsResult] = await Promise.all([
+    // Build GameStats URL based on current week (updated each fetch)
+    const currentWeek = rosterData?.week || standingsData?.week || '3';
+    const currentSeason = rosterData?.season || standingsData?.season || '2048';
+    const weekPadded = String(currentWeek).padStart(1,'0');
+    const gameStatsUrl = `https://pnfl.biz/GameStats/${currentSeason}/${currentSeason}W${weekPadded}-PNFL_game%20stats.htm`;
+
+    const [rosterResult, standingsResult, seasonResult, gameStatsResult] = await Promise.all([
       fetchViaProxy(
         'https://pnfl.biz/pnflstats/PNFL_roster.htm',
         t => t.includes('Team Roster') || t.includes('PNFL')
@@ -5250,6 +5755,14 @@ function App() {
       fetchViaProxy(
         'https://pnfl.biz/pnflstats/PNFL_standings.htm',
         t => t.includes('Power Rankings') || t.includes('PNFL') || t.includes('Miami') || t.includes('Pittsburgh')
+      ),
+      fetchViaProxy(
+        'https://pnfl.biz/pnflstats/PNFL_season.htm',
+        t => t.includes('PNFL') || t.length > 500
+      ),
+      fetchViaProxy(
+        gameStatsUrl,
+        t => t.includes('PNFL') || t.includes('stat') || t.length > 500
       ),
     ]);
 
@@ -5280,6 +5793,26 @@ function App() {
       } catch(e) {
         console.warn('Standings parse failed:', e.message);
       }
+    }
+
+    // Season stats
+    if (seasonResult.ok) {
+      try {
+        const parsed = parseSeasonStats(seasonResult.text);
+        saveSeasonCache(parsed);
+        setSeasonData(parsed);
+        console.log('[PNFL] Season stats loaded');
+      } catch(e) { console.warn('Season parse failed:', e.message); }
+    }
+
+    // Game stats for current week
+    if (gameStatsResult.ok) {
+      try {
+        const parsed = parseGameStats(gameStatsResult.text);
+        saveGameStatsCache(parsed);
+        setGameStatsData(parsed);
+        console.log('[PNFL] GameStats loaded:', parsed.games.length, 'games');
+      } catch(e) { console.warn('GameStats parse failed:', e.message); }
     }
 
     if (rosterOk || standingsOk) {
@@ -5330,8 +5863,8 @@ function App() {
     }
 
     try {
-      const parsed = parseContractXLSX(arrayBuffer);
-      if (parsed.playerCount === 0) throw new Error('No player contracts found in file');
+      const parsed = await parseContractAsync(arrayBuffer);
+      if (!parsed || parsed.playerCount === 0) throw new Error('No player contracts found in file');
       saveContractCache(parsed);
       playSound('contractOk');
       setContractData(parsed);
@@ -5429,13 +5962,14 @@ function App() {
           { id:'roster-pr',   icon:'🏆',  label:'Roster Power\nRankings',color:'#7ec8ff' },
           { id:'league-pr',   icon:'📡',  label:'League Power\nRankings',color:'#7ec8ff' },
           { id:'trade',       icon:'🔄',  label:'Trade\nAnalyzer',      color:'#ff9944' },
+          { id:'scouting',    icon:'🔬',  label:'AI Scouting\nReport',  color:'#c090ff' },
         ];
         return (
           <div style={{marginBottom:'4px'}}>
             {/* Grid of 6 buttons — 2 rows × 3 cols */}
             <div className="panel-grid-6" style={{
               display:'grid',
-              gridTemplateColumns:'repeat(3,1fr)',
+              gridTemplateColumns:'repeat(auto-fill,minmax(120px,1fr))',
               gap:'8px',
               marginBottom:'0',
               padding:'14px 0 0 0',
@@ -5494,6 +6028,7 @@ function App() {
                 {activePanel==='roster-pr'  && <PowerRankings    getTeamData={getTeamData} weights={weights} depth={depth} designation={designation}/>}
                 {activePanel==='league-pr'  && <LeaguePowerRankings standingsData={standingsData}/>}
                 {activePanel==='trade'      && <TradeAnalyzer    getTeamData={getTeamData} weights={weights} depth={depth} designation={designation}/>}
+                {activePanel==='scouting'   && <ScoutingReport    getTeamData={getTeamData} weights={weights} depth={depth} designation={designation} contractData={contractData} standingsData={standingsData} seasonData={seasonData} gameStatsData={gameStatsData} rosterMeta={rosterMeta}/>}
               </div>
             )}
           </div>
