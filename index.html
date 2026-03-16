@@ -143,12 +143,7 @@ window.pnflAI = {
 
     const payload = ai._chatMode
       ? { model: ai._activeModel, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }], max_tokens: maxTokens || 250, temperature: 0.4 }
-      : { inputs: '<|im_start|>system
-' + systemPrompt + '<|im_end|>
-<|im_start|>user
-' + userMessage + '<|im_end|>
-<|im_start|>assistant
-', parameters: { max_new_tokens: maxTokens || 250, temperature: 0.4, return_full_text: false } };
+      : { inputs: '<|im_start|>system\n' + systemPrompt + '<|im_end|>\n<|im_start|>user\n' + userMessage + '<|im_end|>\n<|im_start|>assistant\n', parameters: { max_new_tokens: maxTokens || 250, temperature: 0.4, return_full_text: false } };
 
     const res = await fetch(ai._activeUrl, {
       method:  'POST',
