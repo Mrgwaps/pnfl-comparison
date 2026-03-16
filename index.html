@@ -17,152 +17,108 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 // ── PNFL AI Analyst — HuggingFace Serverless Inference (Qwen2.5-1.5B-Instruct) ──
-// Fine-grained token: needs "inference.serverless.write" scope at hf.co/settings/tokens
+// Fine-grained token needs "inference.serverless.write" scope at hf.co/settings/tokens
+// NOTE: No validation ping — HF router blocks CORS preflight from browsers.
+//       We trust the key format and surface any errors on first real call instead.
 window.pnflAI = {
-  _ready: false, _loading: false, _error: null, _apiKey: '', _activeUrl: '', _chatMode: true,
+  _ready: false, _loading: false, _error: null,
+  _apiKey: '', _activeUrl: '', _chatMode: true, _activeModel: '',
 
   isReady:   function() { return window.pnflAI._ready; },
   isLoading: function() { return window.pnflAI._loading; },
   getError:  function() { return window.pnflAI._error; },
 
+  // Ordered list of endpoints to try when asking a question
+  _ENDPOINTS: [
+    { url: 'https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-1.5B-Instruct/v1/chat/completions', chat: true,  model: 'Qwen/Qwen2.5-1.5B-Instruct' },
+    { url: 'https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-0.5B-Instruct/v1/chat/completions', chat: true,  model: 'Qwen/Qwen2.5-0.5B-Instruct' },
+    { url: 'https://api-inference.huggingface.co/models/Qwen/Qwen2.5-1.5B-Instruct',                            chat: false, model: 'Qwen/Qwen2.5-1.5B-Instruct' },
+  ],
+
+  // load() — just validates key format, no network call (CORS blocks HF preflight from browsers)
   load: async function(apiKey) {
     const ai = window.pnflAI;
     if (ai._loading) return;
     ai._loading = true;
-    ai._error = null;
-    ai._ready = false;
+    ai._error   = null;
+    ai._ready   = false;
 
     const key = (apiKey || '').trim();
     if (!key) {
-      ai._error = 'No API key provided';
+      ai._error = 'No API key provided.';
+      ai._loading = false;
+      throw new Error(ai._error);
+    }
+    if (!key.startsWith('hf_')) {
+      ai._error = 'HuggingFace tokens start with hf_  — check you copied the full token.';
+      ai._loading = false;
+      throw new Error(ai._error);
+    }
+    if (key.length < 20) {
+      ai._error = 'Token looks too short — copy the full hf_... token from huggingface.co/settings/tokens';
       ai._loading = false;
       throw new Error(ai._error);
     }
 
-    // All endpoints to try in order — stops at first success
-    const TESTS = [
-      {
-        label: 'HF Serverless Chat (Qwen2.5-1.5B)',
-        url:   'https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-1.5B-Instruct/v1/chat/completions',
-        chat:  true,
-        model: 'Qwen/Qwen2.5-1.5B-Instruct',
-      },
-      {
-        label: 'HF Serverless Chat (Qwen2.5-0.5B fallback)',
-        url:   'https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-0.5B-Instruct/v1/chat/completions',
-        chat:  true,
-        model: 'Qwen/Qwen2.5-0.5B-Instruct',
-      },
-      {
-        label: 'HF Legacy Inference API',
-        url:   'https://api-inference.huggingface.co/models/Qwen/Qwen2.5-1.5B-Instruct',
-        chat:  false,
-        model: 'Qwen/Qwen2.5-1.5B-Instruct',
-      },
-    ];
-
-    for (const t of TESTS) {
-      let status = null, body = '(no response)';
-      try {
-        const payload = t.chat
-          ? { model: t.model, messages: [{ role: 'user', content: 'Say: ok' }], max_tokens: 5 }
-          : { inputs: 'Say: ok', parameters: { max_new_tokens: 5 } };
-
-        const res = await fetch(t.url, {
-          method:  'POST',
-          headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
-          body:    JSON.stringify(payload),
-        });
-        status = res.status;
-        body   = await res.text();
-        console.log('[PNFL AI]', t.label, '->', status, body.slice(0, 200));
-
-        if (status === 200 || status === 503) {
-          // 200 = working, 503 = model loading (key is valid, will work for actual calls)
-          ai._apiKey     = key;
-          ai._ready      = true;
-          ai._activeUrl  = t.url;
-          ai._chatMode   = t.chat;
-          ai._activeModel = t.model;
-          sessionStorage.setItem('pnfl_ai_key',   key);
-          sessionStorage.setItem('pnfl_ai_url',   t.url);
-          sessionStorage.setItem('pnfl_ai_chat',  String(t.chat));
-          sessionStorage.setItem('pnfl_ai_model', t.model);
-          ai._loading = false;
-          return;
-        }
-
-        // For any error status, parse HF error body for a human-readable message
-        let hfMsg = '';
-        try {
-          const j = JSON.parse(body);
-          hfMsg = j?.error?.message || j?.error || j?.message || '';
-          if (typeof hfMsg !== 'string') hfMsg = JSON.stringify(hfMsg);
-        } catch { hfMsg = body.slice(0, 200); }
-
-        if (status === 401) {
-          ai._error = 'Invalid token (401). Double-check the key was copied correctly.';
-          ai._loading = false; throw new Error(ai._error);
-        }
-        if (status === 403) {
-          ai._error = 'Permission denied (403). Your fine-grained token needs the "inference.serverless.write" scope. At huggingface.co/settings/tokens: Edit your token → Permissions → check "Make calls to the serverless Inference API".' + (hfMsg ? ' HF says: ' + hfMsg : '');
-          ai._loading = false; throw new Error(ai._error);
-        }
-        if (status === 422) {
-          // Wrong format for this endpoint — try next
-          console.warn('[PNFL AI] 422 on', t.label, '— trying next endpoint');
-          continue;
-        }
-        if (status === 404) {
-          console.warn('[PNFL AI] 404 on', t.label, '— trying next endpoint');
-          continue;
-        }
-        // Any other error — record and try next
-        console.warn('[PNFL AI]', t.label, 'returned', status, ':', hfMsg || body.slice(0,100));
-
-      } catch(e) {
-        // Re-throw auth errors immediately
-        if (ai._error) { ai._loading = false; throw e; }
-        // Network/CORS errors — show clearly
-        console.warn('[PNFL AI]', t.label, 'threw:', e.message);
-        if (e.message && (e.message.includes('Failed to fetch') || e.message.includes('NetworkError') || e.message.includes('CORS'))) {
-          ai._error = 'Network error reaching HuggingFace. Check your internet connection. (' + e.message + ')';
-          ai._loading = false; throw new Error(ai._error);
-        }
-      }
-    }
-
-    ai._error = 'All HF endpoints failed. Open browser DevTools → Console and look for [PNFL AI] lines to see the exact error from HuggingFace.';
+    // Accept key — errors will surface on first ask() call
+    ai._apiKey       = key;
+    ai._ready        = true;
+    ai._activeUrl    = ai._ENDPOINTS[0].url;
+    ai._chatMode     = ai._ENDPOINTS[0].chat;
+    ai._activeModel  = ai._ENDPOINTS[0].model;
+    sessionStorage.setItem('pnfl_ai_key',   key);
+    sessionStorage.setItem('pnfl_ai_url',   ai._activeUrl);
+    sessionStorage.setItem('pnfl_ai_chat',  'true');
+    sessionStorage.setItem('pnfl_ai_model', ai._activeModel);
     ai._loading = false;
-    throw new Error(ai._error);
   },
 
   ask: async function(systemPrompt, userMessage, maxTokens) {
     const ai = window.pnflAI;
-    if (!ai._ready || !ai._apiKey) throw new Error('Not connected');
+    if (!ai._apiKey) throw new Error('Not connected — enter your HF token first.');
 
-    const payload = ai._chatMode
-      ? { model: ai._activeModel, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }], max_tokens: maxTokens || 250, temperature: 0.4 }
-      : { inputs: '<|im_start|>system\n' + systemPrompt + '<|im_end|>\n<|im_start|>user\n' + userMessage + '<|im_end|>\n<|im_start|>assistant\n', parameters: { max_new_tokens: maxTokens || 250, temperature: 0.4, return_full_text: false } };
+    // Try each endpoint in order, fall through on network/format errors
+    let lastErr = null;
+    for (const ep of ai._ENDPOINTS) {
+      try {
+        const payload = ep.chat
+          ? { model: ep.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }], max_tokens: maxTokens || 250, temperature: 0.4 }
+          : { inputs: '<|im_start|>system\n' + systemPrompt + '<|im_end|>\n<|im_start|>user\n' + userMessage + '<|im_end|>\n<|im_start|>assistant\n', parameters: { max_new_tokens: maxTokens || 250, temperature: 0.4, return_full_text: false } };
 
-    const res = await fetch(ai._activeUrl, {
-      method:  'POST',
-      headers: { 'Authorization': 'Bearer ' + ai._apiKey, 'Content-Type': 'application/json' },
-      body:    JSON.stringify(payload),
-    });
+        const res = await fetch(ep.url, {
+          method:  'POST',
+          headers: { 'Authorization': 'Bearer ' + ai._apiKey, 'Content-Type': 'application/json' },
+          body:    JSON.stringify(payload),
+        });
 
-    if (res.status === 503) return '⏳ Model is warming up — wait 20 seconds and try again.';
-    if (res.status === 429) return '⏳ Rate limit — wait a moment and try again.';
-    const txt = await res.text();
-    if (!res.ok) throw new Error('HF API error ' + res.status + ': ' + txt.slice(0, 150));
+        // Parse error body for helpful message
+        const txt = await res.text();
+        let hfMsg = txt;
+        try { const j = JSON.parse(txt); hfMsg = j?.error?.message || j?.error || j?.message || txt; if (typeof hfMsg !== 'string') hfMsg = JSON.stringify(hfMsg); } catch {}
+        console.log('[PNFL AI]', ep.url.split('/').slice(-3).join('/'), '->', res.status, hfMsg.slice(0,150));
 
-    try {
-      const d = JSON.parse(txt);
-      if (d.choices?.[0]?.message?.content) return d.choices[0].message.content.trim();
-      if (Array.isArray(d) && d[0]?.generated_text) return d[0].generated_text.trim();
-      if (d.generated_text) return String(d.generated_text).trim();
-      return JSON.stringify(d).slice(0, 300);
-    } catch { return txt.slice(0, 500); }
+        if (res.status === 503) return '⏳ Model warming up on HuggingFace servers — wait 20 seconds and try again.';
+        if (res.status === 429) return '⏳ Rate limit reached — wait a moment and try again.';
+        if (res.status === 401) throw new Error('Invalid token (401) — check your HuggingFace token is correct.');
+        if (res.status === 403) throw new Error('Permission denied (403). Your token needs "Make calls to the serverless Inference API" scope. Edit your token at huggingface.co/settings/tokens → Permissions → check that box.' + (hfMsg && hfMsg !== txt ? ' HF: ' + hfMsg : ''));
+        if (!res.ok) { lastErr = new Error('HTTP ' + res.status + ': ' + hfMsg.slice(0,120)); continue; }
+
+        try {
+          const d = JSON.parse(txt);
+          if (d.choices?.[0]?.message?.content) return d.choices[0].message.content.trim();
+          if (Array.isArray(d) && d[0]?.generated_text) return d[0].generated_text.trim();
+          if (d.generated_text) return String(d.generated_text).trim();
+          return JSON.stringify(d).slice(0,300);
+        } catch { return txt.slice(0,500); }
+
+      } catch(e) {
+        // Hard errors (401/403) — stop trying
+        if (e.message && (e.message.includes('401') || e.message.includes('403') || e.message.includes('Permission') || e.message.includes('Invalid token'))) throw e;
+        lastErr = e;
+        console.warn('[PNFL AI] endpoint failed:', ep.url, e.message);
+      }
+    }
+    throw lastErr || new Error('All HF endpoints failed. Check your internet connection and token permissions.');
   },
 
   restore: function() {
@@ -171,12 +127,12 @@ window.pnflAI = {
       const url   = sessionStorage.getItem('pnfl_ai_url');
       const chat  = sessionStorage.getItem('pnfl_ai_chat');
       const model = sessionStorage.getItem('pnfl_ai_model');
-      if (key && key.startsWith('hf_')) {
+      if (key && key.startsWith('hf_') && key.length >= 20) {
         Object.assign(window.pnflAI, {
           _apiKey: key, _ready: true,
-          _activeUrl: url || 'https://router.huggingface.co/hf-inference/models/Qwen/Qwen2.5-1.5B-Instruct/v1/chat/completions',
-          _chatMode: chat !== 'false',
-          _activeModel: model || 'Qwen/Qwen2.5-1.5B-Instruct',
+          _activeUrl:   url   || window.pnflAI._ENDPOINTS[0].url,
+          _chatMode:    chat  !== 'false',
+          _activeModel: model || window.pnflAI._ENDPOINTS[0].model,
         });
         return true;
       }
@@ -677,6 +633,7 @@ const DEFAULT_DEPTH = {
 };
 
 const APP_VERSION = '4.8';
+const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
 
@@ -2958,6 +2915,7 @@ function parseContractXLSX(arrayBuffer) {
     const contractYearCols = [];
     headers.forEach((h, i) => {
       const lh = h.toLowerCase().replace(/\s+/g,'');
+      const hr = h.trim();
       if      (lh === 'pid')                         col.pid       = i;
       else if (lh === 'draftslot' || lh === 'draft') col.draftSlot = i;
       else if (lh === 'first')                        col.first     = i;
@@ -2965,8 +2923,15 @@ function parseContractXLSX(arrayBuffer) {
       else if (lh === 'team')                         col.team      = i;
       else if (lh === 'pos' || lh === 'position')     col.pos       = i;
       else if (lh === 'year' || lh === 'years')       col.year      = i;
-      else if (/^20\d{2}$/.test(h.trim())) {
-        contractYearCols.push({ year: parseInt(h.trim()), idx: i });
+      // Salary columns: "$2048$", "$2049$", "2048$", "2049$" or plain "$2048"
+      else if (/^\$?20\d{2}\$?$/.test(hr)) {
+        const yr = parseInt(hr.replace(/\$/g,''));
+        if (!isNaN(yr)) col['salary_' + yr] = i;
+        // Also still track as contract year marker if contains X values
+        contractYearCols.push({ year: yr, idx: i, isSalary: true });
+      }
+      else if (/^20\d{2}$/.test(hr)) {
+        contractYearCols.push({ year: parseInt(hr), idx: i });
       }
     });
 
@@ -2988,6 +2953,21 @@ function parseContractXLSX(arrayBuffer) {
       const pos       = col.pos       !== undefined ? String(row[col.pos]       || '').trim().toUpperCase() : '';
       const yearsLeft = col.year      !== undefined ? String(row[col.year]      || '').trim() : '';
 
+      // Parse salary columns — keyed by year e.g. col.salary_2048, col.salary_2049
+      const salaries = {};
+      Object.keys(col).filter(k => k.startsWith('salary_')).forEach(k => {
+        const yr = parseInt(k.replace('salary_',''));
+        const raw = String(row[col[k]] || '').trim().replace(/[$,]/g,'');
+        const num = parseFloat(raw);
+        if (!isNaN(num) && num > 0) salaries[yr] = num;
+      });
+      // Find current season salary and next season salary
+      const salaryYears = Object.keys(salaries).map(Number).sort((a,b)=>a-b);
+      const currentSalaryYear = salaryYears[0] || null;
+      const nextSalaryYear    = salaryYears[1] || null;
+      const currentSalary     = currentSalaryYear ? salaries[currentSalaryYear] : null;
+      const nextSalary        = nextSalaryYear    ? salaries[nextSalaryYear]    : null;
+
       // Parse draft slot: "GB 1-2", "LAC 6-15", "48-BUF-1-1", "X" (UDFA)
       let draftRound = '', draftPick = '', draftTeam = '';
       const ds = draftSlot.toUpperCase().trim();
@@ -3002,7 +2982,8 @@ function parseContractXLSX(arrayBuffer) {
 
       // Determine contracted years (X in that year column)
       const contractedYears = contractYearCols
-        .filter(({idx}) => {
+        .filter(({idx, isSalary}) => {
+          if (isSalary) return false; // salary columns have $amounts, not X marks
           const v = String(row[idx] || '').trim().toUpperCase();
           return v === 'X' || v === '1';
         })
@@ -3028,6 +3009,11 @@ function parseContractXLSX(arrayBuffer) {
         contractStart,
         contractEnd,
         contractYearList: contractedYears,
+        salaries,
+        currentSalaryYear,
+        nextSalaryYear,
+        currentSalary,
+        nextSalary,
         sheetName,
       };
 
@@ -4241,6 +4227,26 @@ Question: ${aiQuery}`;
               }}>{player.status}</span>
               <span style={{color:'#5a8a6a',fontSize:'0.75rem',fontFamily:'Roboto Condensed'}}>{teamName}</span>
             </div>
+            {/* Salary row — shown if contract data has salary info */}
+            {contract && (contract.currentSalary || contract.nextSalary) && (
+              <div style={{display:'flex',alignItems:'center',gap:'8px',marginTop:'6px',flexWrap:'wrap'}}>
+                <img src={MONEY_ICON_URI} alt="$" style={{width:'18px',height:'18px',imageRendering:'crisp-edges'}}/>
+                <span style={{fontSize:'0.7rem',color:'#608060',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase'}}>Salary:</span>
+                {contract.currentSalary && (
+                  <span style={{fontSize:'0.78rem',fontFamily:'Roboto Condensed',fontWeight:'700',color:'#3ddc84'}}>
+                    YR {contract.currentSalaryYear} {fmtSalary(contract.currentSalary)}
+                  </span>
+                )}
+                {contract.currentSalary && contract.nextSalary && (
+                  <span style={{fontSize:'0.65rem',color:'#3a5a3a',fontFamily:'Roboto Condensed'}}>·</span>
+                )}
+                {contract.nextSalary && (
+                  <span style={{fontSize:'0.78rem',fontFamily:'Roboto Condensed',fontWeight:'700',color:'#2ab870'}}>
+                    YR {contract.nextSalaryYear} {fmtSalary(contract.nextSalary)}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
