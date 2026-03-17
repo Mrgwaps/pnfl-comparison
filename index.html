@@ -977,7 +977,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v6.4 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v6.6 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1053,7 +1053,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '6.4'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '6.6'; window.APP_VERSION = APP_VERSION;
 // Update preloader immediately — runs before any heavy scripts
 (function(){ try{ var e=document.getElementById('pl-version'); if(e) e.textContent='v'+APP_VERSION+' — Loading...'; }catch(x){} })();
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
@@ -1595,8 +1595,24 @@ function loadRosterCache()    { return storageWithSession.get('pnfl_roster')    
 function saveRosterCache(r)   { storageWithSession.set('pnfl_roster', r); }
 function loadStandingsCache() { return storageWithSession.get('pnfl_standings') || null; }
 function saveStandingsCache(s){ storageWithSession.set('pnfl_standings', s); }
-function loadContractCache()  { return storageWithSession.get('pnfl_contracts') || null; }
-function saveContractCache(c) { storageWithSession.set('pnfl_contracts', c); }
+function loadContractCache() {
+  try {
+    const d = storageWithSession.get('pnfl_contracts');
+    // Validate structure — must have contracts object with at least one key
+    if (d && d.contracts && typeof d.contracts === 'object' && Object.keys(d.contracts).length > 0) {
+      d._index = null; // clear stale Map (Maps don't survive JSON serialization)
+      return d;
+    }
+    return null;
+  } catch(e) { return null; }
+}
+function saveContractCache(c) {
+  if (!c) return;
+  // Strip the _index Map before serializing — Maps become {} in JSON
+  // It gets rebuilt lazily on first lookupContract() call
+  const toSave = { contracts: c.contracts, playerCount: c.playerCount, teamCount: c.teamCount, fetchedAt: c.fetchedAt, sheets: c.sheets };
+  storageWithSession.set('pnfl_contracts', toSave);
+}
 function loadSeasonCache()    { return storageWithSession.get('pnfl_season')    || null; }
 function saveSeasonCache(d)   { storageWithSession.set('pnfl_season', d); }
 function loadGameStatsCache() { return storageWithSession.get('pnfl_gamestats') || null; }
@@ -1969,8 +1985,15 @@ function buildContractIndex(contractData) {
 
 // Lookup a contract by player name or PID (O(1) via Map index)
 function lookupContract(contractData, playerName, pid) {
-  if (!contractData || !contractData.contracts) return null;
-  buildContractIndex(contractData);
+  if (!contractData) return null;
+  if (!contractData.contracts) {
+    console.warn('[lookupContract] no contracts key — keys:', Object.keys(contractData));
+    return null;
+  }
+  // _index is a Map — wiped when serialized to JSON; rebuild if missing or not a Map
+  if (!contractData._index || !(contractData._index instanceof Map)) {
+    buildContractIndex(contractData);
+  }
   const idx = contractData._index;
 
   // Direct PID lookup
@@ -2610,25 +2633,21 @@ window.pnflVoice = {
       'AREAS TO IMPROVE':   'concerned',
       'RAW':                'neutral',
     };
-    // Speak each section with matching emotion after a brief pause
-    let delay = 0;
+    // Queue all sections — they play sequentially via the queue system
     Object.entries(report).forEach(([key, text]) => {
       if (!text) return;
-      setTimeout(() => {
-        v.speak(text, emotionMap[key] || 'neutral');
-      }, delay);
-      delay += 200;
+      v.speak(text, emotionMap[key] || 'neutral');
     });
   },
 
   // Speak a player card analysis
   speakPlayer: function(playerName, teamName, analysisText) {
     const v = window.pnflVoice;
-    if (!v._enabled) return;
+    if (!v._enabled || !analysisText) return;
     v.stop();
-    // Intro with excited tone, analysis with analytical tone
-    v.speak('Analyzing ' + playerName + ' from ' + teamName + '.', 'neutral');
-    setTimeout(() => v.speak(analysisText, 'analytical'), 300);
+    // Queue intro then analysis — both go into the queue so they play sequentially
+    v.speak(playerName + ' from ' + teamName + '.', 'neutral');
+    v.speak(analysisText, 'analytical');
   },
 
   _processQueue: function() {
@@ -3709,13 +3728,14 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
   const [aiLoading, setAiLoading] = useState(false);
   const [aiReady, setAiReady] = useState(() => !!(window.pnflAI && window.pnflAI.isReady && window.pnflAI.isReady()));
   const [showAIModal, setShowAIModal] = useState(false);
+  const aiResponseRef = React.useRef('');
 
   const askAI = async () => {
     if (!aiQuery.trim() || !window.pnflAI?.isReady?.()) return;
     setAiLoading(true);
     setAiResponse('');
+    aiResponseRef.current = '';
     try {
-      // Build live PNFL context (standings, game stats, season stats)
       const liveCtx = window.pnflDB?._ready ? window.pnflDB.buildPlayerPrompt(player.name, teamName) : '' || '';
 
       const systemPrompt = `You are a PNFL digital analyst for a fantasy football simulation game set in 2048. CRITICAL RULES:
@@ -3740,12 +3760,17 @@ PNFL Contract: ${contract
 ${aiQuery}`;
 
       await window.pnflAI.ask(systemPrompt, userMsg, 200,
-        (partial) => setAiResponse(partial)
+        (partial) => { aiResponseRef.current = partial; setAiResponse(partial); }
       );
     } catch(e) {
       setAiResponse('⚠ ' + e.message);
     }
     setAiLoading(false);
+    // Speak the completed response if voice is enabled
+    const finalText = aiResponseRef.current;
+    if (finalText && !finalText.startsWith('⚠') && window.pnflVoice?.isEnabled?.()) {
+      window.pnflVoice.speakPlayer(player.name, teamName, finalText);
+    }
   };
 
   const aMax = POS_ACTUAL_MAX[position] || POS_ACTUAL_MAX.LB;
@@ -4198,7 +4223,7 @@ function buildScoutingData(team, getTeamData, weights, depth, designation, contr
   playerScores.sort((a,b)=>b.score-a.score);
   const topPlayers = playerScores.slice(0,5);
 
-  // ── 5. Season stats from pnflContext ──
+  // ── 5. Season stats from pnflDB ──
   const rawSeasonText = ctx.raw?.seasonStats || '';
   const rawTeamStats  = ctx.raw?.teamStats   || '';
 
@@ -4352,8 +4377,13 @@ Next opponent (Week ${parseInt(d.week)+1}): ${d.nextOpponent}`;
       await window.pnflAI.ask(systemPrompt, userMsg, 400,
         partial => { full = partial; setRawText(partial); }
       );
-      setReport(parseScoutingReport(full));
+      const finalReport = parseScoutingReport(full);
+      setReport(finalReport);
       playSound('compareDone'); haptic('medium');
+      // Speak the report sections with emotion-matched narration
+      if (window.pnflVoice?.isEnabled?.()) {
+        window.pnflVoice.speakReport(finalReport);
+      }
     } catch(e) {
       setError(e.message || String(e));
     }
