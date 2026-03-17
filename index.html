@@ -4990,7 +4990,6 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
     setAiLoading(true);
     setAiResponse('');
     try {
-      const contract = lookupContract(contractData, player.name, player.num);
       // Build live PNFL context (standings, game stats, season stats)
       const liveCtx = window.pnflContext?.buildPlayerContext(player.name, teamName, position) || '';
 
