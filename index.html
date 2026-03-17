@@ -285,29 +285,17 @@ window.pnflAI = {
 
   // ── Ollama: ping localhost to check if running + model available ──
   _pingOllama: async function(ollamaUrl, model) {
-    const url = (ollamaUrl || 'http://localhost:11434') + '/api/tags';
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
-      if (!res.ok) return { ok: false, reason: 'Ollama responded with HTTP ' + res.status };
+      const res = await fetch((ollamaUrl || 'http://localhost:11434') + '/api/tags', {
+        signal: AbortSignal.timeout(3000)
+      });
+      if (!res.ok) return { ok: false, reason: 'Ollama not responding (HTTP ' + res.status + ')' };
       const data = await res.json();
       const models = (data.models || []).map(m => m.name);
       const found  = models.some(m => m === model || m.startsWith(model.split(':')[0]));
       return { ok: true, models, found, exact: found ? model : (models[0] || '') };
     } catch(e) {
-      const msg = (e.message || '').toLowerCase();
-      // CORS or mixed-content block — Ollama IS running but browser is blocked
-      if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('cors') || msg.includes('blocked')) {
-        return {
-          ok: false,
-          corsBlocked: true,
-          reason: 'CORS_BLOCKED: Ollama is running but your browser is blocking the connection from ' + location.origin + '.\n\nFix: set the OLLAMA_ORIGINS environment variable so Ollama allows this page.\n\nSee the setup instructions below.'
-        };
-      }
-      // Timeout — likely not running
-      if (msg.includes('timeout') || msg.includes('aborted')) {
-        return { ok: false, reason: 'Ollama not responding (timeout). Make sure Ollama is running.' };
-      }
-      return { ok: false, reason: 'Cannot reach Ollama: ' + e.message };
+      return { ok: false, reason: 'Ollama not running — install from ollama.com then: ollama pull ' + model };
     }
   },
 
@@ -508,11 +496,11 @@ window.pnflAI.restore();
 <script>
 // ── PNFL Sound Engine ──
 const SOUNDS = {
-  aiConnect:  new Audio("./transform_ai.mp3"),       // AI connected
-  click:      new Audio("./Click_sound_1.mp3"),       // button clicks
-  fetchDone:  new Audio("./Fetch_rosters.mp3"),       // fetch rosters complete
-  compareDone:new Audio("./Comparison_complete.mp3"), // compare teams complete
-  contractOk: new Audio("./Contract_loaded.mp3"),     // contract file loaded
+  aiConnect:  new Audio("./transform_ai.mp3"),
+  click:      new Audio("./Click_sound_1.mp3"),
+  fetchDone:  new Audio("./Contract_loaded.mp3"),
+  compareDone:new Audio("./Fetch_rosters.mp3"),
+  contractOk: new Audio("./Comparison_complete.mp3"),
 };
 Object.values(SOUNDS).forEach(a => { a.preload='auto'; a.volume=0.7; });
 SOUNDS.click.volume = 0.4;
@@ -1019,7 +1007,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '5.8.2';
+const APP_VERSION = '5.8';
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
@@ -3816,7 +3804,7 @@ function AIConnectModal({ onClose, onConnected }) {
                   Install <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" style={{color:'#c090ff'}}>Ollama</a> then pull a model in your terminal.
                 </div>
                 <div style={{background:'rgba(0,0,0,0.3)',borderRadius:'8px',padding:'10px 14px',marginBottom:'14px',border:'1px solid rgba(160,100,255,0.15)'}}>
-                  <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'6px'}}>SETUP (ONE TIME)</div>
+                  <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'6px'}}>TERMINAL COMMANDS</div>
                   {[
                     {cmd:'ollama pull qwen2.5:1.5b',  label:'Tiny — 1GB, fast'},
                     {cmd:'ollama pull llama3.2:1b',   label:'Meta — 0.6GB, very fast'},
@@ -3827,18 +3815,6 @@ function AIConnectModal({ onClose, onConnected }) {
                       <span style={{fontSize:'0.65rem',color:'#5a4070',fontFamily:'Roboto Condensed'}}>{label}</span>
                     </div>
                   ))}
-                  <div style={{marginTop:'10px',paddingTop:'8px',borderTop:'1px solid rgba(160,100,255,0.1)'}}>
-                    <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'4px'}}>ALLOW THIS PAGE (REQUIRED)</div>
-                    <div style={{fontSize:'0.7rem',color:'#806090',fontFamily:'Roboto Condensed',marginBottom:'4px'}}>Run before starting Ollama — lets GitHub Pages connect to localhost:</div>
-                    <div style={{fontSize:'0.68rem',color:'#a0d2a0',fontFamily:'Roboto Condensed',marginBottom:'2px'}}>Windows (run as Admin):</div>
-                    <code style={{fontSize:'0.72rem',color:'#a0f0a0',fontFamily:'monospace',display:'block',padding:'4px 8px',background:'rgba(0,0,0,0.3)',borderRadius:'4px',marginBottom:'6px',wordBreak:'break-all'}}>
-                      setx OLLAMA_ORIGINS "https://mrgwaps.github.io" /M
-                    </code>
-                    <div style={{fontSize:'0.68rem',color:'#a0d2a0',fontFamily:'Roboto Condensed',marginBottom:'2px'}}>Mac / Linux:</div>
-                    <code style={{fontSize:'0.72rem',color:'#a0f0a0',fontFamily:'monospace',display:'block',padding:'4px 8px',background:'rgba(0,0,0,0.3)',borderRadius:'4px',wordBreak:'break-all'}}>
-                      OLLAMA_ORIGINS="https://mrgwaps.github.io" ollama serve
-                    </code>
-                  </div>
                 </div>
                 <div style={{marginBottom:'10px'}}>
                   <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'4px'}}>Model to use</div>
@@ -3886,25 +3862,8 @@ function AIConnectModal({ onClose, onConnected }) {
               <div style={{marginTop:'10px',padding:'10px 12px',background:'rgba(255,60,60,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'7px',fontSize:'0.72rem',color:'#ff9090',fontFamily:'Roboto Condensed',lineHeight:1.6,maxHeight:'130px',overflowY:'auto',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
                 {(() => {
                   const msg = errorMsg || '';
-                  if (msg.includes('CORS_BLOCKED') || msg.includes('browser is blocking'))
-                    return (
-                      <span>
-                        <strong style={{color:'#ffaa44'}}>🔒 Browser blocking Ollama (CORS)</strong><br/>
-                        Ollama IS running but your browser won't let this page talk to localhost.<br/><br/>
-                        <strong style={{color:'#ffd700'}}>Fix — run this ONE command then restart Ollama:</strong><br/><br/>
-                        <strong style={{color:'#c0ff90',fontFamily:'monospace',fontSize:'0.85rem'}}>Windows:</strong><br/>
-                        <code style={{color:'#a0f0a0',fontFamily:'monospace',display:'block',margin:'3px 0 8px',padding:'4px 8px',background:'rgba(0,0,0,0.3)',borderRadius:'4px',wordBreak:'break-all'}}>
-                          setx OLLAMA_ORIGINS "https://mrgwaps.github.io" /M
-                        </code>
-                        <strong style={{color:'#c0ff90',fontFamily:'monospace',fontSize:'0.85rem'}}>Mac/Linux:</strong><br/>
-                        <code style={{color:'#a0f0a0',fontFamily:'monospace',display:'block',margin:'3px 0 8px',padding:'4px 8px',background:'rgba(0,0,0,0.3)',borderRadius:'4px',wordBreak:'break-all'}}>
-                          OLLAMA_ORIGINS="https://mrgwaps.github.io" ollama serve
-                        </code>
-                        After running that command, restart Ollama, then click Connect again.
-                      </span>
-                    );
-                  if (msg.includes('ollama.com') || msg.includes('not running') || msg.includes('Ollama not') || msg.includes('timeout'))
-                    return <span><strong style={{color:'#ffaa44'}}>⚡ Ollama not responding</strong><br/>{msg}<br/><br/>Make sure Ollama is running, then try again.</span>;
+                  if (msg.includes('ollama.com') || msg.includes('not running') || msg.includes('Ollama not'))
+                    return <span><strong style={{color:'#ffaa44'}}>⚡ Ollama not running</strong><br/>{msg}<br/><br/>1. Install from <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" style={{color:'#c090ff'}}>ollama.com</a><br/>2. Run: <code style={{color:'#a090ff'}}>ollama pull {ollamaModel}</code><br/>3. Keep Ollama running in the background, then retry.</span>;
                   if (msg.includes('WORKER_OUTDATED')) return <span><strong style={{color:'#ffaa44'}}>⚠ Worker outdated</strong><br/>Redeploy pnfl_ai_proxy_worker.js v3 to Cloudflare.</span>;
                   if (msg.includes('NO_PERMISSION'))   return <span><strong style={{color:'#ffaa44'}}>⚠ Missing HF permission</strong><br/>Edit token → enable "Make calls to serverless Inference API".</span>;
                   if (msg.includes('NOT_FOUND'))       return <span><strong style={{color:'#ffaa44'}}>⚠ Model not found</strong><br/>Worker v3 tries 7 fallback models — redeploy it.</span>;
