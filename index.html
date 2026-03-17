@@ -964,7 +964,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v5.8......</div>
+  <div class="pl-sub" id="pl-version">Initializing...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1039,7 +1039,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '5.9';
+const APP_VERSION = '6.1'; window.APP_VERSION = APP_VERSION;
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
@@ -1119,6 +1119,16 @@ const TEAM_NAMES = [
   "Las Vegas","Los Angeles","Cincinnati","Atlanta","Washington","New York",
   "Philadelphia","San Francisco","Chicago","Minnesota","Seattle","Green Bay"
 ];
+const SHORT_TO_TEAM = {
+  'BUF':'Buffalo','NE':'New England','MIA':'Miami','JAX':'Jacksonville',
+  'PIT':'Pittsburgh','DEN':'Denver','LVR':'Las Vegas','LV':'Las Vegas',
+  'LAC':'Los Angeles','LAR':'Los Angeles','LA':'Los Angeles',
+  'CIN':'Cincinnati','ATL':'Atlanta','WSH':'Washington','WAS':'Washington',
+  'NYG':'New York','NYJ':'New York','NY':'New York',
+  'PHI':'Philadelphia','SF':'San Francisco','CHI':'Chicago','ARI':'Chicago',
+  'MIN':'Minnesota','SEA':'Seattle','GB':'Green Bay','GNB':'Green Bay',
+};
+
 
 // ── ESPN Logos ──
 const ESPN_LOGOS = {
@@ -3657,6 +3667,240 @@ function buildPlaceholderRoster(teamName){
 
 </script>
 
+
+<script>
+// ── PNFL Live Context Engine ──
+// Fetches standings, game stats, season stats, team stats each roster load
+// Stores as window.pnflContext for AI to use in every query
+
+window.pnflContext = {
+  season: '2048', week: '3',
+  standings: null, gameStats: null, seasonStats: null, teamStats: null,
+  raw: { standings: '', gameStats: '', seasonStats: '', teamStats: '' },
+  lastFetch: null,
+
+  // Derive GameStats URL from season+week
+  gameStatsUrl: function() {
+    var s = window.pnflContext.season || '2048';
+    var w = window.pnflContext.week   || '3';
+    return 'https://pnfl.biz/GameStats/' + s + '/' + s + 'W' + w + '-PNFL_game%20stats.htm';
+  },
+
+  // Fetch all 4 sources via CORS proxy
+  fetchAll: async function(season, week) {
+    var ctx = window.pnflContext;
+    if (season) ctx.season = String(season);
+    if (week)   ctx.week   = String(week);
+
+    var proxy = function(url) {
+      return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+    };
+
+    var urls = {
+      standings:   'https://pnfl.biz/pnflstats/PNFL_standings.htm',
+      gameStats:   ctx.gameStatsUrl(),
+      seasonStats: 'https://pnfl.biz/pnflstats/PNFL_season.htm',
+      teamStats:   'https://pnfl.biz/pnflstats/PNFL_team%20stats.htm',
+    };
+
+    var results = await Promise.allSettled(
+      Object.entries(urls).map(async function([key, url]) {
+        try {
+          var res = await fetch(proxy(url), { signal: AbortSignal.timeout(15000) });
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          var txt = await res.text();
+          ctx.raw[key] = txt;
+          return [key, txt];
+        } catch(e) {
+          console.warn('[PNFL Context]', key, 'failed:', e.message);
+          return [key, ''];
+        }
+      })
+    );
+
+    results.forEach(function(r) {
+      if (r.status === 'fulfilled' && r.value[1]) {
+        console.log('[PNFL Context] fetched', r.value[0], r.value[1].length + 'chars');
+      }
+    });
+
+    ctx.lastFetch = new Date().toISOString();
+    ctx._parseAll();
+    console.log('[PNFL Context] all sources fetched, context ready');
+  },
+
+  _parseAll: function() {
+    var ctx = window.pnflContext;
+
+    // ── Parse standings into team records ──
+    ctx.standings = {};
+    var sText = ctx.raw.standings || '';
+    var lines = sText.split('\n');
+    lines.forEach(function(line) {
+      // Match: "New England    3  0  0   86   32    W3  ..."
+      var m = line.match(/^\s*([A-Za-z ]+?)\s{2,}(\d+)\s+(\d+)\s+\d+\s+(\d+)\s+(\d+)\s+(W|L)(\d+)/);
+      if (!m) return;
+      var team = m[1].trim();
+      ctx.standings[team] = {
+        wins: parseInt(m[2]), losses: parseInt(m[3]),
+        pf: parseInt(m[4]), pa: parseInt(m[5]),
+        streak: m[6] + m[7]
+      };
+    });
+
+    // ── Parse power rankings ──
+    ctx.powerRankings = [];
+    var inRankings = false;
+    lines.forEach(function(line) {
+      if (line.includes('Power Rankings')) { inRankings = true; return; }
+      if (inRankings) {
+        var rm = line.match(/^\s*(\d+)\s+([A-Za-z ]+?)\s{2,}(\d+)\s+(\d+)\s+(\d+)/);
+        var tm = line.match(/^\s+([A-Za-z ]+?)\s{2,}(\d+)\s+(\d+)\s+(\d+)/);
+        if (rm) ctx.powerRankings.push({ rank: parseInt(rm[1]), team: rm[2].trim(), w: parseInt(rm[3]), oppW: parseInt(rm[4]), pts: parseInt(rm[5]) });
+        else if (tm && ctx.powerRankings.length > 0) {
+          var prev = ctx.powerRankings[ctx.powerRankings.length - 1];
+          ctx.powerRankings.push({ rank: prev.rank, team: tm[1].trim(), w: parseInt(tm[2]), oppW: parseInt(tm[3]), pts: parseInt(tm[4]) });
+        }
+      }
+      if (inRankings && line.includes('Tie Break')) inRankings = false;
+    });
+
+    // ── Parse game stats — player stats by game ──
+    ctx.playerGameStats = {};  // playerName -> { passing, rushing, receiving, defense }
+    var gsText = ctx.raw.gameStats || '';
+    var gsLines = gsText.split('\n');
+    var parseStatBlock = function(lines, startIdx, type) {
+      for (var i = startIdx; i < Math.min(startIdx + 30, lines.length); i++) {
+        var line = lines[i].trim();
+        if (!line || line.startsWith('Passing') || line.startsWith('Rushing') || line.startsWith('Receiving') || line.startsWith('Defense') || line.startsWith('Total') || line.startsWith('Opp') || line.startsWith('Back') || line.startsWith('---')) break;
+        var parts = line.split(/\s+/);
+        if (parts.length < 3) continue;
+        var name = parts[0];
+        if (!name || name.length < 2) continue;
+        if (!ctx.playerGameStats[name]) ctx.playerGameStats[name] = {};
+        if (type === 'pass' && parts.length >= 7) {
+          ctx.playerGameStats[name].passing = { att: parts[1], com: parts[2], yds: parts[3], td: parts[6] || '0', int: parts[7] || '0' };
+        } else if (type === 'rush' && parts.length >= 5) {
+          ctx.playerGameStats[name].rushing = { car: parts[1], yds: parts[2], avg: parts[3], td: parts[5] || '0' };
+        } else if (type === 'rec' && parts.length >= 5) {
+          ctx.playerGameStats[name].receiving = { rec: parts[1], yds: parts[2], avg: parts[3], td: parts[5] || '0' };
+        } else if (type === 'def' && parts.length >= 3) {
+          ctx.playerGameStats[name].defense = { tackles: parts[1], sacks: parts[2] };
+        }
+      }
+    };
+
+    // ── Parse season individual stats ──
+    ctx.seasonPlayerStats = {};
+    var ssText = ctx.raw.seasonStats || '';
+    var ssLines = ssText.split('\n');
+    var curStatType = '';
+    ssLines.forEach(function(line, i) {
+      var l = line.trim();
+      if (!l) return;
+      if (l.includes('Individual Passing'))   curStatType = 'pass';
+      if (l.includes('Individual Rushing'))   curStatType = 'rush';
+      if (l.includes('Individual Receiving')) curStatType = 'rec';
+      if (l.includes('Individual Tackles'))   curStatType = 'def';
+      if (l.includes('Individual Sacks'))     curStatType = 'sacks';
+      if (l.includes('Back to top'))          curStatType = '';
+      if (!curStatType) return;
+
+      var parts = l.split(/\s{2,}/);
+      if (parts.length < 3) return;
+      // Format: "1 Player Name    Team   stats..."
+      var nameMatch = l.match(/^\s*\d*\s+([A-Za-z .'-]+)\s{2,}([A-Z]{2,3})\s+([\d, .\/]+)/);
+      if (!nameMatch) return;
+      var name = nameMatch[1].trim();
+      var team = nameMatch[2].trim();
+      if (!ctx.seasonPlayerStats[name]) ctx.seasonPlayerStats[name] = { team };
+      var nums = nameMatch[3].trim().split(/\s+/);
+      if (curStatType === 'pass' && nums.length >= 4)
+        ctx.seasonPlayerStats[name].season_pass = { att: nums[0], yds: nums[2], td: nums[5] || '?', int: nums[6] || '?' };
+      if (curStatType === 'rush' && nums.length >= 3)
+        ctx.seasonPlayerStats[name].season_rush = { att: nums[0], yds: nums[1], td: nums[4] || '?' };
+      if (curStatType === 'rec' && nums.length >= 3)
+        ctx.seasonPlayerStats[name].season_rec = { rec: nums[0], yds: nums[1], td: nums[4] || '?' };
+    });
+
+    console.log('[PNFL Context] parsed — standings:', Object.keys(ctx.standings).length, 
+      'teams | powerRankings:', ctx.powerRankings.length,
+      '| playerGameStats:', Object.keys(ctx.playerGameStats).length,
+      '| seasonPlayerStats:', Object.keys(ctx.seasonPlayerStats).length);
+  },
+
+  // ── Build context string for a specific player ──
+  // Called by askAI to inject rich PNFL data into the prompt
+  buildPlayerContext: function(playerName, teamName, position) {
+    var ctx = window.pnflContext;
+    var lines = [];
+    var lastName = (playerName || '').split(' ').pop();
+
+    lines.push('=== PNFL 2048 SEASON — WEEK ' + ctx.week + ' LIVE DATA ===');
+    lines.push('THIS IS A FANTASY FOOTBALL SIMULATION GAME. Use ONLY the stats below. Ignore any real-world NFL knowledge.');
+    lines.push('');
+
+    // Team standing
+    var standing = ctx.standings[teamName] || null;
+    var ranking  = (ctx.powerRankings || []).find(function(r) { return r.team === teamName; });
+    if (standing) {
+      lines.push('TEAM: ' + teamName + ' | Record: ' + standing.wins + '-' + standing.losses + ' | PF: ' + standing.pf + ' PA: ' + standing.pa + ' | Streak: ' + standing.streak);
+    }
+    if (ranking) {
+      lines.push('POWER RANK: #' + ranking.rank + ' (Opp Wins: ' + ranking.oppW + ', Pts: ' + ranking.pts + ')');
+    }
+
+    // This week game stats for player
+    var gameStats = ctx.playerGameStats[lastName] || ctx.playerGameStats[playerName] || null;
+    if (gameStats) {
+      lines.push('');
+      lines.push('WEEK ' + ctx.week + ' GAME STATS:');
+      if (gameStats.passing)  lines.push('  Passing:  ' + JSON.stringify(gameStats.passing));
+      if (gameStats.rushing)  lines.push('  Rushing:  ' + JSON.stringify(gameStats.rushing));
+      if (gameStats.receiving)lines.push('  Receiving:' + JSON.stringify(gameStats.receiving));
+      if (gameStats.defense)  lines.push('  Defense:  ' + JSON.stringify(gameStats.defense));
+    } else {
+      lines.push('WEEK ' + ctx.week + ' GAME STATS: Not found for ' + playerName);
+    }
+
+    // Season stats
+    var seasonStat = ctx.seasonPlayerStats[playerName] || ctx.seasonPlayerStats[lastName] || null;
+    if (seasonStat) {
+      lines.push('');
+      lines.push('2048 SEASON STATS (through Wk ' + ctx.week + '):');
+      if (seasonStat.season_pass)  lines.push('  Season Passing:   ' + JSON.stringify(seasonStat.season_pass));
+      if (seasonStat.season_rush)  lines.push('  Season Rushing:   ' + JSON.stringify(seasonStat.season_rush));
+      if (seasonStat.season_rec)   lines.push('  Season Receiving: ' + JSON.stringify(seasonStat.season_rec));
+    }
+
+    // Week schedule from standings
+    var raw = ctx.raw.standings || '';
+    lines.push('');
+    lines.push('=== END PNFL DATA ===');
+
+    return lines.join('\n');
+  },
+
+  // Build general league context (no player-specific)
+  buildLeagueContext: function() {
+    var ctx = window.pnflContext;
+    var lines = ['=== PNFL 2048 SEASON WEEK ' + ctx.week + ' OVERVIEW ==='];
+    lines.push('THIS IS A FANTASY FOOTBALL SIMULATION. Use ONLY this data.');
+    lines.push('');
+    lines.push('POWER RANKINGS:');
+    (ctx.powerRankings || []).slice(0, 10).forEach(function(r) {
+      lines.push('  #' + r.rank + ' ' + r.team + ' (' + r.w + 'W, ' + r.oppW + ' opp wins)');
+    });
+    lines.push('');
+    lines.push('STANDINGS SUMMARY:');
+    Object.entries(ctx.standings || {}).forEach(function([team, s]) {
+      lines.push('  ' + team + ': ' + s.wins + '-' + s.losses + ' PF:' + s.pf + ' PA:' + s.pa);
+    });
+    return lines.join('\n');
+  }
+};
+</script>
+
 <script type="text/babel">
 function FootballIcon({ size = 32, style = {} }) {
   return (
@@ -4730,14 +4974,31 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
     setAiResponse('');
     try {
       const contract = lookupContract(contractData, player.name, player.num);
-      const systemPrompt = `You are a PNFL fantasy football analyst. Answer in 2-3 sentences max. Be direct and specific. Use only the data provided.`;
-      const userMsg = `Player: ${player.name} | Team: ${teamName} | Position: ${POSITION_DISPLAY[position]||position} | Status: ${player.status}
-Attrs (SP/AC/AG/ST/HA/EN/IN/DI): ${player.attrs.join('/')} actual | ${pattrs.join('/')} potential
-Total: ${actualTotal}/${playerPotentialTotal} (${pctOfMax}% developed) | ${maxedCount}/8 maxed | League rank: #${leagueRank}/${leagueTotal}
-${contract ? `Contract: ${contract.contractLength}yr (${contract.contractStart}-${contract.contractEnd}), ${contract.currentSalary ? fmtSalary(contract.currentSalary)+'/yr' : 'salary N/A'}, ${contract.yearsLeft}yr left` : 'No contract data'}
-Q: ${aiQuery}`;
-      // Use streaming callback so tokens appear as they generate
-      await window.pnflAI.ask(systemPrompt, userMsg, 180,
+      // Build live PNFL context (standings, game stats, season stats)
+      const liveCtx = window.pnflContext?.buildPlayerContext(player.name, teamName, position) || '';
+
+      const systemPrompt = `You are a PNFL digital analyst for a fantasy football simulation game set in 2048. CRITICAL RULES:
+1. NEVER reference real NFL salaries, contracts, or real-world stats. This is a simulation game.
+2. ONLY use the PNFL data provided below. If data is missing, say so clearly.
+3. Contract value = PNFL contract data only (years, salary from contract file).
+4. Be specific with numbers. Answer in 3-4 sentences max.
+
+${liveCtx}`;
+
+      const contract = lookupContract(contractData, player.name, player.num);
+      const userMsg = `=== PLAYER CARD DATA ===
+Name: ${player.name} | Team: ${teamName} | Position: ${POSITION_DISPLAY[position]||position} | Status: ${player.status}
+Attributes (SP/AC/AG/ST/HA/EN/IN/DI): ${player.attrs.join('/')} actual | ${pattrs.join('/')} potential
+Development: ${actualTotal}/${playerPotentialTotal} total (${pctOfMax}% developed) | ${maxedCount}/8 attrs maxed
+League rank at ${POSITION_DISPLAY[position]||position}: #${leagueRank} of ${leagueTotal}
+PNFL Contract: ${contract
+  ? `${contract.contractLength} years (${contract.contractStart}-${contract.contractEnd}) | Salary: ${contract.currentSalary ? fmtSalary(contract.currentSalary)+'/yr' : 'not in file'} | Years remaining: ${contract.yearsLeft} | Draft: ${contract.draftSlot||'N/A'}`
+  : 'Contract not loaded — click Core Data button to load contract file'}
+
+=== QUESTION ===
+${aiQuery}`;
+
+      await window.pnflAI.ask(systemPrompt, userMsg, 200,
         (partial) => setAiResponse(partial)
       );
     } catch(e) {
@@ -5129,167 +5390,457 @@ Q: ${aiQuery}`;
 }
 
 // ── AI Scouting Report Panel ──
-function ScoutingReport({ getTeamData, weights, depth, designation, contractData, standingsData, seasonData, gameStatsData, rosterMeta }) {
-  const [team, setTeam] = useState('');
-  const [report, setReport] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+// ═══════════════════════════════════════════════════════════════
+// PNFL SCOUTING REPORT — v2 (Live data, no contract/draft fluff)
+// Sections: Overview | Offense | Defense | Weekly Highlights |
+//           Top Performers | Opponents | Next Game | AI Analysis
+// ═══════════════════════════════════════════════════════════════
 
+function buildScoutingData(team, getTeamData, weights, depth, designation, contractData, standingsData, rosterMeta) {
+  const ctx      = window.pnflContext || {};
+  const td       = getTeamData(team) || {};
+  const wts      = weights || loadWeights();
+  const dep      = depth   || loadDepth();
+  const desg     = designation || 'AO';
+  const season   = rosterMeta?.season || ctx.season || '2048';
+  const week     = rosterMeta?.week   || ctx.week   || '?';
+
+  // ── 1. Standing & Power Ranking ──
+  const standing = (standingsData?.rankings || []).find(r => r.team === team) || {};
+  const ctxStand = ctx.standings?.[team] || {};
+  const pRank    = (ctx.powerRankings || []).find(r => r.team === team);
+  const record   = `${ctxStand.wins ?? standing.wins ?? 0}-${ctxStand.losses ?? standing.losses ?? 0}`;
+  const pf       = ctxStand.pf ?? standing.pf ?? 0;
+  const pa       = ctxStand.pa ?? standing.pa ?? 0;
+  const streak   = ctxStand.streak || '';
+
+  // ── 2. Roster position scores ──
+  const posScores = {};
+  const allPos = [...(POSITION_GROUPS.offense||[]), ...(POSITION_GROUPS.defense||[])];
+  allPos.forEach(pos => {
+    const s = calculatePositionScore(td, pos, wts, dep[pos]||3, desg);
+    if (s !== null) posScores[pos] = s;
+  });
+  const sortedPos  = Object.entries(posScores).sort((a,b)=>b[1]-a[1]);
+  const offPos     = sortedPos.filter(([p])=>(POSITION_GROUPS.offense||[]).includes(p));
+  const defPos     = sortedPos.filter(([p])=>(POSITION_GROUPS.defense||[]).includes(p));
+  const topOff     = offPos.slice(0,3).map(([p,s])=>({ pos:POSITION_DISPLAY[p]||p, score:s.toFixed(1) }));
+  const weakOff    = offPos.slice(-2).reverse().map(([p,s])=>({ pos:POSITION_DISPLAY[p]||p, score:s.toFixed(1) }));
+  const topDef     = defPos.slice(0,3).map(([p,s])=>({ pos:POSITION_DISPLAY[p]||p, score:s.toFixed(1) }));
+  const weakDef    = defPos.slice(-2).reverse().map(([p,s])=>({ pos:POSITION_DISPLAY[p]||p, score:s.toFixed(1) }));
+  const offScore   = (calculateUnitScore(td,'offense',wts,dep,desg)||0).toFixed(1);
+  const defScore   = (calculateUnitScore(td,'defense',wts,dep,desg)||0).toFixed(1);
+  const overall    = (calculateOverallScore(td,wts,dep,desg)||0).toFixed(1);
+
+  // ── 3. Offensive ranking across all teams ──
+  const allTeamOff = TEAM_NAMES.map(t => ({
+    team: t,
+    score: calculateUnitScore(getTeamData(t)||{}, 'offense', wts, dep, desg) || 0
+  })).sort((a,b)=>b.score-a.score);
+  const allTeamDef = TEAM_NAMES.map(t => ({
+    team: t,
+    score: calculateUnitScore(getTeamData(t)||{}, 'defense', wts, dep, desg) || 0
+  })).sort((a,b)=>b.score-a.score);
+  const offRank = allTeamOff.findIndex(t=>t.team===team) + 1;
+  const defRank = allTeamDef.findIndex(t=>t.team===team) + 1;
+
+  // ── 4. Top players by roster score ──
+  const playerScores = [];
+  Object.entries(td).forEach(([pos, players]) => {
+    if (!Array.isArray(players)) return;
+    players.forEach(p => {
+      if (!p?.attrs) return;
+      const s = calculatePlayerScore(p.attrs, pos, wts);
+      if (s !== null) playerScores.push({ name:p.name, pos:POSITION_DISPLAY[pos]||pos, score:s, status:p.status });
+    });
+  });
+  playerScores.sort((a,b)=>b.score-a.score);
+  const topPlayers = playerScores.slice(0,5);
+
+  // ── 5. Season stats from pnflContext ──
+  const rawSeasonText = ctx.raw?.seasonStats || '';
+  const rawTeamStats  = ctx.raw?.teamStats   || '';
+
+  // Extract this team's passing/rushing from season stats raw text
+  const findTeamSeasonStat = (rawText, teamName, statType) => {
+    const lines = rawText.split('\n');
+    let inSection = false;
+    for (const line of lines) {
+      if (line.toLowerCase().includes(statType.toLowerCase())) inSection = true;
+      if (inSection && line.includes('Back to top')) inSection = false;
+      if (inSection) {
+        const m = line.match(new RegExp(teamName + '\\s+([\\d,. ]+)'));
+        if (m) return m[1].trim().split(/\s+/).filter(Boolean);
+      }
+    }
+    return null;
+  };
+
+  // Team season passing/rushing rank (position in table = rank)
+  const getTeamRankInSection = (rawText, teamName, sectionHeader) => {
+    const lines = rawText.split('\n');
+    let inSection = false, rank = 0;
+    for (const line of lines) {
+      if (line.includes(sectionHeader)) { inSection = true; rank = 0; continue; }
+      if (inSection && line.includes('Back to top')) { inSection = false; continue; }
+      if (inSection && line.trim()) {
+        const m = line.match(/^\s*\d+\s+(.+?)\s{2,}/);
+        if (m) { rank++; if (m[1].trim() === teamName || line.includes(teamName)) return rank; }
+      }
+    }
+    return null;
+  };
+
+  const passRank = getTeamRankInSection(rawSeasonText, team, 'Team Passing\n') || offRank;
+  const rushRank = getTeamRankInSection(rawSeasonText, team, 'Team Rushing\n') || offRank;
+  const passDefRank = getTeamRankInSection(rawSeasonText, team, 'Team Passing - Opponents') || defRank;
+  const rushDefRank = getTeamRankInSection(rawSeasonText, team, 'Team Rushing - Opponents') || defRank;
+
+  // ── 6. Game stats for top players this week ──
+  const playerGameHighlights = [];
+  topPlayers.slice(0,8).forEach(p => {
+    const lastName = p.name.split(' ').pop();
+    const gs = ctx.playerGameStats?.[lastName] || ctx.playerGameStats?.[p.name];
+    if (gs) playerGameHighlights.push({ name:p.name, pos:p.pos, ...gs });
+  });
+
+  // ── 7. Opponents defeated from power rankings ──
+  const pwrEntry   = (ctx.powerRankings||[]).find(r=>r.team===team);
+  const oppsText   = (standingsData?.rankings||[]).find(r=>r.team===team)?.oppsDefeated || [];
+  const oppsDefeated = pwrEntry ? [] : oppsText;
+
+  // Parse opponents defeated from raw standings
+  const rawStand   = ctx.raw?.standings || '';
+  const oppMatch   = rawStand.match(new RegExp(team + '.*?\\[W\\]([A-Z ,a-z]+)', 's'));
+  const oppsWon    = oppMatch ? oppMatch[1].trim().split(/\s+/).filter(Boolean) : [];
+  const oppsLost   = rawStand.match(new RegExp(team + '.*?\\[L\\]([A-Z ,a-z]+)', 's'));
+  const oppsLostArr = oppsLost ? oppsLost[1].trim().split(/\s+/).filter(Boolean) : [];
+
+  // ── 8. Next opponent from schedule ──
+  const nextWeekNum = parseInt(week) + 1;
+  const schedMatch  = rawStand.match(new RegExp('Week ' + nextWeekNum + '[\\s\\S]*?(' + team + ' at ([A-Za-z ]+)|([A-Za-z ]+) at ' + team + ')'));
+  let nextOpponent  = '';
+  if (schedMatch) {
+    nextOpponent = schedMatch[2] || schedMatch[3] || '';
+  } else {
+    // Try from team stats raw
+    const tsMatch = rawTeamStats.match(new RegExp('Week ' + nextWeekNum + '.*?(?:vs|at)\\s+([A-Za-z ]+?)\\s*$', 'm'));
+    if (tsMatch) nextOpponent = tsMatch[1].trim();
+  }
+
+  // ── 9. AI prompt data ──
+  const aiPromptData = {
+    team, season, week, record, pf, pa, streak,
+    powerRank: pRank?.rank || '?',
+    offRank, defRank, passRank, rushRank, passDefRank, rushDefRank,
+    offScore, defScore, overall,
+    topOff, weakOff, topDef, weakDef,
+    topPlayers: topPlayers.slice(0,5),
+    playerGameHighlights,
+    nextOpponent: nextOpponent || 'TBD',
+    oppsWon, oppsLostArr,
+    rawGameStats: (ctx.raw?.gameStats||'').slice(0,3000),  // first 3KB of game stats
+  };
+
+  return aiPromptData;
+}
+
+function ScoutingReport({ getTeamData, weights, depth, designation, contractData, standingsData, seasonData, gameStatsData, rosterMeta }) {
+  const [team,     setTeam]     = useState('');
+  const [report,   setReport]   = useState(null);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState('');
+  const [rawText,  setRawText]  = useState('');
   const aiReady = !!(window.pnflAI?.isReady?.());
+  const ctxReady = !!(window.pnflContext?.lastFetch);
 
   const generateReport = async () => {
     if (!team || !aiReady) return;
-    setLoading(true);
-    setError('');
-    setReport(null);
+    setLoading(true); setError(''); setReport(null); setRawText('');
 
     try {
-      const td = getTeamData(team) || {};
-      const wts = weights || loadWeights();
-      const standing = standingsData?.rankings?.find(r => r.team === team) || {};
+      const d = buildScoutingData(team, getTeamData, weights, depth, designation, contractData, standingsData, rosterMeta);
 
-      // Build rich context from all data sources
-      const posScores = {};
-      [...POSITION_GROUPS.offense, ...POSITION_GROUPS.defense].forEach(pos => {
-        const score = calculatePositionScore(td, pos, wts, (depth||loadDepth())[pos]||3, designation||'AO');
-        if (score !== null) posScores[pos] = score;
-      });
-      const sortedPos = Object.entries(posScores).sort((a,b)=>b[1]-a[1]);
-      const topPos = sortedPos.slice(0,3).map(([p,s])=>`${POSITION_DISPLAY[p]||p} (${s.toFixed(1)})`).join(', ');
-      const weakPos = sortedPos.slice(-3).reverse().map(([p,s])=>`${POSITION_DISPLAY[p]||p} (${s.toFixed(1)})`).join(', ');
+      const systemPrompt = `You are the PNFL Digital Analyst for the 2048 season. You analyze a fantasy football simulation.
+CRITICAL: Use ONLY the data provided below. Never use real NFL knowledge. Never mention real salaries or real-world contracts.
+Respond with EXACTLY these 6 section headers, each on its own line, followed by 2-3 sentences of analysis:
+OFFENSIVE ANALYSIS:
+DEFENSIVE ANALYSIS:
+WEEKLY HIGHLIGHTS:
+TOP PERFORMERS:
+STRENGTHS:
+AREAS TO IMPROVE:`;
 
-      // Best contract value: high roster score, low salary, years remaining
-      let sleeper = '', valueDeal = '';
-      if (contractData) {
-        let bestValue = null, bestValueScore = -Infinity;
-        let bestSleeper = null, bestSleeperScore = -Infinity;
-        Object.values(td).flat().forEach(p => {
-          if (!p?.attrs) return;
-          const contract = lookupContract(contractData, p.name, p.num);
-          const pScore = calculatePlayerScore(p.attrs, Object.keys(td).find(pos => (td[pos]||[]).includes(p)) || 'QB', wts);
-          // Value = score / salary ratio
-          if (contract?.currentSalary && contract.currentSalary > 0) {
-            const valueScore = pScore / (contract.currentSalary / 1000000);
-            if (valueScore > bestValueScore) { bestValueScore = valueScore; bestValue = { ...p, contract, pScore }; }
-          }
-          // Sleeper = high potential gap, cheap
-          const pPos = Object.keys(td).find(pos => (td[pos]||[]).includes(p)) || 'QB';
-          const pMax = POS_POTENTIAL_MAX[pPos] || POS_POTENTIAL_MAX.LB;
-          const potTotal = pMax.reduce((s,v)=>s+v,0);
-          const actTotal = p.attrs.reduce((s,v)=>s+v,0);
-          const gap = potTotal - actTotal;
-          if (gap > 30 && (!contract?.currentSalary || contract.currentSalary < 2000000)) {
-            if (gap > bestSleeperScore) { bestSleeperScore = gap; bestSleeper = { ...p, contract, gap }; }
-          }
-        });
-        if (bestValue) valueDeal = `${bestValue.name} ($${(bestValue.contract.currentSalary/1000000).toFixed(1)}M/yr, score ${bestValue.pScore.toFixed(0)})`;
-        if (bestSleeper) sleeper = `${bestSleeper.name} (${bestSleeper.gap} potential gap${bestSleeper.contract?.currentSalary ? ', $' + (bestSleeper.contract.currentSalary/1000000).toFixed(1)+'M' : ''})`;
-      }
+      const gameStatsSnippet = (window.pnflContext?.raw?.gameStats || '').split('\n')
+        .filter(l => l.includes(team.split(' ')[0]) || l.includes('Player of') || l.includes('Individual'))
+        .slice(0, 30).join('\n');
 
-      // Recent game results from gameStatsData
-      const recentGames = (gameStatsData?.games || [])
-        .filter(g => g.team1 === team || g.team2 === team || String(g.team||'').includes(team))
-        .slice(0,3)
-        .map(g => g.team1 && g.score1 !== undefined ? `${g.team1} ${g.score1}-${g.score2} ${g.team2}` : JSON.stringify(g))
-        .join('; ');
+      const seasonStatsSnippet = (window.pnflContext?.raw?.seasonStats || '').split('\n')
+        .filter(l => l.trim() && (l.includes(team) || l.match(/^\s*\d+\s/)))
+        .slice(0, 20).join('\n');
 
-      const season = rosterMeta?.season || '2048';
-      const week   = rosterMeta?.week   || '?';
+      const userMsg = `Generate a scouting report for the ${team}, Season ${d.season} Week ${d.week}.
 
-      const systemPrompt = `You are an expert PNFL fantasy football scout writing a professional scouting report. Be analytical, specific, and concise. Use the provided data only. Format your response with exactly these 5 section headers on separate lines: STRENGTHS:, CONCERNS:, BEST CONTRACT:, SLEEPER:, DRAFT PRIORITY: Each section should be 1-2 sentences.`;
+=== TEAM OVERVIEW ===
+Record: ${d.record} | PF: ${d.pf} PA: ${d.pa} | Streak: ${d.streak}
+Power Ranking: #${d.powerRank} of 18 teams
+Roster Overall Score: ${d.overall} | Offense: ${d.offScore} (ranked #${d.offRank}/18) | Defense: ${d.defScore} (ranked #${d.defRank}/18)
+Pass offense rank: #${d.passRank} | Rush offense rank: #${d.rushRank} | Pass defense rank: #${d.passDefRank} | Rush defense rank: #${d.rushDefRank}
 
-      const userMsg = `Generate a scouting report for the ${team} — Season ${season}, Week ${week}.
+=== TOP ROSTER POSITIONS (by score) ===
+Offense strengths: ${d.topOff.map(p=>`${p.pos} (${p.score})`).join(', ')}
+Offense weaknesses: ${d.weakOff.map(p=>`${p.pos} (${p.score})`).join(', ')}
+Defense strengths: ${d.topDef.map(p=>`${p.pos} (${p.score})`).join(', ')}
+Defense weaknesses: ${d.weakDef.map(p=>`${p.pos} (${p.score})`).join(', ')}
 
-STANDINGS: Rank #${standing.rank||'?'}, Record ${standing.wins||0}W-${standing.losses||0}L, ${standing.pts||0} power points
-STRONGEST POSITIONS: ${topPos}
-WEAKEST POSITIONS: ${weakPos}
-BEST CONTRACT VALUE: ${valueDeal || 'Not available'}
-SLEEPER CANDIDATE: ${sleeper || 'None identified'}
-RECENT GAMES: ${recentGames || 'No game data'}
-OFFENSE TOTAL: ${(calculateUnitScore(td,'offense',wts,depth||loadDepth(),designation||'AO')||0).toFixed(1)}
-DEFENSE TOTAL: ${(calculateUnitScore(td,'defense',wts,depth||loadDepth(),designation||'AO')||0).toFixed(1)}`;
+=== TOP 5 PLAYERS (roster rating) ===
+${d.topPlayers.map((p,i)=>`${i+1}. ${p.name} (${p.pos}) - Score: ${p.score}`).join('\n')}
 
-      let scoutFull = '';
-      await window.pnflAI.ask(systemPrompt, userMsg, 350,
-        (partial) => { scoutFull = partial; setReport({ RAW: partial }); }
+=== WEEK ${d.week} GAME STATS (${team} players) ===
+${gameStatsSnippet || 'No individual game stats found'}
+
+=== SEASON STATS CONTEXT ===
+${seasonStatsSnippet || 'No season stats available'}
+
+=== SCHEDULE ===
+Opponents beaten (W): ${d.oppsWon.join(', ') || 'none yet'}
+Opponents lost to (L): ${d.oppsLostArr.join(', ') || 'none yet'}
+Next opponent (Week ${parseInt(d.week)+1}): ${d.nextOpponent}`;
+
+      let full = '';
+      await window.pnflAI.ask(systemPrompt, userMsg, 400,
+        partial => { full = partial; setRawText(partial); }
       );
-      setReport(parseScoutingReport(scoutFull));
-      playSound('compareDone');
-      haptic('medium');
+      setReport(parseScoutingReport(full));
+      playSound('compareDone'); haptic('medium');
     } catch(e) {
       setError(e.message || String(e));
     }
     setLoading(false);
   };
 
+  const d = team ? buildScoutingData(team, getTeamData, weights, depth, designation, contractData, standingsData, rosterMeta) : null;
+
   return (
     <div className="panel-content">
-      <div style={{marginBottom:'14px',color:'#a0d2a0',fontSize:'0.82rem',fontFamily:'Roboto Condensed',lineHeight:1.5}}>
-        AI-generated scouting report using roster scores, contract value, standings, and game stats for the current week.
-        {!aiReady && <span style={{color:'#ff9944',display:'block',marginTop:'4px'}}>⚠️ Enable AI Analyst in the header bar first.</span>}
-      </div>
-      <div style={{display:'flex',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
-        <select value={team} onChange={e=>setTeam(e.target.value)}
-          style={{flex:1,padding:'8px 12px',background:'rgba(10,22,40,0.9)',border:'1px solid #2d5a2d',borderRadius:'8px',color:'#a0d2a0',fontFamily:'Roboto Condensed',fontSize:'0.9rem',outline:'none',minWidth:'180px'}}>
-          <option value="">Select a team…</option>
+      <div style={{display:'flex',gap:'10px',marginBottom:'12px',flexWrap:'wrap',alignItems:'center'}}>
+        <select value={team} onChange={e=>{setTeam(e.target.value);setReport(null);setRawText('');}}
+          style={{flex:1,padding:'8px 12px',background:'rgba(10,22,40,0.9)',border:'1px solid #2d5a2d',borderRadius:'8px',color:'#a0d2a0',fontFamily:'Roboto Condensed',fontSize:'0.9rem',outline:'none',minWidth:'160px'}}>
+          <option value="">Select team…</option>
           {TEAM_NAMES.map(t=><option key={t} value={t}>{t}</option>)}
         </select>
-        <button onClick={generateReport} disabled={!team||loading||!aiReady} className="haptic-btn"
-          style={{padding:'8px 20px',background: team&&aiReady?'linear-gradient(135deg,#1a3a6c,#0d2450)':'rgba(30,40,50,0.4)',border:`2px solid ${team&&aiReady?'#4a9eff':'#2a3a4a'}`,borderRadius:'8px',color:team&&aiReady?'#7ec8ff':'#3a5060',fontFamily:'Orbitron',fontSize:'0.78rem',fontWeight:'700',cursor:team&&aiReady?'pointer':'not-allowed',transition:'all 0.2s',opacity:team&&aiReady?1:0.5}}>
-          {loading ? <span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span> : '📋 Generate'}
+        <button onClick={()=>{playSound('click');haptic('medium');generateReport();}} disabled={!team||loading||!aiReady} className="haptic-btn"
+          style={{padding:'8px 18px',background:team&&aiReady?'linear-gradient(135deg,#1a3a6c,#0d2450)':'rgba(20,30,40,0.4)',border:`2px solid ${team&&aiReady?'#4a9eff':'#2a3a4a'}`,borderRadius:'8px',color:team&&aiReady?'#7ec8ff':'#3a5060',fontFamily:'Orbitron',fontSize:'0.75rem',fontWeight:'700',cursor:team&&aiReady?'pointer':'not-allowed',whiteSpace:'nowrap'}}>
+          {loading ? <span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span> : '📊 Analyze'}
         </button>
       </div>
-      {error && <div style={{padding:'8px 12px',background:'rgba(255,60,60,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'7px',fontSize:'0.75rem',color:'#ff9090',fontFamily:'Roboto Condensed',marginBottom:'12px'}}>{error}</div>}
-      {report && <ScoutingReportCard report={report} team={team} rosterMeta={rosterMeta}/>}
+
+      {!aiReady && <div style={{fontSize:'0.75rem',color:'#ff9944',marginBottom:'8px'}}>⚠ Enable AI Analyst in header first.</div>}
+      {!ctxReady && aiReady && <div style={{fontSize:'0.72rem',color:'#7a9a6a',marginBottom:'8px'}}>ℹ Fetch Rosters to load live game + season stats.</div>}
+
+      {/* Static data card — shows instantly without AI */}
+      {d && !report && !loading && (
+        <ScoutingStatCard data={d} rosterMeta={rosterMeta}/>
+      )}
+
+      {/* Streaming AI text while generating */}
+      {loading && rawText && (
+        <div style={{padding:'10px 14px',background:'rgba(10,20,40,0.6)',border:'1px solid rgba(74,158,255,0.2)',borderRadius:'8px',fontSize:'0.8rem',color:'#a0c0e0',fontFamily:'Roboto Condensed',lineHeight:1.6,whiteSpace:'pre-wrap',marginTop:'8px'}}>
+          {rawText}<span style={{display:'inline-block',width:'8px',height:'13px',background:'#4a9eff',marginLeft:'2px',verticalAlign:'middle',animation:'blink 0.7s step-end infinite'}}/>
+        </div>
+      )}
+      {loading && !rawText && (
+        <div style={{textAlign:'center',padding:'20px',color:'#4a7a6a',fontFamily:'Roboto Condensed',fontSize:'0.82rem'}}>
+          <span style={{display:'inline-block',animation:'spin2 1s linear infinite',fontSize:'1.2rem'}}>⟳</span>
+          <span style={{marginLeft:'10px'}}>Analyzing {team} game data…</span>
+        </div>
+      )}
+
+      {error && <div style={{padding:'8px 12px',background:'rgba(255,60,60,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'7px',fontSize:'0.75rem',color:'#ff9090',fontFamily:'Roboto Condensed',marginTop:'8px'}}>{error}</div>}
+
+      {report && !loading && (
+        <ScoutingReportCard report={report} data={d} rosterMeta={rosterMeta}/>
+      )}
+    </div>
+  );
+}
+
+// ── Static data card shown before AI generates ──
+function ScoutingStatCard({ data: d, rosterMeta }) {
+  if (!d) return null;
+  const ctx   = window.pnflContext || {};
+  const week  = rosterMeta?.week || ctx.week || '?';
+  const season= rosterMeta?.season || ctx.season || '2048';
+
+  return (
+    <div style={{borderRadius:'10px',overflow:'hidden',border:'1px solid rgba(74,158,255,0.15)',marginBottom:'8px'}}>
+      {/* Header row */}
+      <div style={{padding:'10px 14px',background:'linear-gradient(90deg,rgba(0,20,60,0.9),rgba(10,30,50,0.9))',display:'flex',alignItems:'center',gap:'12px',borderBottom:'1px solid rgba(74,158,255,0.12)'}}>
+        <TeamLogo teamName={d.team} size="small"/>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:'Orbitron',fontSize:'0.82rem',color:'#4a9eff',fontWeight:'700',letterSpacing:'0.5px'}}>{d.team.toUpperCase()}</div>
+          <div style={{fontSize:'0.65rem',color:'#4a7a6a',fontFamily:'Roboto Condensed'}}>Season {season} · Week {week} · Live Data</div>
+        </div>
+        <div style={{textAlign:'right'}}>
+          <div style={{fontFamily:'Orbitron',fontSize:'1.1rem',color:'#ffd700',fontWeight:'900'}}>{d.record}</div>
+          <div style={{fontSize:'0.65rem',color:'#5a8a5a',fontFamily:'Roboto Condensed'}}>PF {d.pf} · PA {d.pa}</div>
+        </div>
+      </div>
+
+      {/* Power rank + scores row */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'1px',background:'rgba(255,255,255,0.04)'}}>
+        {[
+          { label:'POWER RANK', value:`#${d.powerRank}`, color:'#ffd700' },
+          { label:'OVERALL',    value:d.overall,          color:'#4a9eff' },
+          { label:'OFFENSE',    value:`${d.offScore} (#${d.offRank})`, color:'#4aff4a' },
+          { label:'DEFENSE',    value:`${d.defScore} (#${d.defRank})`, color:'#ff9944' },
+        ].map(item=>(
+          <div key={item.label} style={{padding:'8px 6px',background:'rgba(0,10,30,0.5)',textAlign:'center'}}>
+            <div style={{fontSize:'0.55rem',color:'#3a5a6a',fontFamily:'Orbitron',letterSpacing:'0.5px',marginBottom:'3px'}}>{item.label}</div>
+            <div style={{fontSize:'0.88rem',color:item.color,fontFamily:'Orbitron',fontWeight:'700'}}>{item.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Offense + Defense position breakdown */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1px',background:'rgba(255,255,255,0.04)'}}>
+        <div style={{padding:'8px 12px',background:'rgba(0,20,10,0.4)'}}>
+          <div style={{fontSize:'0.6rem',color:'#4aff4a',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'5px'}}>OFF STRENGTHS</div>
+          {d.topOff.map(p=>(
+            <div key={p.pos} style={{display:'flex',justifyContent:'space-between',marginBottom:'2px'}}>
+              <span style={{fontSize:'0.72rem',color:'#a0d2a0',fontFamily:'Roboto Condensed'}}>{p.pos}</span>
+              <span style={{fontSize:'0.72rem',color:'#4aff4a',fontFamily:'Orbitron'}}>{p.score}</span>
+            </div>
+          ))}
+          {d.weakOff.length > 0 && <>
+            <div style={{fontSize:'0.6rem',color:'#ff9944',fontFamily:'Orbitron',letterSpacing:'1px',margin:'5px 0 3px'}}>NEEDS WORK</div>
+            {d.weakOff.map(p=>(
+              <div key={p.pos} style={{display:'flex',justifyContent:'space-between',marginBottom:'2px'}}>
+                <span style={{fontSize:'0.72rem',color:'#a0a090',fontFamily:'Roboto Condensed'}}>{p.pos}</span>
+                <span style={{fontSize:'0.72rem',color:'#ff9944',fontFamily:'Orbitron'}}>{p.score}</span>
+              </div>
+            ))}
+          </>}
+        </div>
+        <div style={{padding:'8px 12px',background:'rgba(0,10,30,0.4)'}}>
+          <div style={{fontSize:'0.6rem',color:'#4a9eff',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'5px'}}>DEF STRENGTHS</div>
+          {d.topDef.map(p=>(
+            <div key={p.pos} style={{display:'flex',justifyContent:'space-between',marginBottom:'2px'}}>
+              <span style={{fontSize:'0.72rem',color:'#a0c0e0',fontFamily:'Roboto Condensed'}}>{p.pos}</span>
+              <span style={{fontSize:'0.72rem',color:'#4a9eff',fontFamily:'Orbitron'}}>{p.score}</span>
+            </div>
+          ))}
+          {d.weakDef.length > 0 && <>
+            <div style={{fontSize:'0.6rem',color:'#ff6060',fontFamily:'Orbitron',letterSpacing:'1px',margin:'5px 0 3px'}}>NEEDS WORK</div>
+            {d.weakDef.map(p=>(
+              <div key={p.pos} style={{display:'flex',justifyContent:'space-between',marginBottom:'2px'}}>
+                <span style={{fontSize:'0.72rem',color:'#a09090',fontFamily:'Roboto Condensed'}}>{p.pos}</span>
+                <span style={{fontSize:'0.72rem',color:'#ff6060',fontFamily:'Orbitron'}}>{p.score}</span>
+              </div>
+            ))}
+          </>}
+        </div>
+      </div>
+
+      {/* Top players */}
+      <div style={{padding:'8px 12px',background:'rgba(0,5,20,0.4)',borderTop:'1px solid rgba(255,255,255,0.04)'}}>
+        <div style={{fontSize:'0.6rem',color:'#c090ff',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'5px'}}>TOP ROSTER PLAYERS</div>
+        <div style={{display:'flex',flexWrap:'wrap',gap:'4px'}}>
+          {d.topPlayers.map((p,i)=>(
+            <div key={p.name} style={{padding:'2px 8px',background:'rgba(160,100,255,0.1)',border:'1px solid rgba(160,100,255,0.2)',borderRadius:'12px',fontSize:'0.7rem',color:'#c090ff',fontFamily:'Roboto Condensed'}}>
+              {p.name} <span style={{color:'#7050a0'}}>{p.pos} {p.score}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Opponents + Next game */}
+      <div style={{padding:'8px 12px',background:'rgba(0,5,20,0.3)',borderTop:'1px solid rgba(255,255,255,0.04)',display:'flex',gap:'16px',flexWrap:'wrap'}}>
+        {d.oppsWon.length > 0 && (
+          <div style={{flex:1,minWidth:'120px'}}>
+            <div style={{fontSize:'0.6rem',color:'#4aff4a',fontFamily:'Orbitron',letterSpacing:'0.5px',marginBottom:'4px'}}>BEATEN</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:'3px'}}>
+              {d.oppsWon.map(opp=>(
+                <div key={opp} style={{display:'flex',alignItems:'center',gap:'3px'}}>
+                  <TeamLogo teamName={SHORT_TO_TEAM[opp]||opp} size="tiny"/>
+                  <span style={{fontSize:'0.65rem',color:'#4a8a4a',fontFamily:'Roboto Condensed'}}>{opp}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {d.oppsLostArr.length > 0 && (
+          <div style={{flex:1,minWidth:'120px'}}>
+            <div style={{fontSize:'0.6rem',color:'#ff6060',fontFamily:'Orbitron',letterSpacing:'0.5px',marginBottom:'4px'}}>LOST TO</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:'3px'}}>
+              {d.oppsLostArr.map(opp=>(
+                <div key={opp} style={{display:'flex',alignItems:'center',gap:'3px'}}>
+                  <TeamLogo teamName={SHORT_TO_TEAM[opp]||opp} size="tiny"/>
+                  <span style={{fontSize:'0.65rem',color:'#8a4a4a',fontFamily:'Roboto Condensed'}}>{opp}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {d.nextOpponent && (
+          <div style={{flex:1,minWidth:'120px'}}>
+            <div style={{fontSize:'0.6rem',color:'#ffd700',fontFamily:'Orbitron',letterSpacing:'0.5px',marginBottom:'4px'}}>NEXT — WK {parseInt(week)+1}</div>
+            <div style={{display:'flex',alignItems:'center',gap:'5px'}}>
+              <TeamLogo teamName={d.nextOpponent} size="tiny"/>
+              <span style={{fontSize:'0.75rem',color:'#ffd700',fontFamily:'Roboto Condensed',fontWeight:'700'}}>{d.nextOpponent}</span>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
 function parseScoutingReport(text) {
-  const sections = { STRENGTHS:'', CONCERNS:'', 'BEST CONTRACT':'', SLEEPER:'', 'DRAFT PRIORITY':'' };
-  const keys = Object.keys(sections);
+  const keys = ['OFFENSIVE ANALYSIS','DEFENSIVE ANALYSIS','WEEKLY HIGHLIGHTS','TOP PERFORMERS','STRENGTHS','AREAS TO IMPROVE'];
+  const sections = {};
   keys.forEach((key, i) => {
-    const pattern = new RegExp(key + ':?\\s*([\\s\\S]*?)(?=' + (keys[i+1] ? keys[i+1] + ':' : '$') + ')', 'i');
+    const next = keys[i+1];
+    const pattern = new RegExp(key + ':?\\s*([\\s\\S]*?)(?=' + (next ? next + ':' : '$') + ')', 'i');
     const m = text.match(pattern);
     if (m) sections[key] = m[1].trim();
   });
-  // If structured parsing fails, return raw text
-  if (!sections.STRENGTHS && !sections.CONCERNS) sections.RAW = text;
+  if (!Object.values(sections).some(Boolean)) sections.RAW = text;
   return sections;
 }
 
-function ScoutingReportCard({ report, team, rosterMeta }) {
-  const sections = [
-    { key:'STRENGTHS',      icon:'💪', color:'#4aff4a', bg:'rgba(74,255,74,0.05)',  border:'rgba(74,255,74,0.2)' },
-    { key:'CONCERNS',       icon:'⚠️', color:'#ff9944', bg:'rgba(255,153,68,0.05)', border:'rgba(255,153,68,0.2)' },
-    { key:'BEST CONTRACT',  icon:'💰', color:'#3ddc84', bg:'rgba(61,220,132,0.05)', border:'rgba(61,220,132,0.2)' },
-    { key:'SLEEPER',        icon:'⚡', color:'#c090ff', bg:'rgba(160,100,255,0.05)','border':'rgba(160,100,255,0.2)' },
-    { key:'DRAFT PRIORITY', icon:'🎯', color:'#ffd700', bg:'rgba(255,215,0,0.05)',  border:'rgba(255,215,0,0.2)' },
+function ScoutingReportCard({ report, data: d, rosterMeta }) {
+  const SECTIONS = [
+    { key:'OFFENSIVE ANALYSIS', icon:'⚔',  color:'#4aff4a', bg:'rgba(74,255,74,0.04)'  },
+    { key:'DEFENSIVE ANALYSIS', icon:'🛡',  color:'#4a9eff', bg:'rgba(74,158,255,0.04)' },
+    { key:'WEEKLY HIGHLIGHTS',  icon:'⚡',  color:'#ffd700', bg:'rgba(255,215,0,0.04)'  },
+    { key:'TOP PERFORMERS',     icon:'🏆',  color:'#c090ff', bg:'rgba(160,100,255,0.04)'},
+    { key:'STRENGTHS',          icon:'💪',  color:'#3ddc84', bg:'rgba(61,220,132,0.04)' },
+    { key:'AREAS TO IMPROVE',   icon:'📈',  color:'#ff9944', bg:'rgba(255,153,68,0.04)' },
   ];
+
   return (
-    <div style={{borderRadius:'10px',overflow:'hidden',border:'1px solid rgba(74,158,255,0.2)'}}>
-      {/* Header */}
-      <div style={{padding:'10px 16px',background:'linear-gradient(90deg,rgba(13,40,24,0.95),rgba(10,22,40,0.95))',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid rgba(74,158,255,0.15)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-          <TeamLogo teamName={team} size="small"/>
-          <div>
-            <div style={{fontFamily:'Orbitron',fontSize:'0.82rem',color:'#4a9eff',fontWeight:'700',letterSpacing:'1px'}}>{team.toUpperCase()} — SCOUTING REPORT</div>
-            <div style={{fontSize:'0.65rem',color:'#5a8a6a',fontFamily:'Roboto Condensed'}}>Season {rosterMeta?.season||'2048'} · Week {rosterMeta?.week||'?'} · AI-Generated</div>
+    <div style={{borderRadius:'10px',overflow:'hidden',border:'1px solid rgba(74,158,255,0.2)',marginTop:'6px'}}>
+      <div style={{padding:'8px 14px',background:'linear-gradient(90deg,rgba(0,20,60,0.95),rgba(10,30,50,0.95))',display:'flex',alignItems:'center',gap:'10px',borderBottom:'1px solid rgba(74,158,255,0.12)'}}>
+        <TeamLogo teamName={d?.team||''} size="small"/>
+        <div style={{flex:1}}>
+          <div style={{fontFamily:'Orbitron',fontSize:'0.8rem',color:'#4a9eff',fontWeight:'700'}}>AI ANALYSIS — {(d?.team||'').toUpperCase()}</div>
+          <div style={{fontSize:'0.62rem',color:'#4a7a6a',fontFamily:'Roboto Condensed'}}>
+            Season {rosterMeta?.season||'2048'} · Week {rosterMeta?.week||'?'} · Power Rank #{d?.powerRank||'?'} · Record {d?.record||'?'}
           </div>
         </div>
       </div>
-      {/* Sections */}
-      <div style={{background:'rgba(0,0,0,0.15)'}}>
+      <div>
         {report.RAW ? (
-          <div style={{padding:'14px 16px',fontSize:'0.82rem',color:'#a0d2a0',fontFamily:'Roboto Condensed',lineHeight:1.6,whiteSpace:'pre-wrap'}}>{report.RAW}</div>
+          <div style={{padding:'12px 14px',fontSize:'0.8rem',color:'#a0d2a0',fontFamily:'Roboto Condensed',lineHeight:1.6,whiteSpace:'pre-wrap'}}>{report.RAW}</div>
         ) : (
-          sections.filter(s => report[s.key]).map(s => (
-            <div key={s.key} style={{padding:'10px 16px',background:s.bg,borderLeft:`3px solid ${s.color}`,borderBottom:'1px solid rgba(255,255,255,0.04)',margin:'0'}}>
-              <div style={{display:'flex',alignItems:'baseline',gap:'8px',marginBottom:'4px'}}>
-                <span style={{fontSize:'0.85rem'}}>{s.icon}</span>
-                <span style={{fontFamily:'Orbitron',fontSize:'0.62rem',color:s.color,letterSpacing:'1.5px',fontWeight:'700',textTransform:'uppercase'}}>{s.key}</span>
+          SECTIONS.filter(s=>report[s.key]).map(s=>(
+            <div key={s.key} style={{padding:'9px 14px',background:s.bg,borderLeft:`3px solid ${s.color}`,borderBottom:'1px solid rgba(255,255,255,0.03)'}}>
+              <div style={{display:'flex',alignItems:'center',gap:'7px',marginBottom:'3px'}}>
+                <span style={{fontSize:'0.8rem'}}>{s.icon}</span>
+                <span style={{fontFamily:'Orbitron',fontSize:'0.6rem',color:s.color,letterSpacing:'1.2px',fontWeight:'700'}}>{s.key}</span>
               </div>
-              <div style={{fontSize:'0.82rem',color:'#a0c0a0',fontFamily:'Roboto Condensed',lineHeight:1.55,paddingLeft:'28px'}}>{report[s.key]}</div>
+              <div style={{fontSize:'0.8rem',color:'#a0c0a0',fontFamily:'Roboto Condensed',lineHeight:1.55,paddingLeft:'24px'}}>{report[s.key]}</div>
             </div>
           ))
         )}
@@ -5297,6 +5848,7 @@ function ScoutingReportCard({ report, team, rosterMeta }) {
     </div>
   );
 }
+
 
 function DataHelpers({ contractData, onFetchContracts, fetchingContracts, rosterMeta }) {
   const [paste,setPaste]=useState('');
@@ -5895,6 +6447,19 @@ function App() {
   const [contractData,setContractData]=useState(()=>loadContractCache());
   const [seasonData,setSeasonData]=useState(()=>loadSeasonCache());
   const [gameStatsData,setGameStatsData]=useState(()=>loadGameStatsCache());
+
+  // Bootstrap context engine on mount with cached season/week
+  React.useEffect(() => {
+    const cached = loadRosterCache();
+    const s = cached?.season || '2048';
+    const w = cached?.week   || '3';
+    if (window.pnflContext) {
+      window.pnflContext.season = s;
+      window.pnflContext.week   = w;
+      // Fetch live data in background — doesn't block app load
+      window.pnflContext.fetchAll(s, w).catch(e => console.warn('[Context init]', e.message));
+    }
+  }, []);
   const [fetching,setFetching]=useState(false);
   const [fetchingContracts,setFetchingContracts]=useState(false);
   const [fetchError,setFetchError]=useState(null);
@@ -5983,6 +6548,12 @@ function App() {
         setRosterData(parsed);
         rosterOk = true;
         playSound('fetchDone');
+        // Update context engine with current season/week then fetch all live stats
+        if (window.pnflContext) {
+          window.pnflContext.season = parsed.season || '2048';
+          window.pnflContext.week   = parsed.week   || '3';
+          window.pnflContext.fetchAll(parsed.season, parsed.week).catch(e => console.warn('[Context]', e.message));
+        }
       } catch(e) {
         console.warn('Roster parse failed:', e.message);
       }
