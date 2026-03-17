@@ -225,46 +225,45 @@ function parseContractAsync(arrayBuffer) {
 </script>
 
 <script>
-// ── PNFL AI Analyst v5.2 ──
-// All state stored directly on window.pnflAI object — no module-level vars
-// that could be lost across script scope boundaries.
+// ── PNFL AI Analyst v5.3 ──
+// All state on window.pnflAI — never in module-level vars.
+// Worker v3 auto-discovers a working free HF model via X-Working-Model header.
 
 window.pnflAI = {
-  _ready:     false,
-  _loading:   false,
-  _error:     null,
-  _apiKey:    '',
-  _proxyUrl:  '',   // stored HERE, not in a var — survives across Babel scope
-  _model:     'Qwen/Qwen2.5-1.5B-Instruct',
+  _ready:      false,
+  _loading:    false,
+  _error:      null,
+  _apiKey:     '',
+  _proxyUrl:   '',
+  _model:      'Qwen/Qwen2.5-7B-Instruct',  // worker will override if unavailable
+  _modelLabel: '',
 
-  isReady:   function() { return window.pnflAI._ready; },
-  isLoading: function() { return window.pnflAI._loading; },
-  getError:  function() { return window.pnflAI._error; },
+  isReady:    function() { return window.pnflAI._ready; },
+  isLoading:  function() { return window.pnflAI._loading; },
+  getError:   function() { return window.pnflAI._error; },
+  getModel:   function() { return window.pnflAI._modelLabel || window.pnflAI._model; },
 
   setProxyUrl: function(url) {
     const clean = (url || '').trim().replace(/\/+$/, '');
     window.pnflAI._proxyUrl = clean;
     if (clean) sessionStorage.setItem('pnfl_proxy_url', clean);
-    console.log('[PNFL AI] proxy set to:', clean || '(empty)');
   },
 
   _diagnose: function(status, body) {
     const b = (body || '').toLowerCase();
-    if (status === 410 || b.includes('no longer supported') || b.includes('router.huggingface')) {
-      return 'WORKER_OUTDATED: Your Cloudflare Worker still targets the old HF endpoint. Edit your Worker → paste new pnfl_ai_proxy_worker.js → Save & Deploy.';
-    }
-    if (status === 401 || (b.includes('invalid') && b.includes('token'))) {
-      return 'INVALID_TOKEN: HF token is invalid. Copy the full hf_... token from huggingface.co/settings/tokens.';
-    }
-    if (status === 403 || b.includes('authorization error') || b.includes('inference api')) {
-      return 'NO_PERMISSION: Token lacks Inference API scope. huggingface.co/settings/tokens → Edit token → check "Make calls to the serverless Inference API".';
-    }
-    if (status === 503) return 'MODEL_LOADING: Model cold-starting. Wait 20 seconds and try again.';
-    if (status === 429) return 'RATE_LIMIT: HF rate limit. Wait a moment and retry.';
-    if (status === 402) return 'PRO_REQUIRED: This model requires HF PRO subscription.';
-    if (status === 0 || b.includes('failed to fetch') || b.includes('networkerror')) {
-      return 'NETWORK: Cannot reach proxy. Check your Cloudflare Worker URL is correct and the worker is active.';
-    }
+    if (status === 410 || b.includes('no longer supported'))
+      return 'WORKER_OUTDATED: Redeploy your Cloudflare Worker with the latest pnfl_ai_proxy_worker.js (v3).';
+    if (status === 401 || (b.includes('invalid') && b.includes('token')))
+      return 'INVALID_TOKEN: HF token invalid. Copy the full hf_... token from huggingface.co/settings/tokens.';
+    if (status === 403 || b.includes('authorization error') || b.includes('inference api'))
+      return 'NO_PERMISSION: Token needs Inference API scope. huggingface.co/settings/tokens → Edit → "Make calls to the serverless Inference API".';
+    if (status === 404)
+      return 'NOT_FOUND_404: Model not available on free tier. The worker v3 will auto-try fallback models — redeploy pnfl_ai_proxy_worker.js v3.';
+    if (status === 503) return 'MODEL_LOADING';
+    if (status === 429) return 'RATE_LIMIT';
+    if (status === 502) return 'ALL_FAILED: All free HF models unavailable. Try again in a few minutes.';
+    if (status === 0 || b.includes('failed to fetch'))
+      return 'NETWORK: Cannot reach proxy. Check your Cloudflare Worker URL is correct and deployed.';
     return 'HTTP_' + status + ': ' + (body || '').slice(0, 200);
   },
 
@@ -276,7 +275,7 @@ window.pnflAI = {
     ai._ready   = false;
 
     const key   = (apiKey   || '').trim();
-    const proxy = (proxyUrl || '').trim().replace(/\/+$/, '');
+    const proxy = (proxyUrl || sessionStorage.getItem('pnfl_proxy_url') || '').trim().replace(/\/+$/, '');
 
     if (!key) {
       ai._error = 'No API key provided.';
@@ -289,15 +288,13 @@ window.pnflAI = {
       throw new Error(ai._error);
     }
 
-    // Always save proxy — even if empty, clear the old one
     ai._proxyUrl = proxy;
-    if (proxy) {
-      sessionStorage.setItem('pnfl_proxy_url', proxy);
-    }
-    console.log('[PNFL AI] load() — key:', key.slice(0,8)+'...', '| proxy:', proxy || '(none)');
+    if (proxy) sessionStorage.setItem('pnfl_proxy_url', proxy);
 
-    // No proxy — accept key, let ask() give a clear message
+    console.log('[PNFL AI] load() key:', key.slice(0,8)+'...', '| proxy:', proxy.slice(0,50) || '(none)');
+
     if (!proxy) {
+      // Accept optimistically — ask() will surface the no-proxy error
       ai._apiKey  = key;
       ai._ready   = true;
       sessionStorage.setItem('pnfl_ai_key', key);
@@ -305,8 +302,8 @@ window.pnflAI = {
       return;
     }
 
-    // Validate with a minimal test call through the proxy
-    let testStatus = 0, testBody = '';
+    // Validate: small test call — worker v3 will try multiple models automatically
+    let testStatus = 0, testBody = '', workingModel = '';
     try {
       const res = await fetch(proxy, {
         method:  'POST',
@@ -317,11 +314,12 @@ window.pnflAI = {
           max_tokens: 5,
           stream:   false,
         }),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(20000),
       });
-      testStatus = res.status;
-      testBody   = await res.text();
-      console.log('[PNFL AI] test ->', testStatus, testBody.slice(0, 150));
+      testStatus    = res.status;
+      testBody      = await res.text();
+      workingModel  = res.headers.get('X-Working-Model') || '';
+      console.log('[PNFL AI] test →', testStatus, workingModel || '', testBody.slice(0,100));
     } catch(e) {
       testStatus = 0;
       testBody   = e.message || 'Network error';
@@ -331,7 +329,12 @@ window.pnflAI = {
     if (testStatus === 200 || testStatus === 503) {
       ai._apiKey  = key;
       ai._ready   = true;
-      sessionStorage.setItem('pnfl_ai_key', key);
+      if (workingModel) {
+        ai._model      = workingModel;
+        ai._modelLabel = workingModel.split('/').pop();
+      }
+      sessionStorage.setItem('pnfl_ai_key',   key);
+      sessionStorage.setItem('pnfl_ai_model', ai._model);
       ai._loading = false;
       return;
     }
@@ -345,14 +348,10 @@ window.pnflAI = {
     const ai    = window.pnflAI;
     const proxy = ai._proxyUrl || sessionStorage.getItem('pnfl_proxy_url') || '';
 
-    if (!ai._apiKey) throw new Error('Not connected — open the AI panel and enter your HF token.');
-    if (!proxy) {
-      throw new Error('NO_PROXY: No Cloudflare Worker URL saved. Open the AI connect modal (header slider → 🔑 Connect) and enter your workers.dev URL in the Proxy URL field.');
-    }
+    if (!ai._apiKey) throw new Error('Not connected — open the AI slider and enter your HF token.');
+    if (!proxy) throw new Error('NO_PROXY: No Cloudflare Worker URL saved. Open the AI connect modal and enter your workers.dev URL.');
 
-    console.log('[PNFL AI] ask() → proxy:', proxy.slice(0, 40));
-
-    let status = 0, txt = '';
+    let status = 0, txt = '', workingModel = '';
     try {
       const res = await fetch(proxy, {
         method:  'POST',
@@ -369,18 +368,23 @@ window.pnflAI = {
         }),
         signal: AbortSignal.timeout(30000),
       });
-      status = res.status;
-      txt    = await res.text();
-      console.log('[PNFL AI] response ->', status, txt.slice(0, 120));
+      status       = res.status;
+      txt          = await res.text();
+      workingModel = res.headers.get('X-Working-Model') || '';
+      if (workingModel && workingModel !== ai._model) {
+        ai._model      = workingModel;
+        ai._modelLabel = workingModel.split('/').pop();
+        sessionStorage.setItem('pnfl_ai_model', workingModel);
+      }
+      console.log('[PNFL AI] ask →', status, workingModel || ai._model, txt.slice(0,80));
     } catch(e) {
       throw new Error(ai._diagnose(0, e.message));
     }
 
     if (status !== 200) {
       const msg = ai._diagnose(status, txt);
-      if (msg.startsWith('MODEL_LOADING') || msg.startsWith('RATE_LIMIT')) {
-        return '⏳ ' + msg.split(':').slice(1).join(':').trim();
-      }
+      if (msg === 'MODEL_LOADING') return '⏳ Model is loading on HF servers — wait 20 seconds and try again.';
+      if (msg === 'RATE_LIMIT')    return '⏳ Rate limit hit — wait a moment and try again.';
       throw new Error(msg);
     }
 
@@ -397,14 +401,19 @@ window.pnflAI = {
     try {
       const key   = sessionStorage.getItem('pnfl_ai_key');
       const proxy = sessionStorage.getItem('pnfl_proxy_url') || '';
+      const model = sessionStorage.getItem('pnfl_ai_model') || '';
       if (key && key.startsWith('hf_') && key.length >= 20) {
         window.pnflAI._apiKey   = key;
         window.pnflAI._proxyUrl = proxy;
         window.pnflAI._ready    = true;
-        console.log('[PNFL AI] restored — key:', key.slice(0,8)+'...', '| proxy:', proxy.slice(0,30) || '(none)');
+        if (model) {
+          window.pnflAI._model      = model;
+          window.pnflAI._modelLabel = model.split('/').pop();
+        }
+        console.log('[PNFL AI] restored | proxy:', proxy.slice(0,40) || '(none)', '| model:', window.pnflAI._model);
         return true;
       }
-    } catch(e) { console.warn('[PNFL AI] restore error:', e); }
+    } catch(e) { console.warn('[PNFL AI] restore err:', e); }
     return false;
   },
 };
@@ -850,7 +859,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v5.2...</div>
+  <div class="pl-sub">Loading v5.3...</div>
 </div>
 <div id="root"></div>
 <script type="text/babel">
@@ -925,7 +934,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '5.2';
+const APP_VERSION = '5.3';
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
@@ -4954,7 +4963,7 @@ Question: ${aiQuery}`;
           {showAIModal && <AIConnectModal onClose={()=>setShowAIModal(false)} onConnected={()=>setAiReady(!!(window.pnflAI && window.pnflAI.isReady && window.pnflAI.isReady()))}/>}
           <div style={{marginBottom:'14px',borderRadius:'10px',overflow:'hidden',border:`1px solid ${aiReady?'rgba(160,100,255,0.35)':'rgba(80,50,120,0.2)'}`}}>
             <div style={{padding:'8px 14px',background:'linear-gradient(90deg,rgba(40,20,60,0.95),rgba(10,22,40,0.95))',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-              <span style={{fontFamily:'Orbitron',fontSize:'0.72rem',color: aiReady ? '#c090ff' : '#604080',letterSpacing:'1px',fontWeight:'700'}}>🤖 AI ANALYST — Qwen2.5</span>
+              <span style={{fontFamily:'Orbitron',fontSize:'0.72rem',color: aiReady ? '#c090ff' : '#604080',letterSpacing:'1px',fontWeight:'700'}}>🤖 AI ANALYST{aiReady && window.pnflAI?.getModel?.() ? ' — ' + window.pnflAI.getModel() : ''}</span>
               {aiReady
                 ? <span style={{fontSize:'0.65rem',color:'#4aff4a',fontFamily:'Roboto Condensed'}}>● Connected</span>
                 : <button onClick={()=>setShowAIModal(true)} className="haptic-btn"
