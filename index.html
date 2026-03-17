@@ -248,8 +248,8 @@ window.pnflAI = {
   _error:      null,
   _apiKey:     '',
   _proxyUrl:   '',
-  _model:      'qwen2.5:1.5b',
-  _modelLabel: 'Qwen2.5 1.5B',
+  _model:      'llama3.2:1b',
+  _modelLabel: 'Llama 3.2 1B',
   _mode:       'ollama',  // 'ollama' | 'hf'
   _ollamaUrl:  'http://localhost:11434',
 
@@ -285,43 +285,75 @@ window.pnflAI = {
 
   // ── Ollama: ping localhost to check if running + model available ──
   _pingOllama: async function(ollamaUrl, model) {
+    const url = (ollamaUrl || 'http://localhost:11434') + '/api/tags';
     try {
-      const res = await fetch((ollamaUrl || 'http://localhost:11434') + '/api/tags', {
-        signal: AbortSignal.timeout(3000)
-      });
-      if (!res.ok) return { ok: false, reason: 'Ollama not responding (HTTP ' + res.status + ')' };
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (!res.ok) return { ok: false, reason: 'Ollama responded with HTTP ' + res.status };
       const data = await res.json();
       const models = (data.models || []).map(m => m.name);
       const found  = models.some(m => m === model || m.startsWith(model.split(':')[0]));
       return { ok: true, models, found, exact: found ? model : (models[0] || '') };
     } catch(e) {
-      return { ok: false, reason: 'Ollama not running — install from ollama.com then: ollama pull ' + model };
+      const msg = (e.message || '').toLowerCase();
+      // CORS or mixed-content block — Ollama IS running but browser is blocked
+      if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('cors') || msg.includes('blocked')) {
+        return {
+          ok: false,
+          corsBlocked: true,
+          reason: 'CORS_BLOCKED: Ollama is running but your browser is blocking the connection from ' + location.origin + '.\n\nFix: set the OLLAMA_ORIGINS environment variable so Ollama allows this page.\n\nSee the setup instructions below.'
+        };
+      }
+      // Timeout — likely not running
+      if (msg.includes('timeout') || msg.includes('aborted')) {
+        return { ok: false, reason: 'Ollama not responding (timeout). Make sure Ollama is running.' };
+      }
+      return { ok: false, reason: 'Cannot reach Ollama: ' + e.message };
     }
   },
 
-  // ── Ollama: chat completion ──
-  _askOllama: async function(systemPrompt, userMessage, maxTokens) {
+  // ── Ollama: streaming chat completion ──
+  // onToken(chunk) called for each streamed token — enables live typing display
+    _askOllama: async function(systemPrompt, userMessage, maxTokens, onToken) {
     const ai = window.pnflAI;
-    const res = await fetch(ai._ollamaUrl + '/api/chat', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        model:    ai._model,
-        stream:   false,
-        options:  { num_predict: maxTokens || 300, temperature: 0.4 },
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user',   content: userMessage  },
-        ],
-      }),
-      signal: AbortSignal.timeout(60000),
-    });
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error('Ollama error ' + res.status + ': ' + txt.slice(0, 150));
-    }
-    const d = await res.json();
-    return d?.message?.content?.trim() || d?.response?.trim() || JSON.stringify(d).slice(0,300);
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), 45000);
+    try {
+      const res = await fetch(ai._ollamaUrl + '/api/chat', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          model:   ai._model,
+          stream:  true,
+          options: { num_predict: maxTokens || 180, temperature: 0.4, num_ctx: 2048, num_thread: 4 },
+          messages:[
+            { role:'system', content: systemPrompt },
+            { role:'user',   content: userMessage  },
+          ],
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) { const t = await res.text(); throw new Error('Ollama ' + res.status + ': ' + t.slice(0,120)); }
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let   full    = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const lines = decoder.decode(value, { stream:true }).split('\n').filter(Boolean);
+        for (const line of lines) {
+          try {
+            const obj = JSON.parse(line);
+            const tok = obj?.message?.content || obj?.response || '';
+            if (tok) { full += tok; if (onToken) onToken(full); }
+            if (obj.done) break;
+          } catch {}
+        }
+      }
+      return full.trim() || '(no response)';
+    } catch(e) {
+      if (e.name === 'AbortError') throw new Error('Timed out (45s). Switch to a faster model: llama3.2:1b is the quickest.');
+      throw e;
+    } finally { clearTimeout(timeoutId); }
   },
 
   // ── HF proxy: chat completion ──
@@ -378,7 +410,7 @@ window.pnflAI = {
     if (selectedMode === 'ollama') {
       // ── Ollama mode ──
       const oUrl   = (ollamaUrl   || 'http://localhost:11434').trim().replace(/\/+$/,'');
-      const oModel = (ollamaModel || 'qwen2.5:1.5b').trim();
+      const oModel = (ollamaModel || 'llama3.2:1b').trim();
       ai._ollamaUrl = oUrl;
       sessionStorage.setItem('pnfl_ollama_url',   oUrl);
       sessionStorage.setItem('pnfl_ollama_model', oModel);
@@ -449,10 +481,10 @@ window.pnflAI = {
     throw new Error(ai._error);
   },
 
-  ask: async function(systemPrompt, userMessage, maxTokens) {
+  ask: async function(systemPrompt, userMessage, maxTokens, onToken) {
     const ai = window.pnflAI;
     if (!ai._ready) throw new Error('Not connected — configure AI in the header bar.');
-    if (ai._mode === 'ollama') return ai._askOllama(systemPrompt, userMessage, maxTokens);
+    if (ai._mode === 'ollama') return ai._askOllama(systemPrompt, userMessage, maxTokens, onToken);
     return ai._askHF(systemPrompt, userMessage, maxTokens);
   },
 
@@ -463,7 +495,7 @@ window.pnflAI = {
       const proxy      = sessionStorage.getItem('pnfl_proxy_url')      || '';
       const model      = sessionStorage.getItem('pnfl_ai_model')       || '';
       const ollamaUrl  = sessionStorage.getItem('pnfl_ollama_url')     || 'http://localhost:11434';
-      const ollamaModel= sessionStorage.getItem('pnfl_ollama_model')   || 'qwen2.5:1.5b';
+      const ollamaModel= sessionStorage.getItem('pnfl_ollama_model')   || 'llama3.2:1b';
 
       window.pnflAI._mode      = mode;
       window.pnflAI._proxyUrl  = proxy;
@@ -496,11 +528,11 @@ window.pnflAI.restore();
 <script>
 // ── PNFL Sound Engine ──
 const SOUNDS = {
-  aiConnect:  new Audio("./transform_ai.mp3"),
-  click:      new Audio("./Click_sound_1.mp3"),
-  fetchDone:  new Audio("./Contract_loaded.mp3"),
-  compareDone:new Audio("./Fetch_rosters.mp3"),
-  contractOk: new Audio("./Comparison_complete.mp3"),
+  aiConnect:  new Audio("./transform_ai.mp3"),       // AI connected
+  click:      new Audio("./Click_sound_1.mp3"),       // button clicks
+  fetchDone:  new Audio("./Fetch_rosters.mp3"),       // fetch rosters complete
+  compareDone:new Audio("./Comparison_complete.mp3"), // compare teams complete
+  contractOk: new Audio("./Contract_loaded.mp3"),     // contract file loaded
 };
 Object.values(SOUNDS).forEach(a => { a.preload='auto'; a.volume=0.7; });
 SOUNDS.click.volume = 0.4;
@@ -1007,7 +1039,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '5.8';
+const APP_VERSION = '5.9';
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
@@ -3712,7 +3744,7 @@ function AIConnectModal({ onClose, onConnected }) {
   const [mode, setMode]           = useState(() => sessionStorage.getItem('pnfl_ai_mode') || 'ollama');
   const [keyInput, setKeyInput]   = useState(() => sessionStorage.getItem('pnfl_ai_key') || '');
   const [proxyInput, setProxyInput] = useState(() => sessionStorage.getItem('pnfl_proxy_url') || '');
-  const [ollamaModel, setOllamaModel] = useState(() => sessionStorage.getItem('pnfl_ollama_model') || 'qwen2.5:1.5b');
+  const [ollamaModel, setOllamaModel] = useState(() => sessionStorage.getItem('pnfl_ollama_model') || 'llama3.2:1b');
   const [ollamaUrl, setOllamaUrl] = useState(() => sessionStorage.getItem('pnfl_ollama_url') || 'http://localhost:11434');
   const [status, setStatus]       = useState('idle');
   const [errorMsg, setErrorMsg]   = useState('');
@@ -3742,7 +3774,7 @@ function AIConnectModal({ onClose, onConnected }) {
     setStatus('idle'); setKeyInput(''); onConnected?.();
   };
 
-  const OLLAMA_MODELS = ['qwen2.5:1.5b','qwen2.5:7b','llama3.2:1b','llama3.2:3b','phi3.5','mistral'];
+  const OLLAMA_MODELS = ['llama3.2:1b','llama3.2:3b','qwen2.5:1.5b','qwen2.5:7b','phi3.5','mistral'];
   const inputStyle = {width:'100%',padding:'8px 12px',borderRadius:'7px',background:'rgba(10,15,30,0.9)',border:'1px solid rgba(160,100,255,0.25)',color:'#e0d0ff',fontFamily:'Roboto Condensed',fontSize:'0.85rem',outline:'none',boxSizing:'border-box'};
 
   return (
@@ -3804,7 +3836,7 @@ function AIConnectModal({ onClose, onConnected }) {
                   Install <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" style={{color:'#c090ff'}}>Ollama</a> then pull a model in your terminal.
                 </div>
                 <div style={{background:'rgba(0,0,0,0.3)',borderRadius:'8px',padding:'10px 14px',marginBottom:'14px',border:'1px solid rgba(160,100,255,0.15)'}}>
-                  <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'6px'}}>TERMINAL COMMANDS</div>
+                  <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'6px'}}>SETUP (ONE TIME)</div>
                   {[
                     {cmd:'ollama pull qwen2.5:1.5b',  label:'Tiny — 1GB, fast'},
                     {cmd:'ollama pull llama3.2:1b',   label:'Meta — 0.6GB, very fast'},
@@ -3815,10 +3847,22 @@ function AIConnectModal({ onClose, onConnected }) {
                       <span style={{fontSize:'0.65rem',color:'#5a4070',fontFamily:'Roboto Condensed'}}>{label}</span>
                     </div>
                   ))}
+                  <div style={{marginTop:'10px',paddingTop:'8px',borderTop:'1px solid rgba(160,100,255,0.1)'}}>
+                    <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'4px'}}>ALLOW THIS PAGE (REQUIRED)</div>
+                    <div style={{fontSize:'0.7rem',color:'#806090',fontFamily:'Roboto Condensed',marginBottom:'4px'}}>Run before starting Ollama — lets GitHub Pages connect to localhost:</div>
+                    <div style={{fontSize:'0.68rem',color:'#a0d2a0',fontFamily:'Roboto Condensed',marginBottom:'2px'}}>Windows (run as Admin):</div>
+                    <code style={{fontSize:'0.72rem',color:'#a0f0a0',fontFamily:'monospace',display:'block',padding:'4px 8px',background:'rgba(0,0,0,0.3)',borderRadius:'4px',marginBottom:'6px',wordBreak:'break-all'}}>
+                      setx OLLAMA_ORIGINS "https://mrgwaps.github.io" /M
+                    </code>
+                    <div style={{fontSize:'0.68rem',color:'#a0d2a0',fontFamily:'Roboto Condensed',marginBottom:'2px'}}>Mac / Linux:</div>
+                    <code style={{fontSize:'0.72rem',color:'#a0f0a0',fontFamily:'monospace',display:'block',padding:'4px 8px',background:'rgba(0,0,0,0.3)',borderRadius:'4px',wordBreak:'break-all'}}>
+                      OLLAMA_ORIGINS="https://mrgwaps.github.io" ollama serve
+                    </code>
+                  </div>
                 </div>
                 <div style={{marginBottom:'10px'}}>
                   <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'4px'}}>Model to use</div>
-                  <input list="ollama-models" value={ollamaModel} onChange={e=>setOllamaModel(e.target.value)} style={inputStyle} placeholder="qwen2.5:1.5b"/>
+                  <input list="ollama-models" value={ollamaModel} onChange={e=>setOllamaModel(e.target.value)} style={inputStyle} placeholder="llama3.2:1b"/>
                   <datalist id="ollama-models">
                     {OLLAMA_MODELS.map(m=><option key={m} value={m}/>)}
                   </datalist>
@@ -3862,8 +3906,25 @@ function AIConnectModal({ onClose, onConnected }) {
               <div style={{marginTop:'10px',padding:'10px 12px',background:'rgba(255,60,60,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'7px',fontSize:'0.72rem',color:'#ff9090',fontFamily:'Roboto Condensed',lineHeight:1.6,maxHeight:'130px',overflowY:'auto',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
                 {(() => {
                   const msg = errorMsg || '';
-                  if (msg.includes('ollama.com') || msg.includes('not running') || msg.includes('Ollama not'))
-                    return <span><strong style={{color:'#ffaa44'}}>⚡ Ollama not running</strong><br/>{msg}<br/><br/>1. Install from <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" style={{color:'#c090ff'}}>ollama.com</a><br/>2. Run: <code style={{color:'#a090ff'}}>ollama pull {ollamaModel}</code><br/>3. Keep Ollama running in the background, then retry.</span>;
+                  if (msg.includes('CORS_BLOCKED') || msg.includes('browser is blocking'))
+                    return (
+                      <span>
+                        <strong style={{color:'#ffaa44'}}>🔒 Browser blocking Ollama (CORS)</strong><br/>
+                        Ollama IS running but your browser won't let this page talk to localhost.<br/><br/>
+                        <strong style={{color:'#ffd700'}}>Fix — run this ONE command then restart Ollama:</strong><br/><br/>
+                        <strong style={{color:'#c0ff90',fontFamily:'monospace',fontSize:'0.85rem'}}>Windows:</strong><br/>
+                        <code style={{color:'#a0f0a0',fontFamily:'monospace',display:'block',margin:'3px 0 8px',padding:'4px 8px',background:'rgba(0,0,0,0.3)',borderRadius:'4px',wordBreak:'break-all'}}>
+                          setx OLLAMA_ORIGINS "https://mrgwaps.github.io" /M
+                        </code>
+                        <strong style={{color:'#c0ff90',fontFamily:'monospace',fontSize:'0.85rem'}}>Mac/Linux:</strong><br/>
+                        <code style={{color:'#a0f0a0',fontFamily:'monospace',display:'block',margin:'3px 0 8px',padding:'4px 8px',background:'rgba(0,0,0,0.3)',borderRadius:'4px',wordBreak:'break-all'}}>
+                          OLLAMA_ORIGINS="https://mrgwaps.github.io" ollama serve
+                        </code>
+                        After running that command, restart Ollama, then click Connect again.
+                      </span>
+                    );
+                  if (msg.includes('ollama.com') || msg.includes('not running') || msg.includes('Ollama not') || msg.includes('timeout'))
+                    return <span><strong style={{color:'#ffaa44'}}>⚡ Ollama not responding</strong><br/>{msg}<br/><br/>Make sure Ollama is running, then try again.</span>;
                   if (msg.includes('WORKER_OUTDATED')) return <span><strong style={{color:'#ffaa44'}}>⚠ Worker outdated</strong><br/>Redeploy pnfl_ai_proxy_worker.js v3 to Cloudflare.</span>;
                   if (msg.includes('NO_PERMISSION'))   return <span><strong style={{color:'#ffaa44'}}>⚠ Missing HF permission</strong><br/>Edit token → enable "Make calls to serverless Inference API".</span>;
                   if (msg.includes('NOT_FOUND'))       return <span><strong style={{color:'#ffaa44'}}>⚠ Model not found</strong><br/>Worker v3 tries 7 fallback models — redeploy it.</span>;
@@ -4037,7 +4098,8 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
           🗑️ Clear Cache
         </button>
       </div>
-      <style>{`@keyframes spin2{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+@keyframes spin2{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
     </div>
     </>
   );
@@ -4668,18 +4730,18 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
     setAiResponse('');
     try {
       const contract = lookupContract(contractData, player.name, player.num);
-      const systemPrompt = `You are a PNFL fantasy football analyst. Answer questions about players concisely (2-3 sentences max). Use only the data provided.`;
+      const systemPrompt = `You are a PNFL fantasy football analyst. Answer in 2-3 sentences max. Be direct and specific. Use only the data provided.`;
       const userMsg = `Player: ${player.name} | Team: ${teamName} | Position: ${POSITION_DISPLAY[position]||position} | Status: ${player.status}
-Attributes (SP/AC/AG/ST/HA/EN/IN/DI): ${player.attrs.join('/')} (actual) | ${pattrs.join('/')} (potential)
-Attribute total: ${actualTotal}/${playerPotentialTotal} (${pctOfMax}% developed) | ${maxedCount}/8 attrs maxed
-League rank at ${position}: #${leagueRank} of ${leagueTotal}
-${contract ? `Contract: ${contract.contractLength} years (${contract.contractStart}-${contract.contractEnd}), Draft: ${contract.draftSlot||'N/A'}, Years left: ${contract.yearsLeft}` : 'No contract data'}
-
-Question: ${aiQuery}`;
-      const answer = await window.pnflAI.ask(systemPrompt, userMsg, 250);
-      setAiResponse(answer);
+Attrs (SP/AC/AG/ST/HA/EN/IN/DI): ${player.attrs.join('/')} actual | ${pattrs.join('/')} potential
+Total: ${actualTotal}/${playerPotentialTotal} (${pctOfMax}% developed) | ${maxedCount}/8 maxed | League rank: #${leagueRank}/${leagueTotal}
+${contract ? `Contract: ${contract.contractLength}yr (${contract.contractStart}-${contract.contractEnd}), ${contract.currentSalary ? fmtSalary(contract.currentSalary)+'/yr' : 'salary N/A'}, ${contract.yearsLeft}yr left` : 'No contract data'}
+Q: ${aiQuery}`;
+      // Use streaming callback so tokens appear as they generate
+      await window.pnflAI.ask(systemPrompt, userMsg, 180,
+        (partial) => setAiResponse(partial)
+      );
     } catch(e) {
-      setAiResponse('Error: ' + e.message);
+      setAiResponse('⚠ ' + e.message);
     }
     setAiLoading(false);
   };
@@ -5036,12 +5098,13 @@ Question: ${aiQuery}`;
                     />
                     <button onClick={askAI} disabled={!aiQuery.trim()||aiLoading} className="haptic-btn"
                       style={{padding:'7px 14px',background:'linear-gradient(135deg,rgba(100,40,180,0.4),rgba(160,80,255,0.3))',border:'1px solid #c090ff55',borderRadius:'6px',color:'#c090ff',cursor:'pointer',fontFamily:'Orbitron',fontSize:'0.68rem',whiteSpace:'nowrap',opacity:(!aiQuery.trim()||aiLoading)?0.5:1,transition:'opacity 0.2s'}}>
-                      {aiLoading ? <span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span> : 'Ask'}
+                      {aiLoading ? '■ stop' : '▶ Ask'}
                     </button>
                   </div>
-                  {aiResponse && (
-                    <div style={{padding:'8px 10px',background:'rgba(40,20,60,0.4)',borderRadius:'6px',border:'1px solid rgba(160,100,255,0.15)',fontSize:'0.78rem',color:'#c0b0e0',fontFamily:'Roboto Condensed',lineHeight:1.5,whiteSpace:'pre-wrap',wordBreak:'break-all',maxHeight:'200px',overflowY:'auto'}}>
-                      {aiResponse}
+                  {(aiResponse || aiLoading) && (
+                    <div style={{padding:'8px 10px',background:'rgba(40,20,60,0.4)',borderRadius:'6px',border:'1px solid rgba(160,100,255,0.15)',fontSize:'0.78rem',color:'#c0b0e0',fontFamily:'Roboto Condensed',lineHeight:1.5,whiteSpace:'pre-wrap',wordBreak:'break-word',maxHeight:'200px',overflowY:'auto'}}>
+                      {aiResponse || <span style={{color:'#7050a0',fontStyle:'italic'}}>Thinking…</span>}
+                      {aiLoading && aiResponse && <span style={{display:'inline-block',width:'8px',height:'13px',background:'#c090ff',marginLeft:'2px',verticalAlign:'middle',opacity:1,animation:'blink 0.7s step-end infinite'}}/>}
                     </div>
                   )}
                   {!aiResponse && !aiLoading && (
@@ -5146,8 +5209,11 @@ RECENT GAMES: ${recentGames || 'No game data'}
 OFFENSE TOTAL: ${(calculateUnitScore(td,'offense',wts,depth||loadDepth(),designation||'AO')||0).toFixed(1)}
 DEFENSE TOTAL: ${(calculateUnitScore(td,'defense',wts,depth||loadDepth(),designation||'AO')||0).toFixed(1)}`;
 
-      const response = await window.pnflAI.ask(systemPrompt, userMsg, 400);
-      setReport(parseScoutingReport(response));
+      let scoutFull = '';
+      await window.pnflAI.ask(systemPrompt, userMsg, 350,
+        (partial) => { scoutFull = partial; setReport({ RAW: partial }); }
+      );
+      setReport(parseScoutingReport(scoutFull));
       playSound('compareDone');
       haptic('medium');
     } catch(e) {
