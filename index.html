@@ -977,7 +977,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v6.1 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v6.2 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1053,7 +1053,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '6.1'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '6.2'; window.APP_VERSION = APP_VERSION;
 // Update preloader immediately — runs before any heavy scripts
 (function(){ try{ var e=document.getElementById('pl-version'); if(e) e.textContent='v'+APP_VERSION+' — Loading...'; }catch(x){} })();
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
@@ -3685,236 +3685,515 @@ function buildPlaceholderRoster(teamName){
 
 
 <script>
-// ── PNFL Live Context Engine ──
-// Fetches standings, game stats, season stats, team stats each roster load
-// Stores as window.pnflContext for AI to use in every query
+// ══════════════════════════════════════════════════════════════════
+// PNFL Data Engine v2 — parses all sources into indexed JSON
+// window.pnflDB — fully structured, always current, fast lookups
+// ══════════════════════════════════════════════════════════════════
+window.pnflDB = {
+  season:'2048', week:'3',
+  standings:{},      // team -> {wins,losses,pf,pa,streak,div,conf}
+  powerRank:[],       // [{rank,team,w,oppW,pts}]
+  schedule:{},        // team -> {results:[{opp,score,oppScore,home}], next:''}
+  teamStats:{},       // team -> {passYds,passRank,rushYds,rushRank,passDefRank,rushDefRank,sacks,ints,...}
+  playerSeason:{},    // lastName -> {team,pass:{att,yds,td,int},rush:{att,yds,td},rec:{rec,yds,td},def:{tackles,sacks}}
+  playerGame:{},      // lastName -> same structure but for current week only
+  games:[],           // [{home,away,homeScore,awayScore,potw,potg}]
+  _raw:{},
+  _ready:false,
 
-window.pnflContext = {
-  season: '2048', week: '3',
-  standings: null, gameStats: null, seasonStats: null, teamStats: null,
-  raw: { standings: '', gameStats: '', seasonStats: '', teamStats: '' },
-  lastFetch: null,
+  // ── Main fetch: get all 4 sources concurrently ──
+  fetch: async function(season, week) {
+    const db = window.pnflDB;
+    if(season) db.season = String(season);
+    if(week)   db.week   = String(week);
 
-  // Derive GameStats URL from season+week
-  gameStatsUrl: function() {
-    var s = window.pnflContext.season || '2048';
-    var w = window.pnflContext.week   || '3';
-    return 'https://pnfl.biz/GameStats/' + s + '/' + s + 'W' + w + '-PNFL_game%20stats.htm';
-  },
+    const px = url => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+    const gUrl = `https://pnfl.biz/GameStats/${db.season}/${db.season}W${db.week}-PNFL_game%20stats.htm`;
 
-  // Fetch all 4 sources via CORS proxy
-  fetchAll: async function(season, week) {
-    var ctx = window.pnflContext;
-    if (season) ctx.season = String(season);
-    if (week)   ctx.week   = String(week);
-
-    var proxy = function(url) {
-      return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+    const urls = {
+      standings:  'https://pnfl.biz/pnflstats/PNFL_standings.htm',
+      season:     'https://pnfl.biz/pnflstats/PNFL_season.htm',
+      teamStats:  'https://pnfl.biz/pnflstats/PNFL_team%20stats.htm',
+      gameStats:  gUrl,
     };
 
-    var urls = {
-      standings:   'https://pnfl.biz/pnflstats/PNFL_standings.htm',
-      gameStats:   ctx.gameStatsUrl(),
-      seasonStats: 'https://pnfl.biz/pnflstats/PNFL_season.htm',
-      teamStats:   'https://pnfl.biz/pnflstats/PNFL_team%20stats.htm',
-    };
-
-    var results = await Promise.allSettled(
-      Object.entries(urls).map(async function([key, url]) {
+    const results = await Promise.allSettled(
+      Object.entries(urls).map(async ([k,u]) => {
         try {
-          var res = await fetch(proxy(url), { signal: AbortSignal.timeout(15000) });
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          var txt = await res.text();
-          ctx.raw[key] = txt;
-          return [key, txt];
-        } catch(e) {
-          console.warn('[PNFL Context]', key, 'failed:', e.message);
-          return [key, ''];
-        }
+          const r = await fetch(px(u), {signal:AbortSignal.timeout(15000)});
+          if(!r.ok) throw new Error('HTTP '+r.status);
+          const t = await r.text();
+          db._raw[k] = t;
+          return [k,t];
+        } catch(e) { console.warn('[pnflDB]',k,'failed:',e.message); return [k,'']; }
       })
     );
 
-    results.forEach(function(r) {
-      if (r.status === 'fulfilled' && r.value[1]) {
-        console.log('[PNFL Context] fetched', r.value[0], r.value[1].length + 'chars');
-      }
-    });
-
-    ctx.lastFetch = new Date().toISOString();
-    ctx._parseAll();
-    console.log('[PNFL Context] all sources fetched, context ready');
+    db._parseStandings(db._raw.standings||'');
+    db._parseSeason(db._raw.season||'');
+    db._parseGameStats(db._raw.gameStats||'');
+    db._ready = true;
+    console.log('[pnflDB] ready — standings:'+Object.keys(db.standings).length+' players:'+Object.keys(db.playerSeason).length+' gameStats:'+Object.keys(db.playerGame).length);
+    // Persist to sessionStorage as compact JSON
+    try { sessionStorage.setItem('pnfl_db', JSON.stringify({season:db.season,week:db.week,standings:db.standings,powerRank:db.powerRank,schedule:db.schedule,teamStats:db.teamStats,playerSeason:db.playerSeason,games:db.games})); } catch(e){}
   },
 
-  _parseAll: function() {
-    var ctx = window.pnflContext;
+  // ── Load cached version from sessionStorage ──
+  loadCache: function() {
+    try {
+      const raw = sessionStorage.getItem('pnfl_db');
+      if(!raw) return false;
+      const d = JSON.parse(raw);
+      Object.assign(window.pnflDB, d);
+      window.pnflDB._ready = !!(d.season && Object.keys(d.standings||{}).length > 0);
+      if(window.pnflDB._ready) console.log('[pnflDB] loaded from cache — week '+d.week);
+      return window.pnflDB._ready;
+    } catch(e){ return false; }
+  },
 
-    // ── Parse standings into team records ──
-    ctx.standings = {};
-    var sText = ctx.raw.standings || '';
-    var lines = sText.split('\n');
-    lines.forEach(function(line) {
-      // Match: "New England    3  0  0   86   32    W3  ..."
-      var m = line.match(/^\s*([A-Za-z ]+?)\s{2,}(\d+)\s+(\d+)\s+\d+\s+(\d+)\s+(\d+)\s+(W|L)(\d+)/);
-      if (!m) return;
-      var team = m[1].trim();
-      ctx.standings[team] = {
-        wins: parseInt(m[2]), losses: parseInt(m[3]),
-        pf: parseInt(m[4]), pa: parseInt(m[5]),
-        streak: m[6] + m[7]
-      };
-    });
+  _parseStandings: function(text) {
+    const db = window.pnflDB;
+    const lines = text.split('\n');
+    let inRankings = false, inSchedule = false, inTiebreak = false;
+    let currentWeekSched = false, nextWeekSched = false;
+    const TEAMS = ['Jacksonville','Buffalo','New England','Miami','Denver','Las Vegas','Cincinnati','Los Angeles','Pittsburgh','Atlanta','New York','Philadelphia','Washington','Green Bay','Chicago','Seattle','Minnesota','San Francisco'];
 
-    // ── Parse power rankings ──
-    ctx.powerRankings = [];
-    var inRankings = false;
-    lines.forEach(function(line) {
-      if (line.includes('Power Rankings')) { inRankings = true; return; }
-      if (inRankings) {
-        var rm = line.match(/^\s*(\d+)\s+([A-Za-z ]+?)\s{2,}(\d+)\s+(\d+)\s+(\d+)/);
-        var tm = line.match(/^\s+([A-Za-z ]+?)\s{2,}(\d+)\s+(\d+)\s+(\d+)/);
-        if (rm) ctx.powerRankings.push({ rank: parseInt(rm[1]), team: rm[2].trim(), w: parseInt(rm[3]), oppW: parseInt(rm[4]), pts: parseInt(rm[5]) });
-        else if (tm && ctx.powerRankings.length > 0) {
-          var prev = ctx.powerRankings[ctx.powerRankings.length - 1];
-          ctx.powerRankings.push({ rank: prev.rank, team: tm[1].trim(), w: parseInt(tm[2]), oppW: parseInt(tm[3]), pts: parseInt(tm[4]) });
+    for(const line of lines) {
+      const l = line.trim();
+
+      // Season/week header
+      const sm = l.match(/(\d{4})\s*season/i); if(sm) db.season = sm[1];
+      const wm = l.match(/Week\s*(\d+)/i); if(wm) db.week = wm[1];
+
+      // Standings table rows: "New England    3  0  0   86   32    W3  2-0-0  1-0-0"
+      const standM = line.match(/^([A-Za-z ]+?)\s{2,}(\d+)\s+(\d+)\s+\d+\s+(\d+)\s+(\d+)\s+(W|L)(\d+)/);
+      if(standM) {
+        const team = standM[1].trim();
+        if(TEAMS.includes(team)) {
+          db.standings[team] = {wins:+standM[2],losses:+standM[3],pf:+standM[4],pa:+standM[5],streak:standM[6]+standM[7],diff:(+standM[4])-(+standM[5])};
         }
       }
-      if (inRankings && line.includes('Tie Break')) inRankings = false;
-    });
 
-    // ── Parse game stats — player stats by game ──
-    ctx.playerGameStats = {};  // playerName -> { passing, rushing, receiving, defense }
-    var gsText = ctx.raw.gameStats || '';
-    var gsLines = gsText.split('\n');
-    var parseStatBlock = function(lines, startIdx, type) {
-      for (var i = startIdx; i < Math.min(startIdx + 30, lines.length); i++) {
-        var line = lines[i].trim();
-        if (!line || line.startsWith('Passing') || line.startsWith('Rushing') || line.startsWith('Receiving') || line.startsWith('Defense') || line.startsWith('Total') || line.startsWith('Opp') || line.startsWith('Back') || line.startsWith('---')) break;
-        var parts = line.split(/\s+/);
-        if (parts.length < 3) continue;
-        var name = parts[0];
-        if (!name || name.length < 2) continue;
-        if (!ctx.playerGameStats[name]) ctx.playerGameStats[name] = {};
-        if (type === 'pass' && parts.length >= 7) {
-          ctx.playerGameStats[name].passing = { att: parts[1], com: parts[2], yds: parts[3], td: parts[6] || '0', int: parts[7] || '0' };
-        } else if (type === 'rush' && parts.length >= 5) {
-          ctx.playerGameStats[name].rushing = { car: parts[1], yds: parts[2], avg: parts[3], td: parts[5] || '0' };
-        } else if (type === 'rec' && parts.length >= 5) {
-          ctx.playerGameStats[name].receiving = { rec: parts[1], yds: parts[2], avg: parts[3], td: parts[5] || '0' };
-        } else if (type === 'def' && parts.length >= 3) {
-          ctx.playerGameStats[name].defense = { tackles: parts[1], sacks: parts[2] };
+      // Power rankings
+      if(l.includes('Power Rankings')) inRankings = true;
+      if(inRankings && l.includes('Tie Break')) { inRankings = false; }
+      if(inRankings) {
+        const rm = line.match(/^\s*(\d+)\s+([A-Za-z ]+?)\s{2,}(\d+)\s+(\d+)\s+(\d+)\s+((?:[A-Z]{2,3}\s*)*)/);
+        const tm = line.match(/^\s{3,}([A-Za-z ]+?)\s{2,}(\d+)\s+(\d+)\s+(\d+)\s+((?:[A-Z]{2,3}\s*)*)/);
+        if(rm) {
+          const entry = {rank:+rm[1],team:rm[2].trim(),w:+rm[3],oppW:+rm[4],pts:+rm[5],opps:rm[6].trim().split(/\s+/).filter(Boolean)};
+          if(TEAMS.includes(entry.team)) db.powerRank.push(entry);
+        } else if(tm && db.powerRank.length>0) {
+          const prev = db.powerRank[db.powerRank.length-1];
+          const team = tm[1].trim();
+          if(TEAMS.includes(team)) db.powerRank.push({rank:prev.rank,team,w:+tm[2],oppW:+tm[3],pts:+tm[4],opps:tm[5].trim().split(/\s+/).filter(Boolean)});
         }
+      }
+
+      // Schedule: "Week 3   Miami 20 at Buffalo 3   Philadelphia 22 at New York 29"
+      if(l.match(/^Week\s+\d+\s*$/)) {
+        const wn = l.match(/^Week\s+(\d+)/);
+        currentWeekSched = wn && +wn[1] === +db.week;
+        nextWeekSched    = wn && +wn[1] === +db.week+1;
+      }
+      if(currentWeekSched || nextWeekSched) {
+        // "Miami 20 at Buffalo 3" or "Miami at Las Vegas"
+        const scoreM = l.match(/([A-Za-z ]+?)\s+(\d+)\s+at\s+([A-Za-z ]+?)\s+(\d+)\s*$/);
+        const futureM = l.match(/([A-Za-z ]+?)\s+at\s+([A-Za-z ]+?)\s*$/);
+        if(scoreM && currentWeekSched) {
+          const away=scoreM[1].trim(), aScore=+scoreM[2], home=scoreM[3].trim(), hScore=+scoreM[4];
+          if(!db.schedule[away]) db.schedule[away]={results:[],next:''};
+          if(!db.schedule[home]) db.schedule[home]={results:[],next:''};
+          db.schedule[away].results.push({opp:home,score:aScore,oppScore:hScore,home:false,win:aScore>hScore});
+          db.schedule[home].results.push({opp:away,score:hScore,oppScore:aScore,home:true,win:hScore>aScore});
+        }
+        if(futureM && nextWeekSched) {
+          const away=futureM[1].trim(), home=futureM[2].trim();
+          if(TEAMS.includes(away)) { if(!db.schedule[away]) db.schedule[away]={results:[],next:''}; db.schedule[away].next=home+' (away)'; }
+          if(TEAMS.includes(home)) { if(!db.schedule[home]) db.schedule[home]={results:[],next:''}; db.schedule[home].next=away+' (home)'; }
+        }
+      }
+
+      // Tie-break data — parse W/L records
+      if(l.includes('Tie Break Data')) inTiebreak = true;
+      if(inTiebreak) {
+        const wlM = line.match(/\[W\]\s*((?:[A-Z]{2,3}\s*)+)/);
+        const llM = line.match(/\[L\]\s*((?:[a-z]{2,3}\s*)+)/);
+        // Find which team this belongs to by looking at recent standings entry
+        // Skip for now — covered by powerRank opps
+      }
+    }
+  },
+
+  _parseSeason: function(text) {
+    const db = window.pnflDB;
+    const lines = text.split('\n');
+    let section = '', teamSection = '';
+
+    // Team stat tables: parse rankings for each team
+    const TEAM_SECTIONS = {
+      'Team Passing\n':           {key:'passOff',  cols:['att','com','pct','yds','avg','lg','td','int','rtg']},
+      'Team Passing - Opponents': {key:'passDef',  cols:['att','com','pct','yds','avg','lg','td','int','rtg']},
+      'Team Rushing\n':           {key:'rushOff',  cols:['att','yds','avg','lg','td']},
+      'Team Rushing - Opponents': {key:'rushDef',  cols:['att','yds','avg','lg','td']},
+      'Team Sacks\n':             {key:'sacks',    cols:['sacks','safeties']},
+      'Team Interceptions\n':     {key:'ints',     cols:['int','rtYds','avg','lg','td']},
+      'Team Tackles\n':           {key:'tackles',  cols:['tackles']},
+      'Team Scoring\n':           {key:'scoring',  cols:['td','xp','fg','sfty','pts']},
+    };
+
+    const TEAMS = ['Jacksonville','Buffalo','New England','Miami','Denver','Las Vegas','Cincinnati','Los Angeles','Pittsburgh','Atlanta','New York','Philadelphia','Washington','Green Bay','Chicago','Seattle','Minnesota','San Francisco'];
+    let currentSection = null, rank = 0;
+
+    for(let i=0; i<lines.length; i++) {
+      const l = lines[i];
+
+      // Detect section headers
+      for(const [header, cfg] of Object.entries(TEAM_SECTIONS)) {
+        if(l.includes(header.trim())) { currentSection = cfg; rank = 0; break; }
+      }
+      if(l.includes('Back to top')) { currentSection = null; }
+      if(!currentSection) continue;
+
+      // Parse ranked row: "1 New England    91  62  68.1  712  7.8  41  6  0  113.4  3-17"
+      const m = l.match(/^\s*(\d+)\s+([A-Za-z ]+?)\s{2,}([\d,. /-]+)\s*$/);
+      if(m) {
+        rank = +m[1];
+        const team = m[2].trim();
+        if(!TEAMS.includes(team)) continue;
+        if(!db.teamStats[team]) db.teamStats[team] = {};
+        const nums = m[3].trim().split(/\s+/).filter(Boolean);
+        const stat = {rank};
+        currentSection.cols.forEach((c,i) => { if(nums[i]!==undefined) stat[c] = isNaN(+nums[i].replace(',','')) ? nums[i] : +nums[i].replace(',',''); });
+        db.teamStats[team][currentSection.key] = stat;
+      }
+    }
+
+    // Individual stats — parse passing/rushing/receiving leaders
+    const IND_SECTIONS = {
+      'Individual Passing':  {key:'pass',  cols:['att','com','pct','yds','avg','lg','td','int','rtg']},
+      'Individual Rushing':  {key:'rush',  cols:['att','yds','avg','lg','td']},
+      'Individual Receiving':{key:'rec',   cols:['rec','yds','avg','lg','td']},
+      'Individual Tackles':  {key:'def',   cols:['tackles','sacks']},
+      'Individual Sacks':    {key:'sacks', cols:['sacks']},
+      'Individual Interceptions':{key:'ints',cols:['int','rtYds','avg','lg','td']},
+    };
+    let indSection = null;
+    for(const line of lines) {
+      for(const [hdr, cfg] of Object.entries(IND_SECTIONS)) {
+        if(line.includes(hdr)) { indSection = cfg; break; }
+      }
+      if(line.includes('Back to top')) indSection = null;
+      if(!indSection) continue;
+      // "1 Baker Mayfield  MIA  95  60  63.2  789  8.3  63  2  0  96.3  6-31"
+      const m = line.match(/^\s*\d+\s+([A-Za-z .'-]+?)\s{2,}([A-Z]{2,3})\s+([\d,. /-]+)\s*$/);
+      if(!m) continue;
+      const name = m[1].trim();
+      const lastName = name.split(' ').pop();
+      const team = m[2].trim();
+      const nums = m[3].trim().split(/\s+/).filter(Boolean);
+      const stat = {name, team};
+      indSection.cols.forEach((c,i) => { if(nums[i]!==undefined) stat[c] = isNaN(+nums[i].replace(',','')) ? nums[i] : +nums[i].replace(',',''); });
+      if(!db.playerSeason[lastName]) db.playerSeason[lastName] = {};
+      db.playerSeason[lastName][indSection.key] = stat;
+      db.playerSeason[lastName].name = name;
+      db.playerSeason[lastName].team = team;
+    }
+  },
+
+  _parseGameStats: function(text) {
+    const db = window.pnflDB;
+    const lines = text.split('\n');
+    db.games = [];
+    let currentGame = null;
+
+    // Section parsers for individual game stats
+    const parsePlayerBlock = (lines, startIdx, type) => {
+      for(let i=startIdx; i<Math.min(startIdx+40,lines.length); i++) {
+        const l = lines[i].trim();
+        if(!l || l.match(/^(Passing|Rushing|Receiving|Defense|Intercepts|Punt|KO|Fumble|Safeties|Punts|Converts|Field|Back|---)/)) break;
+        const parts = l.split(/\s+/);
+        if(parts.length < 3 || !parts[0] || parts[0].length < 2) continue;
+        const lastName = parts[0];
+        if(!db.playerGame[lastName]) db.playerGame[lastName] = {};
+        if(type==='pass' && parts.length>=7) db.playerGame[lastName].pass={att:+parts[1],com:+parts[2],yds:+parts[3],td:+parts[6]||0,int:+parts[7]||0};
+        if(type==='rush' && parts.length>=5) db.playerGame[lastName].rush={car:+parts[1],yds:+parts[2],avg:+parts[3]||0,td:+parts[5]||0};
+        if(type==='rec'  && parts.length>=5) db.playerGame[lastName].rec={rec:+parts[1],yds:+parts[2],avg:+parts[3]||0,td:+parts[5]||0};
+        if(type==='def'  && parts.length>=3) db.playerGame[lastName].def={tackles:+parts[1],sacks:+parts[2]};
       }
     };
 
-    // ── Parse season individual stats ──
-    ctx.seasonPlayerStats = {};
-    var ssText = ctx.raw.seasonStats || '';
-    var ssLines = ssText.split('\n');
-    var curStatType = '';
-    ssLines.forEach(function(line, i) {
-      var l = line.trim();
-      if (!l) return;
-      if (l.includes('Individual Passing'))   curStatType = 'pass';
-      if (l.includes('Individual Rushing'))   curStatType = 'rush';
-      if (l.includes('Individual Receiving')) curStatType = 'rec';
-      if (l.includes('Individual Tackles'))   curStatType = 'def';
-      if (l.includes('Individual Sacks'))     curStatType = 'sacks';
-      if (l.includes('Back to top'))          curStatType = '';
-      if (!curStatType) return;
+    for(let i=0; i<lines.length; i++) {
+      const l = lines[i].trim();
+      // Game header: "Miami at Buffalo\n  20    3"
+      const gameM = l.match(/^([A-Za-z ]+?)\s+at\s+([A-Za-z ]+?)$/);
+      if(gameM) {
+        const scoreLine = lines[i+1] ? lines[i+1].trim() : '';
+        const scores = scoreLine.match(/(\d+)\s+(\d+)/);
+        const potgLine = lines.slice(i+2,i+5).join(' ');
+        const potgM = potgLine.match(/Player of the game:\s+([A-Za-z .'-]+),\s+([A-Z]+),\s+([A-Za-z ]+)/);
+        currentGame = {away:gameM[1].trim(), home:gameM[2].trim(), awayScore:scores?+scores[1]:0, homeScore:scores?+scores[2]:0, potg:potgM?{name:potgM[1],pos:potgM[2],team:potgM[3]}:null};
+        db.games.push(currentGame);
+      }
+      // Stat block headers
+      if(l==='Passing')   parsePlayerBlock(lines, i+1, 'pass');
+      if(l==='Rushing')   parsePlayerBlock(lines, i+1, 'rush');
+      if(l==='Receiving') parsePlayerBlock(lines, i+1, 'rec');
+      if(l==='Defense')   parsePlayerBlock(lines, i+1, 'def');
+    }
 
-      var parts = l.split(/\s{2,}/);
-      if (parts.length < 3) return;
-      // Format: "1 Player Name    Team   stats..."
-      var nameMatch = l.match(/^\s*\d*\s+([A-Za-z .'-]+)\s{2,}([A-Z]{2,3})\s+([\d, .\/]+)/);
-      if (!nameMatch) return;
-      var name = nameMatch[1].trim();
-      var team = nameMatch[2].trim();
-      if (!ctx.seasonPlayerStats[name]) ctx.seasonPlayerStats[name] = { team };
-      var nums = nameMatch[3].trim().split(/\s+/);
-      if (curStatType === 'pass' && nums.length >= 4)
-        ctx.seasonPlayerStats[name].season_pass = { att: nums[0], yds: nums[2], td: nums[5] || '?', int: nums[6] || '?' };
-      if (curStatType === 'rush' && nums.length >= 3)
-        ctx.seasonPlayerStats[name].season_rush = { att: nums[0], yds: nums[1], td: nums[4] || '?' };
-      if (curStatType === 'rec' && nums.length >= 3)
-        ctx.seasonPlayerStats[name].season_rec = { rec: nums[0], yds: nums[1], td: nums[4] || '?' };
-    });
-
-    console.log('[PNFL Context] parsed — standings:', Object.keys(ctx.standings).length, 
-      'teams | powerRankings:', ctx.powerRankings.length,
-      '| playerGameStats:', Object.keys(ctx.playerGameStats).length,
-      '| seasonPlayerStats:', Object.keys(ctx.seasonPlayerStats).length);
+    // Player of the week
+    const potwM = text.match(/Player of the week:\s+([A-Za-z .'-]+),\s+([A-Z]+),\s+([A-Za-z ]+)/);
+    if(potwM) db.potw = {name:potwM[1],pos:potwM[2],team:potwM[3]};
   },
 
-  // ── Build context string for a specific player ──
-  // Called by askAI to inject rich PNFL data into the prompt
-  buildPlayerContext: function(playerName, teamName, position) {
-    var ctx = window.pnflContext;
-    var lines = [];
-    var lastName = (playerName || '').split(' ').pop();
+  // ── Query helpers ──
+  getTeamSummary: function(team) {
+    const db = window.pnflDB;
+    const st = db.standings[team] || {};
+    const pr = db.powerRank.find(r=>r.team===team) || {};
+    const ts = db.teamStats[team] || {};
+    const sc = db.schedule[team] || {};
+    return {team, season:db.season, week:db.week, ...st, powerRank:pr.rank||'?', powerPts:pr.pts||0, oppWins:pr.oppW||0, schedule:sc, teamStats:ts};
+  },
 
-    lines.push('=== PNFL 2048 SEASON — WEEK ' + ctx.week + ' LIVE DATA ===');
-    lines.push('THIS IS A FANTASY FOOTBALL SIMULATION GAME. Use ONLY the stats below. Ignore any real-world NFL knowledge.');
-    lines.push('');
+  getPlayerSummary: function(playerName) {
+    const db = window.pnflDB;
+    const lastName = playerName.split(' ').pop();
+    const season = db.playerSeason[lastName] || db.playerSeason[playerName] || {};
+    const game   = db.playerGame[lastName]   || db.playerGame[playerName]   || {};
+    return {name:playerName, lastName, season, game, hasGameStats:Object.keys(game).length>0, hasSeasonStats:Object.keys(season).length>0};
+  },
 
-    // Team standing
-    var standing = ctx.standings[teamName] || null;
-    var ranking  = (ctx.powerRankings || []).find(function(r) { return r.team === teamName; });
-    if (standing) {
-      lines.push('TEAM: ' + teamName + ' | Record: ' + standing.wins + '-' + standing.losses + ' | PF: ' + standing.pf + ' PA: ' + standing.pa + ' | Streak: ' + standing.streak);
-    }
-    if (ranking) {
-      lines.push('POWER RANK: #' + ranking.rank + ' (Opp Wins: ' + ranking.oppW + ', Pts: ' + ranking.pts + ')');
-    }
-
-    // This week game stats for player
-    var gameStats = ctx.playerGameStats[lastName] || ctx.playerGameStats[playerName] || null;
-    if (gameStats) {
-      lines.push('');
-      lines.push('WEEK ' + ctx.week + ' GAME STATS:');
-      if (gameStats.passing)  lines.push('  Passing:  ' + JSON.stringify(gameStats.passing));
-      if (gameStats.rushing)  lines.push('  Rushing:  ' + JSON.stringify(gameStats.rushing));
-      if (gameStats.receiving)lines.push('  Receiving:' + JSON.stringify(gameStats.receiving));
-      if (gameStats.defense)  lines.push('  Defense:  ' + JSON.stringify(gameStats.defense));
+  buildPlayerPrompt: function(playerName, teamName) {
+    const db = window.pnflDB;
+    const ts = db.getTeamSummary(teamName);
+    const ps = db.getPlayerSummary(playerName);
+    const lines = [
+      '=== PNFL 2048 SEASON DATA (Week '+db.week+') — SIMULATION ONLY ===',
+      'NEVER use real NFL knowledge. All stats below are from the PNFL simulation game.',
+      '',
+      'TEAM: '+teamName+' | Record: '+(ts.wins||0)+'-'+(ts.losses||0)+' | PF:'+(ts.pf||0)+' PA:'+(ts.pa||0)+' | Streak:'+ts.streak,
+      'POWER RANK: #'+ts.powerRank+' | Power pts: '+ts.powerPts+' | Opp wins: '+ts.oppWins,
+      ts.teamStats.passOff ? 'PASS OFF: '+ts.teamStats.passOff.yds+' yds (rank #'+ts.teamStats.passOff.rank+'/18) '+ts.teamStats.passOff.td+' TDs '+ts.teamStats.passOff.int+' INTs rating '+ts.teamStats.passOff.rtg : '',
+      ts.teamStats.rushOff ? 'RUSH OFF: '+ts.teamStats.rushOff.yds+' yds (rank #'+ts.teamStats.rushOff.rank+'/18) '+ts.teamStats.rushOff.td+' TDs avg '+ts.teamStats.rushOff.avg : '',
+      ts.teamStats.passDef ? 'PASS DEF: '+ts.teamStats.passDef.yds+' opp yds (rank #'+ts.teamStats.passDef.rank+'/18)' : '',
+      ts.teamStats.rushDef ? 'RUSH DEF: '+ts.teamStats.rushDef.yds+' opp yds (rank #'+ts.teamStats.rushDef.rank+'/18)' : '',
+      ts.teamStats.sacks   ? 'SACKS: '+ts.teamStats.sacks.sacks+' (rank #'+ts.teamStats.sacks.rank+'/18)' : '',
+      ts.schedule.next     ? 'NEXT GAME: '+ts.schedule.next : '',
+    ];
+    if(ps.hasSeasonStats || ps.hasGameStats) {
+      lines.push('', 'PLAYER: '+playerName);
+      if(ps.season.pass)  lines.push('  Season passing: '+ps.season.pass.yds+' yds, '+ps.season.pass.td+' TD, '+ps.season.pass.int+' INT, rating '+ps.season.pass.rtg);
+      if(ps.season.rush)  lines.push('  Season rushing: '+ps.season.rush.yds+' yds, '+ps.season.rush.td+' TD');
+      if(ps.season.rec)   lines.push('  Season receiving: '+ps.season.rec.rec+' rec, '+ps.season.rec.yds+' yds, '+ps.season.rec.td+' TD');
+      if(ps.game.pass)    lines.push('  Wk'+db.week+' passing: '+ps.game.pass.yds+' yds '+ps.game.pass.com+'/'+ps.game.pass.att+' '+ps.game.pass.td+'TD '+ps.game.pass.int+'INT');
+      if(ps.game.rush)    lines.push('  Wk'+db.week+' rushing: '+ps.game.rush.yds+' yds ('+ps.game.rush.car+' car) '+ps.game.rush.td+'TD');
+      if(ps.game.rec)     lines.push('  Wk'+db.week+' receiving: '+ps.game.rec.rec+' rec '+ps.game.rec.yds+' yds '+ps.game.rec.td+'TD');
+      if(ps.game.def)     lines.push('  Wk'+db.week+' defense: '+ps.game.def.tackles+' tackles, '+ps.game.def.sacks+' sacks');
     } else {
-      lines.push('WEEK ' + ctx.week + ' GAME STATS: Not found for ' + playerName);
+      lines.push('', 'PLAYER STATS: Not found in season/game stats for '+playerName);
     }
-
-    // Season stats
-    var seasonStat = ctx.seasonPlayerStats[playerName] || ctx.seasonPlayerStats[lastName] || null;
-    if (seasonStat) {
-      lines.push('');
-      lines.push('2048 SEASON STATS (through Wk ' + ctx.week + '):');
-      if (seasonStat.season_pass)  lines.push('  Season Passing:   ' + JSON.stringify(seasonStat.season_pass));
-      if (seasonStat.season_rush)  lines.push('  Season Rushing:   ' + JSON.stringify(seasonStat.season_rush));
-      if (seasonStat.season_rec)   lines.push('  Season Receiving: ' + JSON.stringify(seasonStat.season_rec));
-    }
-
-    // Week schedule from standings
-    var raw = ctx.raw.standings || '';
-    lines.push('');
-    lines.push('=== END PNFL DATA ===');
-
-    return lines.join('\n');
+    return lines.filter(l=>l!==undefined && l!='').join('\n');
   },
 
-  // Build general league context (no player-specific)
-  buildLeagueContext: function() {
-    var ctx = window.pnflContext;
-    var lines = ['=== PNFL 2048 SEASON WEEK ' + ctx.week + ' OVERVIEW ==='];
-    lines.push('THIS IS A FANTASY FOOTBALL SIMULATION. Use ONLY this data.');
-    lines.push('');
-    lines.push('POWER RANKINGS:');
-    (ctx.powerRankings || []).slice(0, 10).forEach(function(r) {
-      lines.push('  #' + r.rank + ' ' + r.team + ' (' + r.w + 'W, ' + r.oppW + ' opp wins)');
-    });
-    lines.push('');
-    lines.push('STANDINGS SUMMARY:');
-    Object.entries(ctx.standings || {}).forEach(function([team, s]) {
-      lines.push('  ' + team + ': ' + s.wins + '-' + s.losses + ' PF:' + s.pf + ' PA:' + s.pa);
-    });
-    return lines.join('\n');
+  buildTeamPrompt: function(team) {
+    const db = window.pnflDB;
+    const ts = db.getTeamSummary(team);
+    const st = db.teamStats[team] || {};
+    const sc = db.schedule[team] || {};
+    const pr = db.powerRank.find(r=>r.team===team) || {};
+
+    // Find game this week
+    const weekGame = db.games.find(g=>g.home===team||g.away===team);
+    const gameLines = weekGame ? [
+      'WEEK '+db.week+' GAME: '+(weekGame.away===team?team+' at '+weekGame.home:weekGame.home+' vs '+weekGame.away),
+      'SCORE: '+weekGame.awayScore+' - '+weekGame.homeScore+(weekGame.away===team?(weekGame.awayScore>weekGame.homeScore?' (W)':(weekGame.awayScore<weekGame.homeScore?' (L)':' (T)')):(weekGame.homeScore>weekGame.awayScore?' (W)':(weekGame.homeScore<weekGame.awayScore?' (L)':' (T)'))),
+      weekGame.potg ? 'PLAYER OF GAME: '+weekGame.potg.name+' ('+weekGame.potg.pos+')' : '',
+    ] : ['NO GAME DATA FOUND FOR WEEK '+db.week];
+
+    // Top players from game stats
+    const teamPlayers = Object.entries(db.playerGame)
+      .filter(([ln,gs]) => {
+        const s = db.playerSeason[ln];
+        return s && s.team && s.team.length<=3 && (
+          s.team === team.substring(0,3).toUpperCase() ||
+          Object.values({JAX:'Jacksonville',BUF:'Buffalo',NE:'New England',MIA:'Miami',DEN:'Denver',LVR:'Las Vegas',CIN:'Cincinnati',LAC:'Los Angeles',PIT:'Pittsburgh',ATL:'Atlanta',NYG:'New York',PHI:'Philadelphia',WSH:'Washington',GB:'Green Bay',CHI:'Chicago',SEA:'Seattle',MIN:'Minnesota',SF:'San Francisco'})[Object.keys({JAX:'Jacksonville',BUF:'Buffalo',NE:'New England',MIA:'Miami',DEN:'Denver',LVR:'Las Vegas',CIN:'Cincinnati',LAC:'Los Angeles',PIT:'Pittsburgh',ATL:'Atlanta',NYG:'New York',PHI:'Philadelphia',WSH:'Washington',GB:'Green Bay',CHI:'Chicago',SEA:'Seattle',MIN:'Minnesota',SF:'San Francisco'}).indexOf(s.team)] === team
+        );
+      })
+      .map(([ln,gs]) => ({lastName:ln, ...gs, seasonTeam: db.playerSeason[ln]?.team}))
+      .slice(0,6);
+
+    return [
+      '=== PNFL '+db.season+' SEASON WEEK '+db.week+' — SIMULATION ONLY ===',
+      'NEVER use real NFL knowledge.',
+      '',
+      'TEAM: '+team+' | Record: '+(ts.wins||0)+'-'+(ts.losses||0)+' | PF:'+(ts.pf||0)+' PA:'+(ts.pa||0)+' | Streak:'+ts.streak+' | Diff:'+(ts.diff||0),
+      'POWER RANK: #'+ts.powerRank+' of 18 | Opp wins: '+ts.oppWins+' | Power pts: '+ts.powerPts,
+      'OPPONENTS BEATEN: '+(pr.opps||[]).join(', ')||'none',
+      'NEXT GAME: '+(sc.next||'TBD'),
+      '',
+      'OFFENSIVE STATS:',
+      st.passOff ? '  Passing: '+st.passOff.yds+' yds/season rank #'+st.passOff.rank+'/18 | '+st.passOff.td+' TDs '+st.passOff.int+' INTs | Rating: '+st.passOff.rtg+' | Pct: '+st.passOff.pct+'%' : '  Pass: no data',
+      st.rushOff ? '  Rushing: '+st.rushOff.yds+' yds rank #'+st.rushOff.rank+'/18 | '+st.rushOff.td+' TDs | Avg: '+st.rushOff.avg+' ypc' : '  Rush: no data',
+      '',
+      'DEFENSIVE STATS:',
+      st.passDef ? '  Pass defense: '+st.passDef.yds+' opp yds rank #'+st.passDef.rank+'/18 | '+st.passDef.td+' TDs allowed | Rating vs: '+st.passDef.rtg : '  Pass def: no data',
+      st.rushDef ? '  Rush defense: '+st.rushDef.yds+' opp yds rank #'+st.rushDef.rank+'/18 | '+st.rushDef.td+' TDs allowed' : '  Rush def: no data',
+      st.sacks   ? '  Sacks: '+st.sacks.sacks+' (rank #'+st.sacks.rank+'/18)' : '',
+      st.ints    ? '  Interceptions: '+st.ints.int+' (rank #'+st.ints.rank+'/18)' : '',
+      '',
+      '=== WEEK '+db.week+' GAME ===',
+      ...gameLines,
+    ].filter(l=>l!=='').join('\n');
   }
 };
+
+// Bootstrap: try cache first, then fetch if stale
+(function(){
+  if(!window.pnflDB.loadCache()) {
+    console.log('[pnflDB] no cache, will fetch on roster load');
+  }
+})();
+</script>
+
+
+<script>
+// ── PNFL Voice Engine ──
+// Uses Ollama speech synthesis (Qwen3-TTS via ollama pull qwen2.5:0.5b or speech model)
+// Fallback: Web Speech API (built-in, zero install)
+window.pnflVoice = {
+  _enabled:   false,
+  _speaking:  false,
+  _queue:     [],
+  _utterance: null,
+
+  isEnabled:  function() { return window.pnflVoice._enabled; },
+  isSpeaking: function() { return window.pnflVoice._speaking; },
+
+  toggle: function() {
+    const v = window.pnflVoice;
+    v._enabled = !v._enabled;
+    if (!v._enabled) v.stop();
+    sessionStorage.setItem('pnfl_voice', v._enabled ? '1' : '0');
+    console.log('[Voice] ' + (v._enabled ? 'enabled' : 'disabled'));
+    return v._enabled;
+  },
+
+  init: function() {
+    const v = window.pnflVoice;
+    v._enabled = sessionStorage.getItem('pnfl_voice') === '1';
+    // Pre-load voices
+    if (window.speechSynthesis) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+    }
+  },
+
+  stop: function() {
+    const v = window.pnflVoice;
+    v._queue = [];
+    v._speaking = false;
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+  },
+
+  // Speak text with optional emotion hint
+  // emotion: 'neutral' | 'upbeat' | 'concerned' | 'excited' | 'analytical'
+  speak: function(text, emotion) {
+    const v = window.pnflVoice;
+    if (!v._enabled || !text) return;
+    // Clean text — remove markdown, emojis, symbols
+    const clean = text
+      .replace(/[#*_`]/g, '')
+      .replace(/\[.*?\]/g, '')
+      .replace(/OFFENSIVE ANALYSIS:|DEFENSIVE ANALYSIS:|WEEKLY HIGHLIGHTS:|TOP PERFORMERS:|STRENGTHS:|AREAS TO IMPROVE:/gi, '')
+      .replace(/===.*?===/g, '')
+      .replace(/\n+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 800); // cap at ~800 chars
+    if (!clean) return;
+    v._queue.push({ text: clean, emotion: emotion || 'neutral' });
+    if (!v._speaking) v._processQueue();
+  },
+
+  // Speak sections of a scouting report with appropriate tone per section
+  speakReport: function(report) {
+    const v = window.pnflVoice;
+    if (!v._enabled) return;
+    v.stop();
+    const emotionMap = {
+      'OFFENSIVE ANALYSIS': 'upbeat',
+      'DEFENSIVE ANALYSIS': 'analytical',
+      'WEEKLY HIGHLIGHTS':  'excited',
+      'TOP PERFORMERS':     'upbeat',
+      'STRENGTHS':          'upbeat',
+      'AREAS TO IMPROVE':   'concerned',
+      'RAW':                'neutral',
+    };
+    // Speak each section with matching emotion after a brief pause
+    let delay = 0;
+    Object.entries(report).forEach(([key, text]) => {
+      if (!text) return;
+      setTimeout(() => {
+        v.speak(text, emotionMap[key] || 'neutral');
+      }, delay);
+      delay += 200;
+    });
+  },
+
+  // Speak a player card analysis
+  speakPlayer: function(playerName, teamName, analysisText) {
+    const v = window.pnflVoice;
+    if (!v._enabled) return;
+    v.stop();
+    // Intro with excited tone, analysis with analytical tone
+    v.speak('Analyzing ' + playerName + ' from ' + teamName + '.', 'neutral');
+    setTimeout(() => v.speak(analysisText, 'analytical'), 300);
+  },
+
+  _processQueue: function() {
+    const v = window.pnflVoice;
+    if (!v._queue.length) { v._speaking = false; return; }
+    const { text, emotion } = v._queue.shift();
+    v._speaking = true;
+    v._speakWebSpeech(text, emotion);
+  },
+
+  _speakWebSpeech: function(text, emotion) {
+    const v = window.pnflVoice;
+    if (!window.speechSynthesis) { v._processQueue(); return; }
+    window.speechSynthesis.cancel();
+
+    const u = new SpeechSynthesisUtterance(text);
+    // Tune voice params by emotion
+    const params = {
+      neutral:    { rate: 1.0,  pitch: 1.0,  volume: 0.9 },
+      upbeat:     { rate: 1.1,  pitch: 1.15, volume: 1.0 },
+      concerned:  { rate: 0.9,  pitch: 0.88, volume: 0.85 },
+      excited:    { rate: 1.2,  pitch: 1.2,  volume: 1.0 },
+      analytical: { rate: 0.95, pitch: 0.95, volume: 0.9 },
+    };
+    const p = params[emotion] || params.neutral;
+    u.rate   = p.rate;
+    u.pitch  = p.pitch;
+    u.volume = p.volume;
+    u.lang   = 'en-US';
+
+    // Prefer a deep male voice for authority
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(v => /google.*english|en-us/i.test(v.name) && !v.name.toLowerCase().includes('female'))
+      || voices.find(v => v.lang === 'en-US')
+      || voices[0];
+    if (preferred) u.voice = preferred;
+
+    u.onend   = () => { v._speaking = false; setTimeout(() => v._processQueue(), 150); };
+    u.onerror = () => { v._speaking = false; v._processQueue(); };
+    v._utterance = u;
+    window.speechSynthesis.speak(u);
+  }
+};
+window.pnflVoice.init();
 </script>
 
 <script type="text/babel">
@@ -4039,158 +4318,105 @@ function AIConnectModal({ onClose, onConnected }) {
   const inputStyle = {width:'100%',padding:'8px 12px',borderRadius:'7px',background:'rgba(10,15,30,0.9)',border:'1px solid rgba(160,100,255,0.25)',color:'#e0d0ff',fontFamily:'Roboto Condensed',fontSize:'0.85rem',outline:'none',boxSizing:'border-box'};
 
   return (
-    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(4px)'}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:'linear-gradient(135deg,rgba(25,12,45,0.99),rgba(10,22,40,0.99))',border:'2px solid rgba(160,100,255,0.5)',borderRadius:'16px',padding:'24px 28px',width:'min(480px,94vw)',boxShadow:'0 0 40px rgba(160,100,255,0.2)'}}>
+    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,0.8)',display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(4px)'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'linear-gradient(135deg,rgba(15,8,30,0.99),rgba(8,18,35,0.99))',border:'2px solid rgba(160,100,255,0.4)',borderRadius:'14px',padding:'22px 26px',width:'min(420px,92vw)',boxShadow:'0 0 40px rgba(160,100,255,0.15)'}}>
 
         {/* Header */}
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'18px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
           <div>
-            <div style={{fontFamily:'Orbitron',fontSize:'0.95rem',fontWeight:'900',color:'#c090ff',letterSpacing:'1px'}}>🤖 AI ANALYST</div>
-            <div style={{fontSize:'0.68rem',color:'#806090',fontFamily:'Roboto Condensed',marginTop:'2px'}}>
-              {status==='success' ? `Connected · ${window.pnflAI?.getModel?.() || ''} · ${mode==='ollama'?'Local Ollama':'HuggingFace'}` : 'Configure AI source'}
+            <div style={{fontFamily:'Orbitron',fontSize:'0.9rem',fontWeight:'900',color:'#c090ff',letterSpacing:'1px'}}>🤖 AI ANALYST</div>
+            <div style={{fontSize:'0.65rem',color:'#604080',fontFamily:'Roboto Condensed',marginTop:'2px'}}>
+              {status==='success' ? `● Connected · ${window.pnflAI?.getModel?.() || ''} · ${mode==='ollama'?'Local':'Cloud'}` : 'Connect AI'}
             </div>
           </div>
-          <button onClick={onClose} style={{background:'none',border:'none',color:'#604080',fontSize:'1.3rem',cursor:'pointer'}}>✕</button>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#503060',fontSize:'1.2rem',cursor:'pointer',padding:'4px'}}>✕</button>
         </div>
 
         {status === 'success' ? (
           <div>
-            <div style={{display:'flex',alignItems:'center',gap:'10px',padding:'12px 14px',background:'rgba(74,255,74,0.07)',border:'1px solid rgba(74,255,74,0.25)',borderRadius:'10px',marginBottom:'14px'}}>
-              <div style={{width:'10px',height:'10px',borderRadius:'50%',background:'#4aff4a',boxShadow:'0 0 8px #4aff4a',flexShrink:0}}/>
+            <div style={{display:'flex',alignItems:'center',gap:'10px',padding:'10px 14px',background:'rgba(74,255,74,0.06)',border:'1px solid rgba(74,255,74,0.2)',borderRadius:'9px',marginBottom:'12px'}}>
+              <div style={{width:'9px',height:'9px',borderRadius:'50%',background:'#4aff4a',boxShadow:'0 0 7px #4aff4a',flexShrink:0}}/>
               <div>
-                <div style={{fontFamily:'Orbitron',fontSize:'0.75rem',color:'#4aff4a',fontWeight:'700'}}>CONNECTED</div>
-                <div style={{fontSize:'0.68rem',color:'#4a8a4a',fontFamily:'Roboto Condensed',marginTop:'1px'}}>
-                  {mode==='ollama' ? '⚡ Local Ollama — zero latency, fully private' : '☁️ HuggingFace cloud inference'} · {window.pnflAI?.getModel?.()}
+                <div style={{fontFamily:'Orbitron',fontSize:'0.72rem',color:'#4aff4a',fontWeight:'700'}}>CONNECTED</div>
+                <div style={{fontSize:'0.66rem',color:'#3a7a3a',fontFamily:'Roboto Condensed',marginTop:'1px'}}>
+                  {mode==='ollama'?'Local Ollama':'HuggingFace'} · {window.pnflAI?.getModel?.()}
                 </div>
               </div>
             </div>
             <div style={{display:'flex',gap:'8px'}}>
-              <button onClick={()=>{onConnected?.();onClose?.();}} className="haptic-btn" style={{flex:1,padding:'9px',background:'linear-gradient(135deg,rgba(160,100,255,0.2),rgba(100,60,180,0.3))',border:'2px solid #c090ff66',borderRadius:'8px',color:'#c090ff',fontFamily:'Orbitron',fontSize:'0.75rem',fontWeight:'700',cursor:'pointer'}}>✓ Done</button>
-              <button onClick={disconnect} className="haptic-btn" style={{padding:'9px 14px',background:'rgba(255,80,80,0.1)',border:'1px solid rgba(255,80,80,0.3)',borderRadius:'8px',color:'#ff8080',fontFamily:'Roboto Condensed',fontSize:'0.78rem',cursor:'pointer'}}>Disconnect</button>
+              <button onClick={()=>{onConnected?.();onClose?.();}} className="haptic-btn" style={{flex:1,padding:'9px',background:'linear-gradient(135deg,rgba(160,100,255,0.2),rgba(100,60,180,0.3))',border:'2px solid #c090ff55',borderRadius:'8px',color:'#c090ff',fontFamily:'Orbitron',fontSize:'0.72rem',fontWeight:'700',cursor:'pointer'}}>✓ Done</button>
+              <button onClick={disconnect} className="haptic-btn" style={{padding:'9px 12px',background:'rgba(255,80,80,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'8px',color:'#ff8080',fontFamily:'Roboto Condensed',fontSize:'0.76rem',cursor:'pointer'}}>Disconnect</button>
             </div>
           </div>
         ) : (
           <div>
             {/* Mode tabs */}
-            <div style={{display:'flex',gap:'6px',marginBottom:'16px',background:'rgba(0,0,0,0.2)',padding:'4px',borderRadius:'10px'}}>
-              {[
-                { id:'ollama', label:'⚡ Ollama (Local)',  desc:'Free, private, instant' },
-                { id:'hf',     label:'☁️ HuggingFace',     desc:'Cloud, needs proxy' },
-              ].map(m => (
+            <div style={{display:'flex',gap:'5px',marginBottom:'14px',background:'rgba(0,0,0,0.25)',padding:'4px',borderRadius:'9px'}}>
+              {[{id:'ollama',label:'⚡ Local (Ollama)'},{id:'hf',label:'☁ HuggingFace'}].map(m=>(
                 <button key={m.id} onClick={()=>{haptic('light');setMode(m.id);setStatus('idle');setErrorMsg('');}} className="haptic-btn"
-                  style={{flex:1,padding:'8px 6px',borderRadius:'8px',cursor:'pointer',border:'none',fontFamily:'Orbitron',fontSize:'0.68rem',fontWeight:'700',transition:'all 0.2s',
-                    background: mode===m.id ? 'linear-gradient(135deg,rgba(160,100,255,0.35),rgba(100,60,180,0.4))' : 'transparent',
-                    color:      mode===m.id ? '#c090ff' : '#604080',
-                    boxShadow:  mode===m.id ? '0 0 10px rgba(160,100,255,0.3)' : 'none',
-                  }}>
-                  <div>{m.label}</div>
-                  <div style={{fontSize:'0.58rem',fontFamily:'Roboto Condensed',opacity:0.7,fontWeight:'400',marginTop:'2px'}}>{m.desc}</div>
+                  style={{flex:1,padding:'7px 5px',borderRadius:'7px',cursor:'pointer',border:'none',fontFamily:'Orbitron',fontSize:'0.65rem',fontWeight:'700',transition:'all 0.2s',
+                    background:mode===m.id?'linear-gradient(135deg,rgba(160,100,255,0.3),rgba(100,60,180,0.4))':'transparent',
+                    color:mode===m.id?'#c090ff':'#503060',
+                    boxShadow:mode===m.id?'0 0 8px rgba(160,100,255,0.25)':'none'}}>
+                  {m.label}
                 </button>
               ))}
             </div>
 
-            {/* Ollama mode */}
+            {/* Ollama fields */}
             {mode === 'ollama' && (
               <div>
-                <div style={{fontSize:'0.78rem',color:'#a080c0',fontFamily:'Roboto Condensed',lineHeight:1.6,marginBottom:'14px'}}>
-                  Run AI <strong style={{color:'#c090ff'}}>completely locally</strong> — no API keys, no cloud, no cost.<br/>
-                  Install <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" style={{color:'#c090ff'}}>Ollama</a> then pull a model in your terminal.
-                </div>
-                <div style={{background:'rgba(0,0,0,0.3)',borderRadius:'8px',padding:'10px 14px',marginBottom:'14px',border:'1px solid rgba(160,100,255,0.15)'}}>
-                  <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'6px'}}>SETUP (ONE TIME)</div>
-                  {[
-                    {cmd:'ollama pull qwen2.5:1.5b',  label:'Tiny — 1GB, fast'},
-                    {cmd:'ollama pull llama3.2:1b',   label:'Meta — 0.6GB, very fast'},
-                    {cmd:'ollama pull qwen2.5:7b',    label:'Smarter — 4.7GB'},
-                  ].map(({cmd,label})=>(
-                    <div key={cmd} style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'4px'}}>
-                      <code style={{fontSize:'0.78rem',color:'#a090ff',fontFamily:'monospace'}}>{cmd}</code>
-                      <span style={{fontSize:'0.65rem',color:'#5a4070',fontFamily:'Roboto Condensed'}}>{label}</span>
-                    </div>
-                  ))}
-                  <div style={{marginTop:'10px',paddingTop:'8px',borderTop:'1px solid rgba(160,100,255,0.1)'}}>
-                    <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'4px'}}>ALLOW THIS PAGE (REQUIRED)</div>
-                    <div style={{fontSize:'0.7rem',color:'#806090',fontFamily:'Roboto Condensed',marginBottom:'4px'}}>Run before starting Ollama — lets GitHub Pages connect to localhost:</div>
-                    <div style={{fontSize:'0.68rem',color:'#a0d2a0',fontFamily:'Roboto Condensed',marginBottom:'2px'}}>Windows (run as Admin):</div>
-                    <code style={{fontSize:'0.72rem',color:'#a0f0a0',fontFamily:'monospace',display:'block',padding:'4px 8px',background:'rgba(0,0,0,0.3)',borderRadius:'4px',marginBottom:'6px',wordBreak:'break-all'}}>
-                      setx OLLAMA_ORIGINS "https://mrgwaps.github.io" /M
-                    </code>
-                    <div style={{fontSize:'0.68rem',color:'#a0d2a0',fontFamily:'Roboto Condensed',marginBottom:'2px'}}>Mac / Linux:</div>
-                    <code style={{fontSize:'0.72rem',color:'#a0f0a0',fontFamily:'monospace',display:'block',padding:'4px 8px',background:'rgba(0,0,0,0.3)',borderRadius:'4px',wordBreak:'break-all'}}>
-                      OLLAMA_ORIGINS="https://mrgwaps.github.io" ollama serve
-                    </code>
-                  </div>
-                </div>
-                <div style={{marginBottom:'10px'}}>
-                  <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'4px'}}>Model to use</div>
-                  <input list="ollama-models" value={ollamaModel} onChange={e=>setOllamaModel(e.target.value)} style={inputStyle} placeholder="llama3.2:1b"/>
+                <div style={{marginBottom:'9px'}}>
+                  <div style={{fontSize:'0.62rem',color:'#604080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'3px'}}>Model</div>
+                  <input list="ollama-models" value={ollamaModel} onChange={e=>setOllamaModel(e.target.value)}
+                    style={{width:'100%',padding:'7px 11px',borderRadius:'7px',background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.2)',color:'#d0b0ff',fontFamily:'Roboto Condensed',fontSize:'0.85rem',outline:'none',boxSizing:'border-box'}}
+                    placeholder="llama3.2:1b"/>
                   <datalist id="ollama-models">
-                    {OLLAMA_MODELS.map(m=><option key={m} value={m}/>)}
+                    {['llama3.2:1b','llama3.2:3b','qwen2.5:1.5b','qwen2.5:7b','phi3.5','mistral'].map(m=><option key={m} value={m}/>)}
                   </datalist>
                 </div>
-                <div style={{marginBottom:'14px'}}>
-                  <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'4px'}}>Ollama URL <span style={{color:'#4a3060',fontWeight:'400'}}>(default is localhost)</span></div>
-                  <input type="text" value={ollamaUrl} onChange={e=>setOllamaUrl(e.target.value)} style={inputStyle} placeholder="http://localhost:11434"/>
+                <div style={{marginBottom:'12px'}}>
+                  <div style={{fontSize:'0.62rem',color:'#604080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'3px'}}>URL</div>
+                  <input type="text" value={ollamaUrl} onChange={e=>setOllamaUrl(e.target.value)}
+                    style={{width:'100%',padding:'7px 11px',borderRadius:'7px',background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.2)',color:'#d0b0ff',fontFamily:'Roboto Condensed',fontSize:'0.85rem',outline:'none',boxSizing:'border-box'}}
+                    placeholder="http://localhost:11434"/>
                 </div>
               </div>
             )}
 
-            {/* HF mode */}
+            {/* HF fields */}
             {mode === 'hf' && (
               <div>
-                <div style={{fontSize:'0.78rem',color:'#a080c0',fontFamily:'Roboto Condensed',lineHeight:1.6,marginBottom:'14px'}}>
-                  Free HuggingFace inference via your <strong style={{color:'#c090ff'}}>Cloudflare Worker proxy</strong> (handles CORS).<br/>
-                  Worker auto-tries 7 free models if the primary is unavailable.
+                <div style={{marginBottom:'9px'}}>
+                  <div style={{fontSize:'0.62rem',color:'#604080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'3px'}}>Worker URL</div>
+                  <input type="text" value={proxyInput} onChange={e=>setProxyInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&connect()}
+                    style={{width:'100%',padding:'7px 11px',borderRadius:'7px',background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.2)',color:'#d0b0ff',fontFamily:'Roboto Condensed',fontSize:'0.85rem',outline:'none',boxSizing:'border-box'}}
+                    placeholder="https://your-worker.workers.dev"/>
                 </div>
-                <div style={{marginBottom:'10px'}}>
-                  <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'4px'}}>Cloudflare Worker URL</div>
-                  <input type="text" value={proxyInput} onChange={e=>setProxyInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&connect()} style={inputStyle} placeholder="https://your-worker.workers.dev"/>
-                </div>
-                <div style={{marginBottom:'14px'}}>
-                  <div style={{fontSize:'0.65rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'4px'}}>HuggingFace Token (hf_...)</div>
-                  <input type="password" value={keyInput} onChange={e=>setKeyInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&connect()} style={inputStyle} placeholder="hf_xxxxxxxxxxxxxxxxxxxx"/>
-                  <div style={{fontSize:'0.62rem',color:'#4a3060',fontFamily:'Roboto Condensed',marginTop:'3px'}}>
-                    Get free token at huggingface.co/settings/tokens → "Make calls to serverless Inference API" ✓
-                  </div>
+                <div style={{marginBottom:'12px'}}>
+                  <div style={{fontSize:'0.62rem',color:'#604080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'3px'}}>Token</div>
+                  <input type="password" value={keyInput} onChange={e=>setKeyInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&connect()}
+                    style={{width:'100%',padding:'7px 11px',borderRadius:'7px',background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.2)',color:'#d0b0ff',fontFamily:'Roboto Condensed',fontSize:'0.85rem',outline:'none',boxSizing:'border-box'}}
+                    placeholder="hf_..."/>
                 </div>
               </div>
             )}
 
             {/* Connect button */}
-            <button onClick={connect} disabled={status==='connecting' || (mode==='ollama'?!ollamaModel.trim():!keyInput.trim())} className="haptic-btn"
-              style={{width:'100%',padding:'11px',background:'linear-gradient(135deg,#4a20a0,#8040e0)',border:'2px solid #c090ff66',borderRadius:'8px',color:'#fff',fontFamily:'Orbitron',fontSize:'0.82rem',fontWeight:'700',cursor:'pointer',transition:'all 0.2s',opacity:status==='connecting'?0.7:1}}>
-              {status==='connecting' ? <span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span> : `Connect${mode==='ollama'?' Ollama':' HuggingFace'}`}
+            <button onClick={connect} disabled={status==='connecting'||(mode==='ollama'?!ollamaModel.trim():!keyInput.trim())} className="haptic-btn"
+              style={{width:'100%',padding:'10px',background:'linear-gradient(135deg,#3a1880,#6030c0)',border:'2px solid #c090ff44',borderRadius:'8px',color:'#fff',fontFamily:'Orbitron',fontSize:'0.78rem',fontWeight:'700',cursor:'pointer',transition:'all 0.2s',opacity:status==='connecting'?0.6:1}}>
+              {status==='connecting' ? <span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span> : 'Connect'}
             </button>
 
             {/* Error */}
             {status==='error' && (
-              <div style={{marginTop:'10px',padding:'10px 12px',background:'rgba(255,60,60,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'7px',fontSize:'0.72rem',color:'#ff9090',fontFamily:'Roboto Condensed',lineHeight:1.6,maxHeight:'130px',overflowY:'auto',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
+              <div style={{marginTop:'9px',padding:'9px 12px',background:'rgba(255,50,50,0.07)',border:'1px solid rgba(255,70,70,0.2)',borderRadius:'7px',fontSize:'0.71rem',color:'#ff9090',fontFamily:'Roboto Condensed',lineHeight:1.55,maxHeight:'110px',overflowY:'auto',wordBreak:'break-word'}}>
                 {(() => {
                   const msg = errorMsg || '';
-                  if (msg.includes('CORS_BLOCKED') || msg.includes('browser is blocking'))
-                    return (
-                      <span>
-                        <strong style={{color:'#ffaa44'}}>🔒 Browser blocking Ollama (CORS)</strong><br/>
-                        Ollama IS running but your browser won't let this page talk to localhost.<br/><br/>
-                        <strong style={{color:'#ffd700'}}>Fix — run this ONE command then restart Ollama:</strong><br/><br/>
-                        <strong style={{color:'#c0ff90',fontFamily:'monospace',fontSize:'0.85rem'}}>Windows:</strong><br/>
-                        <code style={{color:'#a0f0a0',fontFamily:'monospace',display:'block',margin:'3px 0 8px',padding:'4px 8px',background:'rgba(0,0,0,0.3)',borderRadius:'4px',wordBreak:'break-all'}}>
-                          setx OLLAMA_ORIGINS "https://mrgwaps.github.io" /M
-                        </code>
-                        <strong style={{color:'#c0ff90',fontFamily:'monospace',fontSize:'0.85rem'}}>Mac/Linux:</strong><br/>
-                        <code style={{color:'#a0f0a0',fontFamily:'monospace',display:'block',margin:'3px 0 8px',padding:'4px 8px',background:'rgba(0,0,0,0.3)',borderRadius:'4px',wordBreak:'break-all'}}>
-                          OLLAMA_ORIGINS="https://mrgwaps.github.io" ollama serve
-                        </code>
-                        After running that command, restart Ollama, then click Connect again.
-                      </span>
-                    );
-                  if (msg.includes('ollama.com') || msg.includes('not running') || msg.includes('Ollama not') || msg.includes('timeout'))
-                    return <span><strong style={{color:'#ffaa44'}}>⚡ Ollama not responding</strong><br/>{msg}<br/><br/>Make sure Ollama is running, then try again.</span>;
-                  if (msg.includes('WORKER_OUTDATED')) return <span><strong style={{color:'#ffaa44'}}>⚠ Worker outdated</strong><br/>Redeploy pnfl_ai_proxy_worker.js v3 to Cloudflare.</span>;
-                  if (msg.includes('NO_PERMISSION'))   return <span><strong style={{color:'#ffaa44'}}>⚠ Missing HF permission</strong><br/>Edit token → enable "Make calls to serverless Inference API".</span>;
-                  if (msg.includes('NOT_FOUND'))       return <span><strong style={{color:'#ffaa44'}}>⚠ Model not found</strong><br/>Worker v3 tries 7 fallback models — redeploy it.</span>;
-                  if (msg.includes('ALL_FAILED'))      return <span><strong style={{color:'#ffaa44'}}>☁ All HF models busy</strong><br/>Try again in a few minutes, or switch to ⚡ Ollama mode for instant local inference.</span>;
-                  return <span>⚠ {msg}</span>;
+                  if (msg.includes('CORS_BLOCKED')) return <span><strong style={{color:'#ffaa44'}}>Browser blocking Ollama (CORS)</strong><br/>Run: <code style={{color:'#a0f090'}}>setx OLLAMA_ORIGINS "https://mrgwaps.github.io" /M</code><br/>Then restart Ollama.</span>;
+                  if (msg.includes('WORKER_OUTDATED')) return <span><strong style={{color:'#ffaa44'}}>Worker outdated</strong> — redeploy pnfl_ai_proxy_worker.js</span>;
+                  if (msg.includes('NO_PERMISSION'))   return <span><strong style={{color:'#ffaa44'}}>Token missing scope</strong> — enable "Make calls to serverless Inference API" on your HF token</span>;
+                  return <span>{msg}</span>;
                 })()}
               </div>
             )}
@@ -4238,6 +4464,16 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
         onClose={() => setShowAIModal(false)}
         onConnected={() => setAiEnabled(!!(window.pnflAI?.isReady()))}
       />
+      {/* Voice toggle */}
+      <div title={voiceOn ? 'Voice narration ON — click to mute' : 'Click to enable voice narration'}
+        onClick={() => { const on = window.pnflVoice?.toggle(); setVoiceOn(on); playSound('click'); haptic('light'); }}
+        style={{display:'flex',alignItems:'center',gap:'5px',cursor:'pointer',padding:'4px 10px',borderRadius:'20px',
+          background: voiceOn ? 'rgba(74,255,74,0.1)' : 'rgba(30,50,30,0.4)',
+          border: `1px solid ${voiceOn ? 'rgba(74,255,74,0.4)' : 'rgba(45,90,45,0.3)'}`,
+          transition:'all 0.2s'}}>
+        <span style={{fontSize:'1rem'}}>{voiceOn ? '🔊' : '🔇'}</span>
+        <span style={{fontFamily:'Orbitron',fontSize:'0.55rem',fontWeight:'700',color:voiceOn?'#4aff4a':'#3a6a3a',letterSpacing:'0.5px'}}>{voiceOn?'VOICE ON':'VOICE'}</span>
+      </div>
     )}
     <div style={{
       background:'linear-gradient(135deg, rgba(10,22,40,0.97) 0%, rgba(13,40,24,0.97) 100%)',
@@ -4991,7 +5227,7 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
     setAiResponse('');
     try {
       // Build live PNFL context (standings, game stats, season stats)
-      const liveCtx = window.pnflContext?.buildPlayerContext(player.name, teamName, position) || '';
+      const liveCtx = window.pnflDB?._ready ? window.pnflDB.buildPlayerPrompt(player.name, teamName) : '' || '';
 
       const systemPrompt = `You are a PNFL digital analyst for a fantasy football simulation game set in 2048. CRITICAL RULES:
 1. NEVER reference real NFL salaries, contracts, or real-world stats. This is a simulation game.
@@ -6469,11 +6705,11 @@ function App() {
     const cached = loadRosterCache();
     const s = cached?.season || '2048';
     const w = cached?.week   || '3';
-    if (window.pnflContext) {
+    if (window.pnflDB) {
       window.pnflContext.season = s;
       window.pnflContext.week   = w;
       // Fetch live data in background — doesn't block app load
-      window.pnflContext.fetchAll(s, w).catch(e => console.warn('[Context init]', e.message));
+      window.pnflDB.fetch(s, w).catch(e => console.warn('[Context init]', e.message));
     }
   }, []);
   const [fetching,setFetching]=useState(false);
@@ -6565,11 +6801,7 @@ function App() {
         rosterOk = true;
         playSound('fetchDone');
         // Update context engine with current season/week then fetch all live stats
-        if (window.pnflContext) {
-          window.pnflContext.season = parsed.season || '2048';
-          window.pnflContext.week   = parsed.week   || '3';
-          window.pnflContext.fetchAll(parsed.season, parsed.week).catch(e => console.warn('[Context]', e.message));
-        }
+        if (window.pnflDB) { window.pnflDB.fetch(parsed.season||'2048', parsed.week||'3').catch(e=>console.warn('[pnflDB]',e.message)); }
       } catch(e) {
         console.warn('Roster parse failed:', e.message);
       }
