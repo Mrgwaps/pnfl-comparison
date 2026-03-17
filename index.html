@@ -932,7 +932,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub">Loading v5.7...</div>
+  <div class="pl-sub">Loading v5.8......</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1007,7 +1007,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '5.7';
+const APP_VERSION = '5.8';
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
 const ATTRIBUTES = ['SP','AC','AG','ST','HA','EN','IN','DI'];
 const ATTR_LABELS = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
@@ -3621,6 +3621,10 @@ function buildPlaceholderRoster(teamName){
 // ── SVG Football Icon ──
 </script>
 
+<script>
+
+</script>
+
 <script type="text/babel">
 function FootballIcon({ size = 32, style = {} }) {
   return (
@@ -3873,209 +3877,8 @@ function AIConnectModal({ onClose, onConnected }) {
       </div>
     </div>
   );
-}) {
-  const [keyInput, setKeyInput] = useState('');
-  const [status, setStatus] = useState('idle'); // idle | connecting | success | error
-  const [errorMsg, setErrorMsg] = useState('');
-
-  // Pre-fill if key already saved
-  React.useEffect(() => {
-    const saved = sessionStorage.getItem('pnfl_ai_key');
-    if (saved) setKeyInput(saved);
-    if (window.pnflAI?.isReady()) setStatus('success');
-  }, []);
-
-  const [proxyInput, setProxyInput] = useState(() => sessionStorage.getItem('pnfl_proxy_url') || '');
-
-  const connect = async () => {
-    const key = keyInput.trim();
-    if (!key) return;
-    if (!window.pnflAI || typeof window.pnflAI.load !== 'function') {
-      setStatus('error');
-      setErrorMsg('AI module failed to initialize — try refreshing the page.');
-      return;
-    }
-    setStatus('connecting');
-    setErrorMsg('');
-    try {
-      await window.pnflAI.load(key, proxyInput.trim());
-      setStatus('success');
-      haptic('heavy');
-      playSound('aiConnect');
-      setTimeout(() => { onConnected && onConnected(); onClose && onClose(); }, 800);
-    } catch(e) {
-      setStatus('error');
-      setErrorMsg(e.message || String(e));
-    }
-  };
-
-  const disconnect = () => {
-    if (window.pnflAI) {
-      window.pnflAI._ready    = false;
-      window.pnflAI._apiKey   = '';
-      window.pnflAI._proxyUrl = '';
-    }
-    sessionStorage.removeItem('pnfl_ai_key');
-    sessionStorage.removeItem('pnfl_proxy_url');
-    setStatus('idle');
-    setKeyInput('');
-    setProxyInput('');
-    onConnected && onConnected();
-  };
-
-  return (
-    <div onClick={onClose} style={{
-      position:'fixed',inset:0,zIndex:9999,
-      background:'rgba(0,0,0,0.75)',
-      display:'flex',alignItems:'center',justifyContent:'center',
-      backdropFilter:'blur(4px)',
-    }}>
-      <div onClick={e=>e.stopPropagation()} style={{
-        background:'linear-gradient(135deg,rgba(25,12,45,0.99),rgba(10,22,40,0.99))',
-        border:'2px solid rgba(160,100,255,0.5)',
-        borderRadius:'16px',padding:'28px 32px',
-        width:'min(460px,92vw)',
-        boxShadow:'0 0 40px rgba(160,100,255,0.25), 0 20px 60px rgba(0,0,0,0.7)',
-      }}>
-        {/* Header */}
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'20px'}}>
-          <div>
-            <div style={{fontFamily:'Orbitron',fontSize:'1rem',fontWeight:'900',color:'#c090ff',letterSpacing:'1px'}}>🤖 AI ANALYST</div>
-            <div style={{fontSize:'0.72rem',color:'#806090',fontFamily:'Roboto Condensed',marginTop:'2px'}}>Qwen2.5-1.5B-Instruct · HuggingFace Inference</div>
-          </div>
-          <button onClick={onClose} style={{background:'none',border:'none',color:'#604080',fontSize:'1.4rem',cursor:'pointer',lineHeight:1,padding:'2px 6px'}}>✕</button>
-        </div>
-
-        {status === 'success' ? (
-          /* Connected state */
-          <div>
-            <div style={{display:'flex',alignItems:'center',gap:'12px',padding:'14px 16px',background:'rgba(74,255,74,0.07)',border:'1px solid rgba(74,255,74,0.25)',borderRadius:'10px',marginBottom:'16px'}}>
-              <div style={{width:'12px',height:'12px',borderRadius:'50%',background:'#4aff4a',boxShadow:'0 0 8px #4aff4a',flexShrink:0}}/>
-              <div>
-                <div style={{fontFamily:'Orbitron',fontSize:'0.78rem',color:'#4aff4a',fontWeight:'700'}}>CONNECTED</div>
-                <div style={{fontSize:'0.7rem',color:'#4a8a4a',fontFamily:'Roboto Condensed',marginTop:'1px'}}>Qwen2.5-1.5B ready · key saved for session</div>
-              </div>
-            </div>
-            <div style={{display:'flex',gap:'10px'}}>
-              <button onClick={()=>{ onConnected && onConnected(); onClose && onClose(); }} className="haptic-btn"
-                style={{flex:1,padding:'10px',background:'linear-gradient(135deg,rgba(160,100,255,0.2),rgba(100,60,180,0.3))',border:'2px solid #c090ff66',borderRadius:'8px',color:'#c090ff',fontFamily:'Orbitron',fontSize:'0.78rem',fontWeight:'700',cursor:'pointer'}}>
-                ✓ Done
-              </button>
-              <button onClick={disconnect} className="haptic-btn"
-                style={{padding:'10px 16px',background:'rgba(255,80,80,0.1)',border:'1px solid rgba(255,80,80,0.3)',borderRadius:'8px',color:'#ff8080',fontFamily:'Roboto Condensed',fontSize:'0.78rem',cursor:'pointer'}}>
-                Disconnect
-              </button>
-            </div>
-          </div>
-        ) : (
-          /* Connect form */
-          <div>
-            <div style={{fontSize:'0.78rem',color:'#a080c0',fontFamily:'Roboto Condensed',lineHeight:1.5,marginBottom:'16px'}}>
-              Enter your HuggingFace token and your Cloudflare Worker proxy URL. The proxy handles CORS so the browser can reach HuggingFace.
-            </div>
-
-            {/* Steps */}
-            <div style={{display:'flex',flexDirection:'column',gap:'6px',marginBottom:'18px',padding:'12px 14px',background:'rgba(0,0,0,0.25)',borderRadius:'8px',border:'1px solid rgba(160,100,255,0.1)'}}>
-              {[
-                ['1', 'Go to ', 'huggingface.co/settings/tokens', 'https://huggingface.co/settings/tokens'],
-                ['2', 'Click "Create new token" → Token type: Fine-grained', null, null],
-                ['3', 'Under Permissions → check "Make calls to the serverless Inference API"', null, null],
-                ['4', 'Copy the hf_... token and paste below', null, null],
-              ].map(([n, text, link, href]) => (
-                <div key={n} style={{display:'flex',alignItems:'flex-start',gap:'10px',fontSize:'0.72rem',color:'#806090',fontFamily:'Roboto Condensed'}}>
-                  <span style={{background:'rgba(160,100,255,0.2)',borderRadius:'50%',width:'18px',height:'18px',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Orbitron',fontSize:'0.6rem',color:'#c090ff',flexShrink:0,marginTop:'1px'}}>{n}</span>
-                  <span>{text}{link && <a href={href} target="_blank" rel="noopener noreferrer" style={{color:'#c090ff'}}>{link}</a>}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Proxy URL input */}
-            <div style={{marginBottom:'10px'}}>
-              <div style={{fontSize:'0.68rem',color:'#6a5080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'4px'}}>
-                Cloudflare Worker URL (CORS Proxy)
-              </div>
-              <input
-                type="text"
-                value={proxyInput}
-                onChange={e=>setProxyInput(e.target.value)}
-                placeholder="https://your-worker.workers.dev"
-                style={{
-                  width:'100%',padding:'8px 12px',borderRadius:'7px',
-                  background:'rgba(10,15,30,0.9)',
-                  border:'1px solid rgba(160,100,255,0.2)',
-                  color:'#c0b0d0',fontFamily:'Roboto Condensed',fontSize:'0.82rem',outline:'none',
-                }}
-              />
-              <div style={{fontSize:'0.62rem',color:'#4a3060',fontFamily:'Roboto Condensed',marginTop:'3px'}}>
-                Deploy <code style={{color:'#c090ff'}}>pnfl_ai_proxy_worker.js</code> to Cloudflare Workers (free) and paste the URL above
-              </div>
-            </div>
-
-            {/* Key input */}
-            <div style={{display:'flex',gap:'8px',marginBottom:'10px'}}>
-              <input
-                type="password"
-                value={keyInput}
-                onChange={e=>setKeyInput(e.target.value)}
-                onKeyDown={e=>e.key==='Enter'&&connect()}
-                placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
-                style={{
-                  flex:1,padding:'10px 14px',borderRadius:'8px',
-                  background:'rgba(10,15,30,0.9)',
-                  border:`1px solid ${status==='error'?'rgba(255,100,100,0.5)':'rgba(160,100,255,0.3)'}`,
-                  color:'#e0d0ff',fontFamily:'Roboto Condensed',fontSize:'0.9rem',outline:'none',
-                }}
-              />
-              <button onClick={connect} disabled={!keyInput.trim()||status==='connecting'} className="haptic-btn"
-                style={{
-                  padding:'10px 20px',
-                  background: status==='connecting' ? 'rgba(100,60,180,0.4)' : 'linear-gradient(135deg,#4a20a0,#8040e0)',
-                  border:'2px solid #c090ff66',borderRadius:'8px',
-                  color:'#fff',fontFamily:'Orbitron',fontSize:'0.78rem',fontWeight:'700',
-                  cursor: !keyInput.trim()||status==='connecting' ? 'not-allowed' : 'pointer',
-                  whiteSpace:'nowrap',
-                  opacity: !keyInput.trim() ? 0.5 : 1,
-                  transition:'all 0.2s',
-                }}>
-                {status==='connecting' ? <span style={{display:'inline-block',animation:'spin2 1s linear infinite'}}>⟳</span> : 'Connect'}
-              </button>
-            </div>
-
-            {status==='error' && (
-              <div style={{padding:'10px 12px',background:'rgba(255,60,60,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'7px',fontSize:'0.72rem',color:'#ff9090',fontFamily:'Roboto Condensed',lineHeight:1.6,maxHeight:'120px',overflowY:'auto',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
-                {(() => {
-                  const msg = errorMsg || '';
-                  if (msg.startsWith('WORKER_OUTDATED:')) return (
-                    <span>
-                      <strong style={{color:'#ffaa44'}}>⚠ Worker needs update</strong><br/>
-                      {msg.replace('WORKER_OUTDATED:','').trim()}<br/>
-                      <strong style={{color:'#ffd700',marginTop:'4px',display:'block'}}>Steps: dash.cloudflare.com → Workers → your worker → Edit Code → select all → paste new pnfl_ai_proxy_worker.js → Save & Deploy</strong>
-                    </span>
-                  );
-                  if (msg.startsWith('NO_PERMISSION:')) return (
-                    <span>
-                      <strong style={{color:'#ffaa44'}}>⚠ Token missing permission</strong><br/>
-                      huggingface.co/settings/tokens → Edit your token → Permissions → check <strong>"Make calls to the serverless Inference API"</strong> → Save
-                    </span>
-                  );
-                  if (msg.startsWith('INVALID_TOKEN:')) return (
-                    <span><strong style={{color:'#ffaa44'}}>⚠ Invalid token</strong> — copy the full hf_... token from huggingface.co/settings/tokens</span>
-                  );
-                  if (msg.startsWith('NETWORK:')) return (
-                    <span><strong style={{color:'#ffaa44'}}>⚠ Network error</strong> — check your Cloudflare Worker URL is correct and the worker is deployed and active</span>
-                  );
-                  return <span>⚠ {msg}</span>;
-                })()}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
 }
 
-// ── Roster Banner ──
 function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchContracts, fetchingContracts, contractData }) {
   const isLive = rosterMeta && rosterMeta.source === 'live';
   const isHardcoded = rosterMeta && rosterMeta.source === 'hardcoded';
