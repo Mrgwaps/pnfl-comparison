@@ -977,7 +977,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">PNFL Comparison</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v6.3.1 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v6.3.3 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1053,7 +1053,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '6.3.1'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '6.3.3'; window.APP_VERSION = APP_VERSION;
 // Update preloader immediately — runs before any heavy scripts
 (function(){ try{ var e=document.getElementById('pl-version'); if(e) e.textContent='v'+APP_VERSION+' — Loading...'; }catch(x){} })();
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
@@ -2949,17 +2949,17 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
         onClose={() => setShowAIModal(false)}
         onConnected={() => setAiEnabled(!!(window.pnflAI?.isReady()))}
       />
-      {/* Voice toggle */}
-      <div title={voiceOn ? 'Voice narration ON — click to mute' : 'Click to enable voice narration'}
-        onClick={() => { const on = window.pnflVoice?.toggle(); setVoiceOn(on); playSound('click'); haptic('light'); }}
-        style={{display:'flex',alignItems:'center',gap:'5px',cursor:'pointer',padding:'4px 10px',borderRadius:'20px',
-          background: voiceOn ? 'rgba(74,255,74,0.1)' : 'rgba(30,50,30,0.4)',
-          border: `1px solid ${voiceOn ? 'rgba(74,255,74,0.4)' : 'rgba(45,90,45,0.3)'}`,
-          transition:'all 0.2s'}}>
-        <span style={{fontSize:'1rem'}}>{voiceOn ? '🔊' : '🔇'}</span>
-        <span style={{fontFamily:'Orbitron',fontSize:'0.55rem',fontWeight:'700',color:voiceOn?'#4aff4a':'#3a6a3a',letterSpacing:'0.5px'}}>{voiceOn?'VOICE ON':'VOICE'}</span>
-      </div>
     )}
+    {/* Voice toggle */}
+    <div title={voiceOn ? 'Voice narration ON — click to mute' : 'Click to enable voice narration'}
+      onClick={() => { const on = window.pnflVoice?.toggle(); setVoiceOn(on); playSound('click'); haptic('light'); }}
+      style={{display:'flex',alignItems:'center',gap:'5px',cursor:'pointer',padding:'4px 10px',borderRadius:'20px',
+        background: voiceOn ? 'rgba(74,255,74,0.1)' : 'rgba(30,50,30,0.4)',
+        border: `1px solid ${voiceOn ? 'rgba(74,255,74,0.4)' : 'rgba(45,90,45,0.3)'}`,
+        transition:'all 0.2s',position:'fixed',bottom:'16px',right:'16px',zIndex:8000}}>
+      <span style={{fontSize:'1rem'}}>{voiceOn ? '🔊' : '🔇'}</span>
+      <span style={{fontFamily:'Orbitron',fontSize:'0.55rem',fontWeight:'700',color:voiceOn?'#4aff4a':'#3a6a3a',letterSpacing:'0.5px'}}>{voiceOn?'VOICE ON':'VOICE'}</span>
+    </div>
     <div style={{
       background:'linear-gradient(135deg, rgba(10,22,40,0.97) 0%, rgba(13,40,24,0.97) 100%)',
       border:`2px solid ${isLive ? '#ffd700' : isHardcoded ? '#4a9eff' : '#2d5a2d'}`,
@@ -4143,7 +4143,7 @@ ${aiQuery}`;
 // ═══════════════════════════════════════════════════════════════
 
 function buildScoutingData(team, getTeamData, weights, depth, designation, contractData, standingsData, rosterMeta) {
-  const ctx      = window.pnflContext || {};
+  const ctx      = window.pnflDB || {};
   const td       = getTeamData(team) || {};
   const wts      = weights || loadWeights();
   const dep      = depth   || loadDepth();
@@ -4298,7 +4298,7 @@ function ScoutingReport({ getTeamData, weights, depth, designation, contractData
   const [error,    setError]    = useState('');
   const [rawText,  setRawText]  = useState('');
   const aiReady = !!(window.pnflAI?.isReady?.());
-  const ctxReady = !!(window.pnflContext?.lastFetch);
+  const ctxReady = !!(window.pnflDB?._ready);
 
   const generateReport = async () => {
     if (!team || !aiReady) return;
@@ -4317,11 +4317,11 @@ TOP PERFORMERS:
 STRENGTHS:
 AREAS TO IMPROVE:`;
 
-      const gameStatsSnippet = (window.pnflContext?.raw?.gameStats || '').split('\n')
+      const gameStatsSnippet = (window.pnflDB?._raw?.gameStats || '').split('\n')
         .filter(l => l.includes(team.split(' ')[0]) || l.includes('Player of') || l.includes('Individual'))
         .slice(0, 30).join('\n');
 
-      const seasonStatsSnippet = (window.pnflContext?.raw?.seasonStats || '').split('\n')
+      const seasonStatsSnippet = (window.pnflDB?._raw?.season || '').split('\n')
         .filter(l => l.trim() && (l.includes(team) || l.match(/^\s*\d+\s/)))
         .slice(0, 20).join('\n');
 
@@ -4414,7 +4414,7 @@ Next opponent (Week ${parseInt(d.week)+1}): ${d.nextOpponent}`;
 // ── Static data card shown before AI generates ──
 function ScoutingStatCard({ data: d, rosterMeta }) {
   if (!d) return null;
-  const ctx   = window.pnflContext || {};
+  const ctx   = window.pnflDB || {};
   const week  = rosterMeta?.week || ctx.week || '?';
   const season= rosterMeta?.season || ctx.season || '2048';
 
@@ -5195,16 +5195,15 @@ function App() {
   const [gameStatsData,setGameStatsData]=useState(()=>loadGameStatsCache());
   const [currentWeekKey, setCurrentWeekKey]=useState('live');
 
-  // Bootstrap context engine on mount with cached season/week
+  // Bootstrap pnflDB on mount with cached season/week
   React.useEffect(() => {
     const cached = loadRosterCache();
     const s = cached?.season || '2048';
     const w = cached?.week   || '3';
     if (window.pnflDB) {
-      window.pnflContext.season = s;
-      window.pnflContext.week   = w;
-      // Fetch live data in background — doesn't block app load
-      window.pnflDB.fetch(s, w).catch(e => console.warn('[Context init]', e.message));
+      window.pnflDB.season = s;
+      window.pnflDB.week   = w;
+      window.pnflDB.fetch(s, w).catch(e => console.warn('[pnflDB init]', e.message));
     }
   }, []);
   const [fetching,setFetching]=useState(false);
