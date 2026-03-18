@@ -904,17 +904,29 @@ font-family: 'Courier New', monospace; font-size: 0.9rem; resize: vertical; marg
 background: rgba(10,22,40,0.8); color: #fff; outline: none;
 }
 textarea:focus { border-color: #4a9eff; }
-.footer-note {
-text-align: center;
-color: #608060;
-font-size: 0.9rem;
-margin-top: 30px;
-padding-top: 20px;
-border-top: 2px solid #2d5a2d;
-font-style: italic;
+.site-footer {
+  margin-top: 48px;
+  border-top: 1px solid rgba(45,90,45,0.5);
+  background: linear-gradient(180deg, transparent 0%, rgba(5,12,8,0.8) 100%);
 }
-.footer-note a { color: #4a9eff; text-decoration: none; }
-.footer-note a:hover { color: #ffd700; text-decoration: underline; }
+.site-footer a { color: #4a9eff; text-decoration: none; transition: color 0.2s; }
+.site-footer a:hover { color: #ffd700; }
+.footer-legal-modal-overlay {
+  position: fixed; inset: 0; z-index: 10000;
+  background: rgba(0,0,0,0.92);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; backdrop-filter: blur(8px);
+  overflow-y: auto;
+}
+.footer-legal-modal {
+  background: linear-gradient(135deg, rgba(8,18,35,0.99), rgba(10,30,18,0.99));
+  border: 2px solid rgba(74,158,255,0.35);
+  border-radius: 16px;
+  width: min(720px, 96vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  box-shadow: 0 0 60px rgba(74,158,255,0.12);
+}
 @media (max-width: 768px) {
   h1 { font-size: 1.6rem; }
   .container { padding: 10px; }
@@ -977,7 +989,7 @@ font-style: italic;
 <div id="preloader">
   <div class="pl-title">FBpro98 League</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v6.7.2 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v6.9 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1053,7 +1065,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '6.7.2'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '6.9'; window.APP_VERSION = APP_VERSION;
 // Update preloader immediately — runs before any heavy scripts
 (function(){ try{ var e=document.getElementById('pl-version'); if(e) e.textContent='v'+APP_VERSION+' — Loading...'; var t=document.getElementById('page-title'); if(t) t.textContent='FBpro98 League Comparison Tool v'+APP_VERSION; }catch(x){} })();
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
@@ -3419,13 +3431,6 @@ function ComparisonTable({ teams, data, contractData }) {
   });
   return (
     <div className="card full-width">
-      {showPlayerCompare && (
-        <ComparePlayersModal
-          rosterData={rosterData}
-          contractData={contractData}
-          onClose={()=>setShowPlayerCompare(false)}
-        />
-      )}
       {lightbox && (
         <PlayerLightbox
           player={lightbox.player}
@@ -4628,72 +4633,45 @@ function ScoutingReportCard({ report, data: d, rosterMeta }) {
 }
 
 
-// ══════════════════════════════════════════════════════
-// COMPARE PLAYERS FEATURE
-// ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
+// COMPARE PLAYERS — modal + result (self-contained, rendered in App)
+// ══════════════════════════════════════════════════════════════════════
 
-// ── Player search/select modal ──
 function ComparePlayersModal({ rosterData, contractData, onClose }) {
   const ALL_POS = ['QB','HB','FB','WR','TE','C','G','T','K','P','DE','DT','LB','CB','S'];
-  const [pos,       setPos]       = React.useState('WR');
-  const [leftTeam,  setLeftTeam]  = React.useState('');
-  const [rightTeam, setRightTeam] = React.useState('');
-  const [leftPick,  setLeftPick]  = React.useState(null);
-  const [rightPick, setRightPick] = React.useState(null);
-  const [leftSearch,  setLeftSearch]  = React.useState('');
-  const [rightSearch, setRightSearch] = React.useState('');
+  const [pos,        setPos]        = React.useState('WR');
+  const [leftTeam,   setLeftTeam]   = React.useState('');
+  const [rightTeam,  setRightTeam]  = React.useState('');
+  const [leftPick,   setLeftPick]   = React.useState(null);
+  const [rightPick,  setRightPick]  = React.useState(null);
+  const [leftSearch, setLeftSearch] = React.useState('');
+  const [rightSearch,setRightSearch]= React.useState('');
   const [showResult, setShowResult] = React.useState(false);
 
-  // Collect all players of selected position from all teams
-  const getPlayers = (teamFilter, searchStr) => {
-    const source = rosterData?.teams || HARDCODED_ROSTER_DATA?.teams || {};
+  const allTeams   = rosterData?.teams || HARDCODED_ROSTER_DATA?.teams || {};
+  const teamNames  = Object.keys(allTeams).length > 0 ? Object.keys(allTeams).sort() : TEAM_NAMES;
+
+  const getPlayers = (teamFilter, search) => {
+    const teams = teamFilter ? [teamFilter] : Object.keys(allTeams);
     const out = [];
-    const teams = teamFilter ? [teamFilter] : Object.keys(source);
     teams.forEach(t => {
-      const players = source[t]?.[pos] || [];
-      players.forEach(p => {
-        if (!searchStr || p.name.toLowerCase().includes(searchStr.toLowerCase())) {
+      (allTeams[t]?.[pos] || []).forEach(p => {
+        if (!search || p.name.toLowerCase().includes(search.toLowerCase()))
           out.push({ ...p, teamName: t });
-        }
       });
     });
     return out.sort((a,b) => a.name.localeCompare(b.name));
   };
 
-  const leftPlayers  = getPlayers(leftTeam,  leftSearch);
-  const rightPlayers = getPlayers(rightTeam, rightSearch);
-
-  const canCompare = leftPick && rightPick && leftPick.teamName !== rightPick.teamName || (leftPick && rightPick && leftPick.name !== rightPick.name);
+  const leftList  = getPlayers(leftTeam,  leftSearch);
+  const rightList = getPlayers(rightTeam, rightSearch);
+  const canCompare = !!(leftPick && rightPick && (leftPick.name !== rightPick.name || leftPick.teamName !== rightPick.teamName));
 
   const selStyle = {
-    width:'100%', padding:'6px 10px',
-    background:'rgba(10,20,40,0.9)', border:'1px solid #2d5a2d',
-    borderRadius:'7px', color:'#a0d2a0',
-    fontFamily:'Roboto Condensed', fontSize:'0.82rem', outline:'none'
-  };
-  const inputStyle = { ...selStyle, marginBottom:'6px' };
-
-  const PlayerRow = ({ p, selected, onSelect, side }) => {
-    const isFa = !p.teamName || p.teamName === 'FA';
-    return (
-      <div onClick={()=>{ playSound('click'); onSelect(p); }}
-        style={{
-          display:'flex', alignItems:'center', gap:'8px', padding:'6px 10px',
-          borderRadius:'7px', cursor:'pointer', marginBottom:'3px',
-          background: selected ? 'rgba(74,255,74,0.12)' : 'rgba(0,0,0,0.2)',
-          border: `1px solid ${selected ? 'rgba(74,255,74,0.4)' : 'rgba(45,90,45,0.2)'}`,
-          transition:'all 0.15s'
-        }}>
-        {isFa
-          ? <span style={{fontSize:'0.65rem',fontWeight:'700',color:'#888',fontFamily:'Orbitron',width:'28px',flexShrink:0}}>FA</span>
-          : <TeamLogo teamName={p.teamName} size="tiny"/>
-        }
-        <span style={{flex:1,fontSize:'0.82rem',color: selected?'#4aff4a':'#a0d2a0',fontFamily:'Roboto Condensed'}}>
-          {p.name}
-        </span>
-        <span style={{fontSize:'0.65rem',color:'#4a7a4a',fontFamily:'Orbitron'}}>{p.status}</span>
-      </div>
-    );
+    width:'100%', padding:'6px 10px', borderRadius:'7px',
+    background:'rgba(10,20,40,0.95)', border:'1px solid rgba(74,158,255,0.25)',
+    color:'#a0d2ff', fontFamily:'Roboto Condensed', fontSize:'0.82rem', outline:'none',
+    marginBottom:'6px', cursor:'pointer',
   };
 
   if (showResult && leftPick && rightPick) {
@@ -4708,84 +4686,123 @@ function ComparePlayersModal({ rosterData, contractData, onClose }) {
   }
 
   return (
-    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:9998,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',padding:'12px',backdropFilter:'blur(4px)'}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:'linear-gradient(135deg,rgba(10,22,40,0.99),rgba(13,40,24,0.99))',border:'2px solid #4a9eff',borderRadius:'16px',width:'min(900px,96vw)',maxHeight:'90vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:9998,background:'rgba(0,0,0,0.88)',display:'flex',alignItems:'center',justifyContent:'center',padding:'16px',backdropFilter:'blur(6px)'}}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        background:'linear-gradient(135deg,rgba(8,18,35,0.99),rgba(12,35,22,0.99))',
+        border:'2px solid rgba(74,158,255,0.5)',borderRadius:'18px',
+        width:'min(860px,95vw)',maxHeight:'88vh',display:'flex',flexDirection:'column',
+        boxShadow:'0 0 60px rgba(74,158,255,0.15)',overflow:'hidden',
+      }}>
 
-        {/* Header */}
-        <div style={{padding:'14px 20px',borderBottom:'1px solid rgba(74,158,255,0.2)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        {/* ── Header ── */}
+        <div style={{padding:'16px 22px',borderBottom:'1px solid rgba(74,158,255,0.15)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
           <div>
-            <div style={{fontFamily:'Orbitron',fontSize:'0.9rem',color:'#4a9eff',fontWeight:'900',letterSpacing:'1px'}}>⚔ COMPARE PLAYERS</div>
-            <div style={{fontSize:'0.68rem',color:'#4a7a6a',fontFamily:'Roboto Condensed',marginTop:'2px'}}>Select one player from each side — same position only</div>
+            <div style={{fontFamily:'Orbitron',fontSize:'0.95rem',color:'#4a9eff',fontWeight:'900',letterSpacing:'1.5px'}}>⚔ COMPARE PLAYERS</div>
+            <div style={{fontSize:'0.68rem',color:'#4a7a8a',fontFamily:'Roboto Condensed',marginTop:'3px'}}>Select one player per side — same position only</div>
           </div>
-          <button onClick={onClose} style={{background:'none',border:'none',color:'#3a6a6a',fontSize:'1.3rem',cursor:'pointer'}}>✕</button>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#3a6a8a',fontSize:'1.4rem',cursor:'pointer',lineHeight:1}}>✕</button>
         </div>
 
-        {/* Position selector */}
-        <div style={{padding:'10px 20px',borderBottom:'1px solid rgba(74,158,255,0.1)',display:'flex',gap:'6px',flexWrap:'wrap',flexShrink:0}}>
+        {/* ── Position tabs ── */}
+        <div style={{padding:'10px 20px',borderBottom:'1px solid rgba(74,158,255,0.1)',display:'flex',gap:'5px',flexWrap:'wrap',flexShrink:0,background:'rgba(0,0,0,0.15)'}}>
           {ALL_POS.map(p=>(
-            <button key={p} onClick={()=>{playSound('click');haptic('light');setPos(p);setLeftPick(null);setRightPick(null);}}
-              className="haptic-btn"
-              style={{padding:'4px 12px',borderRadius:'20px',border:`1px solid ${pos===p?'#4a9eff':'rgba(74,158,255,0.2)'}`,background:pos===p?'rgba(74,158,255,0.15)':'transparent',color:pos===p?'#4a9eff':'#4a7a6a',fontFamily:'Orbitron',fontSize:'0.65rem',fontWeight:'700',cursor:'pointer',transition:'all 0.15s'}}>
+            <button key={p} onClick={()=>{haptic('light');playSound('click');setPos(p);setLeftPick(null);setRightPick(null);}} className="haptic-btn"
+              style={{padding:'4px 13px',borderRadius:'20px',cursor:'pointer',fontFamily:'Orbitron',fontSize:'0.65rem',fontWeight:'700',transition:'all 0.15s',border:'none',
+                background:pos===p?'linear-gradient(135deg,rgba(74,158,255,0.35),rgba(40,100,200,0.25))':'rgba(255,255,255,0.04)',
+                color:pos===p?'#7ec8ff':'#3a6a8a',
+                boxShadow:pos===p?'0 0 8px rgba(74,158,255,0.3)':'none'}}>
               {p}
             </button>
           ))}
         </div>
 
-        {/* Two-column picker */}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1px',flex:1,overflow:'hidden',background:'rgba(74,158,255,0.08)'}}>
+        {/* ── Two-column picker ── */}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',flex:1,overflow:'hidden',minHeight:0}}>
           {[
-            {label:'PLAYER A', team:leftTeam,  setTeam:setLeftTeam,  pick:leftPick,  setPick:setLeftPick,  players:leftPlayers,  search:leftSearch,  setSearch:setLeftSearch,  side:'left'},
-            {label:'PLAYER B', team:rightTeam, setTeam:setRightTeam, pick:rightPick, setPick:setRightPick, players:rightPlayers, search:rightSearch, setSearch:setRightSearch, side:'right'},
-          ].map(col=>(
-            <div key={col.side} style={{background:'rgba(10,20,35,0.95)',padding:'12px',display:'flex',flexDirection:'column',overflow:'hidden'}}>
-              <div style={{fontFamily:'Orbitron',fontSize:'0.65rem',color:'#4a9eff',letterSpacing:'1.5px',marginBottom:'8px'}}>{col.label}</div>
-
-              {/* Team filter */}
-              <select value={col.team} onChange={e=>{col.setTeam(e.target.value);col.setPick(null);}} style={{...selStyle,marginBottom:'6px'}}>
-                <option value="">All Teams</option>
-                {TEAM_NAMES.map(t=><option key={t} value={t}>{t}</option>)}
-              </select>
-
-              {/* Name search */}
-              <input type="text" value={col.search} onChange={e=>col.setSearch(e.target.value)}
-                placeholder={`Search ${pos} by name…`} style={inputStyle}/>
+            {side:'A',team:leftTeam, setTeam:setLeftTeam, pick:leftPick, setPick:(p)=>{haptic('light');playSound('click');setLeftPick(p);}, list:leftList, search:leftSearch, setSearch:setLeftSearch},
+            {side:'B',team:rightTeam,setTeam:setRightTeam,pick:rightPick,setPick:(p)=>{haptic('light');playSound('click');setRightPick(p);},list:rightList,search:rightSearch,setSearch:setRightSearch},
+          ].map((col,ci)=>(
+            <div key={col.side} style={{display:'flex',flexDirection:'column',overflow:'hidden',borderLeft:ci===1?'1px solid rgba(74,158,255,0.1)':'none',background:ci===0?'rgba(5,12,28,0.6)':'rgba(5,22,14,0.4)'}}>
+              {/* Column header */}
+              <div style={{padding:'10px 14px 6px',flexShrink:0}}>
+                <div style={{fontFamily:'Orbitron',fontSize:'0.62rem',color:ci===0?'#4a9eff':'#4aff8a',letterSpacing:'2px',marginBottom:'8px'}}>PLAYER {col.side}</div>
+                {/* Team filter */}
+                <select value={col.team} onChange={e=>{col.setTeam(e.target.value);col.setPick(null);}} style={selStyle}>
+                  <option value="">All Teams</option>
+                  {teamNames.map(t=><option key={t} value={t}>{t}</option>)}
+                </select>
+                {/* Name search */}
+                <input type="text" value={col.search} onChange={e=>col.setSearch(e.target.value)}
+                  placeholder={`Search ${pos}…`}
+                  style={{...selStyle, marginBottom:'4px', background:'rgba(0,0,0,0.3)'}}/>
+              </div>
 
               {/* Player list */}
-              <div style={{flex:1,overflowY:'auto',paddingRight:'2px'}}>
-                {col.players.length === 0
-                  ? <div style={{padding:'20px',textAlign:'center',color:'#3a5a3a',fontSize:'0.75rem',fontFamily:'Roboto Condensed'}}>No {pos} players found</div>
-                  : col.players.map(p=>(
-                    <PlayerRow key={p.teamName+p.name} p={p}
-                      selected={col.pick?.name===p.name&&col.pick?.teamName===p.teamName}
-                      onSelect={col.setPick} side={col.side}/>
-                  ))
+              <div style={{flex:1,overflowY:'auto',padding:'0 10px 10px'}}>
+                {col.list.length === 0
+                  ? <div style={{padding:'24px',textAlign:'center',color:'#2a4a5a',fontSize:'0.75rem',fontFamily:'Roboto Condensed'}}>No {pos} found</div>
+                  : col.list.map(p => {
+                    const sel = col.pick?.name===p.name && col.pick?.teamName===p.teamName;
+                    return (
+                      <div key={p.teamName+p.name} onClick={()=>col.setPick(p)}
+                        style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 9px',borderRadius:'8px',cursor:'pointer',marginBottom:'3px',transition:'all 0.12s',
+                          background:sel?`rgba(${ci===0?'74,158,255':'74,255,138'},0.12)`:'rgba(255,255,255,0.03)',
+                          border:`1px solid ${sel?(ci===0?'rgba(74,158,255,0.45)':'rgba(74,255,138,0.45)'):'rgba(255,255,255,0.05)'}`,
+                        }}>
+                        <TeamLogo teamName={p.teamName} size="tiny"/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:'0.82rem',color:sel?(ci===0?'#7ec8ff':'#4aff8a'):'#a0c0e0',fontFamily:'Roboto Condensed',fontWeight:sel?'700':'400',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                            {p.name}
+                          </div>
+                          <div style={{fontSize:'0.6rem',color:'#3a6a5a',fontFamily:'Orbitron'}}>{p.teamName} · {p.status}</div>
+                        </div>
+                        {sel && <span style={{fontSize:'0.8rem',flexShrink:0}}>{ci===0?'✓':'✓'}</span>}
+                      </div>
+                    );
+                  })
                 }
               </div>
 
-              {/* Selected display */}
-              {col.pick && (
-                <div style={{marginTop:'8px',padding:'8px 10px',background:'rgba(74,255,74,0.08)',border:'1px solid rgba(74,255,74,0.25)',borderRadius:'8px',display:'flex',alignItems:'center',gap:'8px',flexShrink:0}}>
-                  <TeamLogo teamName={col.pick.teamName} size="tiny"/>
-                  <div>
-                    <div style={{fontSize:'0.82rem',color:'#4aff4a',fontFamily:'Roboto Condensed',fontWeight:'700'}}>{col.pick.name}</div>
-                    <div style={{fontSize:'0.62rem',color:'#3a7a3a',fontFamily:'Orbitron'}}>{col.pick.teamName} · {pos}</div>
+              {/* Selection confirmed strip */}
+              <div style={{flexShrink:0,padding:'8px 12px',borderTop:'1px solid rgba(74,158,255,0.1)',minHeight:'52px',display:'flex',alignItems:'center',background:'rgba(0,0,0,0.25)'}}>
+                {col.pick ? (
+                  <div style={{display:'flex',alignItems:'center',gap:'8px',width:'100%'}}>
+                    <TeamLogo teamName={col.pick.teamName} size="tiny"/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:'0.8rem',color:ci===0?'#7ec8ff':'#4aff8a',fontFamily:'Roboto Condensed',fontWeight:'700',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{col.pick.name}</div>
+                      <div style={{fontSize:'0.6rem',color:'#3a6a5a',fontFamily:'Orbitron'}}>{col.pick.teamName} · {pos}</div>
+                    </div>
+                    <button onClick={e=>{e.stopPropagation();col.setPick(null);}} style={{background:'none',border:'none',color:'#3a5a6a',cursor:'pointer',fontSize:'0.9rem',padding:'2px 4px',flexShrink:0}}>✕</button>
                   </div>
-                </div>
-              )}
+                ) : (
+                  <div style={{fontSize:'0.7rem',color:'#2a4a5a',fontFamily:'Roboto Condensed',fontStyle:'italic'}}>No {pos} selected</div>
+                )}
+              </div>
             </div>
           ))}
         </div>
 
-        {/* Footer */}
-        <div style={{padding:'12px 20px',borderTop:'1px solid rgba(74,158,255,0.15)',display:'flex',gap:'10px',justifyContent:'flex-end',flexShrink:0}}>
-          <button onClick={()=>{setLeftPick(null);setRightPick(null);}} className="haptic-btn"
-            style={{padding:'9px 18px',background:'transparent',border:'1px solid rgba(255,255,255,0.1)',borderRadius:'8px',color:'#5a7a5a',fontFamily:'Roboto Condensed',fontSize:'0.82rem',cursor:'pointer'}}>
-            Clear
+        {/* ── Footer: Compare button turns green when ready ── */}
+        <div style={{padding:'12px 20px',borderTop:'1px solid rgba(74,158,255,0.15)',display:'flex',gap:'10px',justifyContent:'flex-end',alignItems:'center',flexShrink:0,background:'rgba(0,0,0,0.2)'}}>
+          {canCompare && (
+            <span style={{fontSize:'0.72rem',color:'#4aff8a',fontFamily:'Roboto Condensed',marginRight:'auto'}}>
+              ✓ {leftPick.name} vs {rightPick.name} — ready
+            </span>
+          )}
+          <button onClick={onClose} className="haptic-btn"
+            style={{padding:'9px 18px',background:'transparent',border:'1px solid rgba(255,255,255,0.08)',borderRadius:'9px',color:'#4a6a7a',fontFamily:'Roboto Condensed',fontSize:'0.82rem',cursor:'pointer'}}>
+            Cancel
           </button>
-          <button onClick={()=>{playSound('click');haptic('medium');setShowResult(true);}}
-            disabled={!canCompare} className="haptic-btn btn-primary"
-            style={{padding:'9px 24px',fontSize:'0.85rem',opacity:canCompare?1:0.4,cursor:canCompare?'pointer':'not-allowed'}}>
-            ⚔ Compare
+          <button onClick={()=>{haptic('medium');playSound('click');setShowResult(true);}}
+            disabled={!canCompare} className="haptic-btn"
+            style={{
+              padding:'10px 28px',borderRadius:'9px',fontFamily:'Orbitron',fontSize:'0.78rem',fontWeight:'700',cursor:canCompare?'pointer':'not-allowed',transition:'all 0.3s',border:'2px solid',
+              background: canCompare ? 'linear-gradient(135deg,#1a6a2a,#0d4a1a)' : 'rgba(20,40,30,0.4)',
+              borderColor: canCompare ? '#4aff8a' : 'rgba(74,255,138,0.15)',
+              color: canCompare ? '#4aff8a' : '#2a5a3a',
+              boxShadow: canCompare ? '0 0 16px rgba(74,255,138,0.25)' : 'none',
+            }}>
+            {canCompare ? '▶ Compare Players' : 'Select Both Players'}
           </button>
         </div>
       </div>
@@ -4793,239 +4810,168 @@ function ComparePlayersModal({ rosterData, contractData, onClose }) {
   );
 }
 
-// ── Player comparison result view ──
+// ── Comparison result ──
 function PlayerCompareResult({ left, right, pos, contractData, onBack, onClose }) {
-  const weights  = loadWeights();
-  const aMaxArr  = POS_ACTUAL_MAX[pos]    || POS_ACTUAL_MAX.LB;
-  const pMaxArr  = POS_POTENTIAL_MAX[pos] || POS_POTENTIAL_MAX.LB;
-  const ATTRS    = ['SP','AC','AG','ST','HA','EN','IN','DI'];
-  const ATTR_FULL = { SP:'Speed', AC:'Accuracy', AG:'Agility', ST:'Strength', HA:'Hands', EN:'Endurance', IN:'Intelligence', DI:'Discipline' };
+  const weights = loadWeights();
+  const ATTRS   = ['SP','AC','AG','ST','HA','EN','IN','DI'];
+  const AFULL   = {SP:'Speed',AC:'Accuracy',AG:'Agility',ST:'Strength',HA:'Hands',EN:'Endurance',IN:'Intelligence',DI:'Discipline'};
+  const aMax    = POS_ACTUAL_MAX[pos]    || POS_ACTUAL_MAX.LB;
+  const pMax    = POS_POTENTIAL_MAX[pos] || POS_POTENTIAL_MAX.LB;
 
-  const score = (p) => calculatePlayerScore(p.attrs, pos, weights) || 0;
-  const lScore = score(left);
-  const rScore = score(right);
-  const lWins  = lScore >= rScore;
+  const lScore = calculatePlayerScore(left.attrs,  pos, weights) || 0;
+  const rScore = calculatePlayerScore(right.attrs, pos, weights) || 0;
+  const lWins  = lScore > rScore;
   const tie    = Math.abs(lScore - rScore) < 0.01;
 
-  const lActualTotal = left.attrs.reduce((s,v)=>s+v,0);
-  const rActualTotal = right.attrs.reduce((s,v)=>s+v,0);
+  const lAct = left.attrs.reduce((s,v)=>s+v,0);
+  const rAct = right.attrs.reduce((s,v)=>s+v,0);
+  const lPattrs = (left.pattrs  && left.pattrs.length===8)  ? left.pattrs  : pMax;
+  const rPattrs = (right.pattrs && right.pattrs.length===8) ? right.pattrs : pMax;
+  const lPot = lPattrs.reduce((s,v)=>s+v,0);
+  const rPot = rPattrs.reduce((s,v)=>s+v,0);
 
-  // Potential totals
-  const lPattrs = (left.pattrs  && left.pattrs.length===8)  ? left.pattrs  : pMaxArr;
-  const rPattrs = (right.pattrs && right.pattrs.length===8) ? right.pattrs : pMaxArr;
-  const lPotTotal = lPattrs.reduce((s,v)=>s+v,0);
-  const rPotTotal = rPattrs.reduce((s,v)=>s+v,0);
-
-  // Combined totals
-  const combinedActual = lActualTotal + rActualTotal;
-  const combinedPot    = lPotTotal    + rPotTotal;
-
-  // Per-attribute deltas
-  const deltas = ATTRS.map((attr, i) => ({
-    attr,
-    full: ATTR_FULL[attr],
-    left:  left.attrs[i]  || 0,
-    right: right.attrs[i] || 0,
-    delta: (left.attrs[i]||0) - (right.attrs[i]||0),
-    max:   aMaxArr[i] || 99,
-  }));
-
-  // Maxed attributes (actual >= potential)
-  const lMaxed = ATTRS.filter((a,i) => (left.attrs[i]||0) >= (lPattrs[i]||99));
-  const rMaxed = ATTRS.filter((a,i) => (right.attrs[i]||0) >= (rPattrs[i]||99));
-
-  // Contracts
+  const deltas = ATTRS.map((a,i)=>({attr:a,full:AFULL[a],lv:left.attrs[i]||0,rv:right.attrs[i]||0,max:aMax[i]||99,delta:(left.attrs[i]||0)-(right.attrs[i]||0)}));
+  const lMaxed = ATTRS.filter((a,i)=>(left.attrs[i]||0)>=(lPattrs[i]||99));
+  const rMaxed = ATTRS.filter((a,i)=>(right.attrs[i]||0)>=(rPattrs[i]||99));
   const lContract = lookupContract(contractData, left.name,  left.num);
   const rContract = lookupContract(contractData, right.name, right.num);
 
-  // Written analysis
-  const winnerName  = tie ? null : (lWins ? left.name : right.name);
-  const loserName   = tie ? null : (lWins ? right.name : left.name);
-  const winnerScore = tie ? lScore : Math.max(lScore, rScore);
-  const loserScore  = tie ? rScore : Math.min(lScore, rScore);
-  const diff        = Math.abs(lScore - rScore).toFixed(1);
-  const pctDiff     = winnerScore > 0 ? Math.round(((winnerScore - loserScore) / loserScore) * 100) : 0;
-
-  const topWinnerAttrs = deltas
-    .filter(d => lWins ? d.delta > 0 : d.delta < 0)
-    .sort((a,b) => Math.abs(b.delta) - Math.abs(a.delta))
-    .slice(0,3);
+  const diff    = Math.abs(lScore-rScore).toFixed(1);
+  const pctDiff = Math.max(lScore,rScore) > 0 ? Math.round((Math.abs(lScore-rScore)/Math.min(lScore,rScore))*100) : 0;
+  const winName = lWins ? left.name : right.name;
+  const losName = lWins ? right.name : left.name;
+  const winMaxed = lWins ? lMaxed : rMaxed;
+  const topEdge = deltas.filter(d=>lWins?d.delta>0:d.delta<0).sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta)).slice(0,3);
 
   const writeup = tie
-    ? `${left.name} and ${right.name} are evenly matched at ${pos} with identical overall scores of ${lScore.toFixed(1)}. Their attribute profiles are remarkably similar — this comes down to team context and role fit. Both players show ${lMaxed.length > 0 ? 'strong development in ' + lMaxed.slice(0,2).join(' and ') : 'solid fundamentals across the board'}.`
-    : `${winnerName} edges out ${loserName} at ${pos} with a score of ${winnerScore.toFixed(1)} vs ${loserScore.toFixed(1)} — a ${diff}-point margin (${pctDiff}% higher). ${topWinnerAttrs.length > 0 ? `The advantage is clearest in ${topWinnerAttrs.map(d=>d.full).join(', ')}, where ${winnerName} holds a ${topWinnerAttrs.map(d=>Math.abs(d.delta)).join('/')} point lead respectively.` : ''} ${lWins && lMaxed.length > 0 ? `${left.name} has maxed out ${lMaxed.slice(0,2).join(' and ')}.` : !lWins && rMaxed.length > 0 ? `${right.name} has maxed out ${rMaxed.slice(0,2).join(' and ')}.` : ''}`;
+    ? `${left.name} and ${right.name} are identically rated at ${lScore.toFixed(1)} — a true toss-up at ${pos}. The edge comes down to role, team context, and contract situation.`
+    : `${winName} edges ${losName} at ${pos} with a ${diff}-point advantage (${pctDiff}% higher score). ${topEdge.length?`The gap is most pronounced in ${topEdge.map(d=>d.full).join(', ')}.`:''} ${winMaxed.length?`${winName} has already maxed out ${winMaxed.slice(0,2).join(' and ')}.`:''}`;
 
-  const AttrBar = ({ val, max, color, flip }) => {
-    const pct = Math.min(100, Math.round((val / max) * 100));
+  const Bar = ({val,max,win,flip})=>{
+    const pct = Math.min(100,Math.round((val/max)*100));
+    const col  = win?'#4aff8a':'rgba(255,255,255,0.25)';
     return (
-      <div style={{display:'flex',alignItems:'center',gap:'4px',flex:1}}>
-        {flip && <span style={{fontFamily:'Orbitron',fontSize:'0.75rem',color,fontWeight:'700',width:'24px',textAlign:'right'}}>{val}</span>}
-        <div style={{flex:1,height:'8px',background:'rgba(255,255,255,0.06)',borderRadius:'4px',overflow:'hidden'}}>
-          <div style={{height:'100%',width:pct+'%',background:color,borderRadius:'4px',
-            ...(flip ? {marginLeft:'auto'} : {}),
-            transition:'width 0.4s ease'}}/>
+      <div style={{display:'flex',alignItems:'center',gap:'5px',flex:1}}>
+        {flip&&<span style={{fontFamily:'Orbitron',fontSize:'0.72rem',color:col,fontWeight:'700',width:'26px',textAlign:'right',flexShrink:0}}>{val}</span>}
+        <div style={{flex:1,height:'7px',background:'rgba(255,255,255,0.05)',borderRadius:'4px',overflow:'hidden'}}>
+          <div style={{height:'100%',width:pct+'%',background:col,borderRadius:'4px',marginLeft:flip?'auto':0,transition:'width 0.5s ease'}}/>
         </div>
-        {!flip && <span style={{fontFamily:'Orbitron',fontSize:'0.75rem',color,fontWeight:'700',width:'24px'}}>{val}</span>}
+        {!flip&&<span style={{fontFamily:'Orbitron',fontSize:'0.72rem',color:col,fontWeight:'700',width:'26px',flexShrink:0}}>{val}</span>}
       </div>
     );
   };
 
-  const cardStyle = {
-    background:'rgba(10,22,40,0.9)', borderRadius:'12px', padding:'14px',
-    border:'1px solid rgba(74,158,255,0.2)', flex:1, minWidth:0
-  };
+  const CardHeader = ({p,score,act,pot,isWinner,flip})=>(
+    <div style={{marginBottom:'10px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px',flexDirection:flip?'row-reverse':'row'}}>
+        {isWinner&&!tie&&<span style={{fontSize:'1.5rem',lineHeight:1}}>👑</span>}
+        <TeamLogo teamName={p.teamName} size="small"/>
+        <div style={{textAlign:flip?'right':'left'}}>
+          <div style={{fontFamily:'Orbitron',fontSize:'0.82rem',fontWeight:'900',color:isWinner&&!tie?'#ffd700':'#c0d8f0',lineHeight:1.2}}>{p.name}</div>
+          <div style={{fontSize:'0.62rem',color:'#4a7a8a',fontFamily:'Roboto Condensed'}}>{p.teamName} · {pos} · {p.status}</div>
+        </div>
+      </div>
+      <div style={{display:'flex',gap:'6px',justifyContent:flip?'flex-end':'flex-start'}}>
+        {[['SCORE',score.toFixed(1),isWinner&&!tie?'#4aff8a':'#7ec8ff'],['ACTUAL',act,'#a0d2a0'],['POT',pot,'#c090ff']].map(([l,v,col])=>(
+          <div key={l} style={{textAlign:'center',padding:'5px 10px',background:'rgba(0,0,0,0.25)',borderRadius:'7px',border:`1px solid ${col}22`}}>
+            <div style={{fontSize:'0.52rem',color:'#3a6a5a',fontFamily:'Orbitron',letterSpacing:'0.5px'}}>{l}</div>
+            <div style={{fontSize:'1rem',color:col,fontFamily:'Orbitron',fontWeight:'900'}}>{v}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
-    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:9998,background:'rgba(0,0,0,0.88)',display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'12px',backdropFilter:'blur(4px)',overflowY:'auto'}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:'linear-gradient(135deg,rgba(8,18,35,0.99),rgba(10,30,20,0.99))',border:'2px solid #4a9eff',borderRadius:'16px',width:'min(1100px,96vw)',marginTop:'8px',overflow:'hidden'}}>
+    <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,0.92)',display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'12px',backdropFilter:'blur(6px)',overflowY:'auto'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'linear-gradient(135deg,rgba(6,14,30,0.99),rgba(8,26,16,0.99))',border:'2px solid rgba(74,255,138,0.4)',borderRadius:'18px',width:'min(1080px,96vw)',marginTop:'8px',overflow:'hidden',boxShadow:'0 0 60px rgba(74,255,138,0.1)'}}>
 
         {/* Header */}
-        <div style={{padding:'12px 20px',borderBottom:'1px solid rgba(74,158,255,0.2)',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-          <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
-            <button onClick={onBack} className="haptic-btn"
-              style={{background:'none',border:'1px solid rgba(74,158,255,0.3)',borderRadius:'8px',color:'#4a9eff',padding:'5px 12px',cursor:'pointer',fontFamily:'Orbitron',fontSize:'0.65rem'}}>
-              ← Back
-            </button>
-            <div>
-              <div style={{fontFamily:'Orbitron',fontSize:'0.88rem',color:'#4a9eff',fontWeight:'900',letterSpacing:'1px'}}>⚔ PLAYER COMPARISON — {pos}</div>
-              <div style={{fontSize:'0.65rem',color:'#3a6a6a',fontFamily:'Roboto Condensed'}}>Head-to-head attribute breakdown</div>
-            </div>
+        <div style={{padding:'12px 20px',borderBottom:'1px solid rgba(74,255,138,0.15)',display:'flex',alignItems:'center',gap:'14px'}}>
+          <button onClick={onBack} className="haptic-btn"
+            style={{padding:'5px 14px',background:'transparent',border:'1px solid rgba(74,158,255,0.3)',borderRadius:'8px',color:'#4a9eff',fontFamily:'Orbitron',fontSize:'0.62rem',cursor:'pointer',flexShrink:0}}>
+            ← Back
+          </button>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:'Orbitron',fontSize:'0.88rem',color:'#4aff8a',fontWeight:'900',letterSpacing:'1px'}}>⚔ {pos} COMPARISON</div>
+            <div style={{fontSize:'0.65rem',color:'#2a6a3a',fontFamily:'Roboto Condensed'}}>{left.name} vs {right.name}</div>
           </div>
-          <button onClick={onClose} style={{background:'none',border:'none',color:'#3a6a6a',fontSize:'1.3rem',cursor:'pointer'}}>✕</button>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#3a6a5a',fontSize:'1.3rem',cursor:'pointer',flexShrink:0}}>✕</button>
         </div>
 
         <div style={{padding:'14px 16px'}}>
+          {/* Three-column layout */}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 200px 1fr',gap:'10px',marginBottom:'12px',alignItems:'start'}}>
 
-          {/* Three-column layout: Left card | Delta card | Right card */}
-          <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:'10px',marginBottom:'14px',alignItems:'start'}}>
-
-            {/* LEFT PLAYER CARD */}
-            <div style={cardStyle}>
-              <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'10px'}}>
-                {!lWins && !tie ? null : <span style={{fontSize:'1.4rem'}}>👑</span>}
-                <TeamLogo teamName={left.teamName} size="small"/>
-                <div>
-                  <div style={{fontFamily:'Orbitron',fontSize:'0.82rem',color: lWins||tie?'#ffd700':'#a0c0e0',fontWeight:'900'}}>{left.name}</div>
-                  <div style={{fontSize:'0.65rem',color:'#4a7a8a',fontFamily:'Roboto Condensed'}}>{left.teamName} · {pos} · {left.status}</div>
-                </div>
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',marginBottom:'10px',padding:'8px',background:'rgba(0,0,0,0.2)',borderRadius:'8px'}}>
-                <div style={{textAlign:'center'}}>
-                  <div style={{fontSize:'0.58rem',color:'#4a7a6a',fontFamily:'Orbitron',letterSpacing:'0.5px'}}>SCORE</div>
-                  <div style={{fontSize:'1.4rem',color:lWins?'#4aff4a':'#7ec8ff',fontFamily:'Orbitron',fontWeight:'900'}}>{lScore.toFixed(1)}</div>
-                </div>
-                <div style={{textAlign:'center'}}>
-                  <div style={{fontSize:'0.58rem',color:'#4a7a6a',fontFamily:'Orbitron',letterSpacing:'0.5px'}}>ACTUAL</div>
-                  <div style={{fontSize:'1.1rem',color:'#a0d2a0',fontFamily:'Orbitron',fontWeight:'700'}}>{lActualTotal}</div>
-                </div>
-                <div style={{textAlign:'center'}}>
-                  <div style={{fontSize:'0.58rem',color:'#4a7a6a',fontFamily:'Orbitron',letterSpacing:'0.5px'}}>POTENTIAL</div>
-                  <div style={{fontSize:'1.1rem',color:'#c090ff',fontFamily:'Orbitron',fontWeight:'700'}}>{lPotTotal}</div>
-                </div>
-              </div>
+            {/* LEFT */}
+            <div style={{background:'rgba(5,12,28,0.7)',borderRadius:'12px',padding:'14px',border:`1px solid ${lWins&&!tie?'rgba(74,255,138,0.3)':'rgba(74,158,255,0.15)'}`}}>
+              <CardHeader p={left} score={lScore} act={lAct} pot={lPot} isWinner={lWins} flip={false}/>
               {deltas.map(d=>(
-                <div key={d.attr} style={{display:'flex',alignItems:'center',gap:'5px',marginBottom:'4px'}}>
-                  <span style={{fontSize:'0.6rem',color:'#4a7a6a',fontFamily:'Orbitron',width:'22px'}}>{d.attr}</span>
-                  <AttrBar val={d.left} max={d.max} color={d.left>d.right?'#4aff4a':d.left<d.right?'#7ec8ff':'#4a9a6a'} flip={false}/>
+                <div key={d.attr} style={{display:'flex',alignItems:'center',gap:'6px',marginBottom:'5px'}}>
+                  <span style={{fontSize:'0.58rem',color:'#3a6a7a',fontFamily:'Orbitron',width:'22px',flexShrink:0}}>{d.attr}</span>
+                  <Bar val={d.lv} max={d.max} win={d.lv>=d.rv} flip={false}/>
                 </div>
               ))}
-              {lContract && (
-                <div style={{marginTop:'10px',padding:'7px 10px',background:'rgba(0,0,0,0.2)',borderRadius:'7px',border:'1px solid rgba(61,220,132,0.2)'}}>
-                  <div style={{fontSize:'0.58rem',color:'#3a7a5a',fontFamily:'Orbitron',letterSpacing:'0.5px',marginBottom:'3px'}}>CONTRACT</div>
-                  <div style={{fontSize:'0.78rem',color:'#3ddc84',fontFamily:'Roboto Condensed'}}>
-                    {lContract.contractLength}yr · {lContract.currentSalary ? fmtSalary(lContract.currentSalary)+'/yr' : 'salary N/A'} · {lContract.yearsLeft} left
-                  </div>
-                </div>
-              )}
+              {lContract&&<div style={{marginTop:'10px',padding:'7px 10px',background:'rgba(0,0,0,0.3)',borderRadius:'7px',border:'1px solid rgba(61,220,132,0.15)'}}>
+                <div style={{fontSize:'0.55rem',color:'#2a6a4a',fontFamily:'Orbitron',marginBottom:'2px'}}>CONTRACT</div>
+                <div style={{fontSize:'0.76rem',color:'#3ddc84',fontFamily:'Roboto Condensed'}}>{lContract.contractLength}yr · {lContract.currentSalary?fmtSalary(lContract.currentSalary)+'/yr':'N/A'} · {lContract.yearsLeft}yr left</div>
+              </div>}
             </div>
 
-            {/* DELTA CARD (center) */}
-            <div style={{width:'220px',background:'rgba(5,15,30,0.95)',borderRadius:'12px',padding:'12px',border:'2px solid rgba(74,158,255,0.3)',flexShrink:0}}>
-              <div style={{textAlign:'center',marginBottom:'10px'}}>
-                <div style={{fontFamily:'Orbitron',fontSize:'0.6rem',color:'#4a9eff',letterSpacing:'1px'}}>DELTA</div>
-              </div>
-              {/* Combined totals */}
-              <div style={{padding:'8px',background:'rgba(74,158,255,0.06)',borderRadius:'8px',marginBottom:'10px',border:'1px solid rgba(74,158,255,0.15)'}}>
-                <div style={{fontSize:'0.58rem',color:'#3a6a8a',fontFamily:'Orbitron',letterSpacing:'0.5px',marginBottom:'4px',textAlign:'center'}}>COMBINED</div>
+            {/* DELTA CENTER */}
+            <div style={{background:'rgba(0,5,15,0.9)',borderRadius:'12px',padding:'12px',border:'1px solid rgba(255,215,0,0.2)'}}>
+              <div style={{textAlign:'center',marginBottom:'8px',fontFamily:'Orbitron',fontSize:'0.58rem',color:'#7a6a2a',letterSpacing:'1px'}}>DELTA</div>
+              <div style={{padding:'7px',background:'rgba(255,215,0,0.05)',borderRadius:'8px',marginBottom:'10px',border:'1px solid rgba(255,215,0,0.1)'}}>
+                <div style={{fontSize:'0.52rem',color:'#5a5a2a',fontFamily:'Orbitron',textAlign:'center',marginBottom:'4px'}}>COMBINED</div>
                 <div style={{display:'flex',justifyContent:'space-around'}}>
                   <div style={{textAlign:'center'}}>
-                    <div style={{fontSize:'0.58rem',color:'#5a8a6a',fontFamily:'Roboto Condensed'}}>Actual</div>
-                    <div style={{fontSize:'1rem',color:'#a0d2a0',fontFamily:'Orbitron',fontWeight:'700'}}>{combinedActual}</div>
+                    <div style={{fontSize:'0.55rem',color:'#4a7a5a',fontFamily:'Roboto Condensed'}}>ACT</div>
+                    <div style={{fontSize:'1rem',color:'#a0d2a0',fontFamily:'Orbitron',fontWeight:'700'}}>{lAct+rAct}</div>
                   </div>
                   <div style={{textAlign:'center'}}>
-                    <div style={{fontSize:'0.58rem',color:'#5a6a9a',fontFamily:'Roboto Condensed'}}>Potential</div>
-                    <div style={{fontSize:'1rem',color:'#c090ff',fontFamily:'Orbitron',fontWeight:'700'}}>{combinedPot}</div>
+                    <div style={{fontSize:'0.55rem',color:'#4a5a8a',fontFamily:'Roboto Condensed'}}>POT</div>
+                    <div style={{fontSize:'1rem',color:'#c090ff',fontFamily:'Orbitron',fontWeight:'700'}}>{lPot+rPot}</div>
                   </div>
                 </div>
               </div>
-              {/* Per-attr deltas */}
               {deltas.map(d=>{
-                const winner = d.delta > 0 ? 'left' : d.delta < 0 ? 'right' : 'tie';
-                const absDelta = Math.abs(d.delta);
+                const lw=d.delta>0, rw=d.delta<0, even=d.delta===0;
                 return (
-                  <div key={d.attr} style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'5px',padding:'3px 6px',borderRadius:'5px',background:absDelta>5?'rgba(255,215,0,0.05)':'transparent'}}>
-                    <span style={{fontSize:'0.62rem',fontFamily:'Orbitron',color: winner==='left'?'#4aff4a': winner==='right'?'#4a9eff':'#4a6a4a',width:'22px',textAlign:'right'}}>{d.left}</span>
-                    <span style={{fontSize:'0.58rem',color:'#3a5a6a',fontFamily:'Orbitron',flex:1,textAlign:'center',letterSpacing:'0.3px'}}>{d.attr}</span>
-                    <span style={{fontSize:'0.62rem',fontFamily:'Orbitron',color: winner==='right'?'#4aff4a': winner==='left'?'#4a9eff':'#4a6a4a',width:'22px'}}>{d.right}</span>
+                  <div key={d.attr} style={{display:'flex',alignItems:'center',marginBottom:'5px',gap:'3px'}}>
+                    <span style={{fontSize:'0.62rem',fontFamily:'Orbitron',fontWeight:'700',color:lw?'#4aff8a':even?'#3a5a4a':'rgba(255,255,255,0.2)',width:'26px',textAlign:'right',flexShrink:0}}>{d.lv}</span>
+                    <span style={{flex:1,fontSize:'0.55rem',color:'#2a4a3a',fontFamily:'Orbitron',textAlign:'center',letterSpacing:'0.3px'}}>{d.attr}</span>
+                    <span style={{fontSize:'0.62rem',fontFamily:'Orbitron',fontWeight:'700',color:rw?'#4aff8a':even?'#3a5a4a':'rgba(255,255,255,0.2)',width:'26px',flexShrink:0}}>{d.rv}</span>
                   </div>
                 );
               })}
-              {/* Score delta */}
-              <div style={{marginTop:'8px',padding:'6px',background:'rgba(255,215,0,0.08)',borderRadius:'7px',border:'1px solid rgba(255,215,0,0.2)',textAlign:'center'}}>
-                <div style={{fontSize:'0.55rem',color:'#7a6a2a',fontFamily:'Orbitron',marginBottom:'2px'}}>SCORE DIFF</div>
-                <div style={{fontSize:'1.1rem',color:'#ffd700',fontFamily:'Orbitron',fontWeight:'900'}}>
-                  {tie ? 'TIE' : (lWins?'+':'-') + diff}
-                </div>
+              <div style={{marginTop:'8px',padding:'7px',background:tie?'rgba(255,255,255,0.05)':'rgba(255,215,0,0.08)',borderRadius:'8px',border:'1px solid rgba(255,215,0,0.2)',textAlign:'center'}}>
+                <div style={{fontSize:'0.52rem',color:'#5a5020',fontFamily:'Orbitron',marginBottom:'2px'}}>SCORE DIFF</div>
+                <div style={{fontSize:'1.15rem',color:'#ffd700',fontFamily:'Orbitron',fontWeight:'900'}}>{tie?'TIE':(lWins?'+':'-')+diff}</div>
               </div>
             </div>
 
-            {/* RIGHT PLAYER CARD */}
-            <div style={cardStyle}>
-              <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'10px',justifyContent:'flex-end'}}>
-                <div style={{textAlign:'right'}}>
-                  <div style={{fontFamily:'Orbitron',fontSize:'0.82rem',color: !lWins||tie?'#ffd700':'#a0c0e0',fontWeight:'900'}}>{right.name}</div>
-                  <div style={{fontSize:'0.65rem',color:'#4a7a8a',fontFamily:'Roboto Condensed'}}>{right.teamName} · {pos} · {right.status}</div>
-                </div>
-                <TeamLogo teamName={right.teamName} size="small"/>
-                {(!lWins && !tie) ? <span style={{fontSize:'1.4rem'}}>👑</span> : null}
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',marginBottom:'10px',padding:'8px',background:'rgba(0,0,0,0.2)',borderRadius:'8px'}}>
-                <div style={{textAlign:'center'}}>
-                  <div style={{fontSize:'0.58rem',color:'#4a7a6a',fontFamily:'Orbitron',letterSpacing:'0.5px'}}>SCORE</div>
-                  <div style={{fontSize:'1.4rem',color:!lWins&&!tie?'#4aff4a':'#7ec8ff',fontFamily:'Orbitron',fontWeight:'900'}}>{rScore.toFixed(1)}</div>
-                </div>
-                <div style={{textAlign:'center'}}>
-                  <div style={{fontSize:'0.58rem',color:'#4a7a6a',fontFamily:'Orbitron',letterSpacing:'0.5px'}}>ACTUAL</div>
-                  <div style={{fontSize:'1.1rem',color:'#a0d2a0',fontFamily:'Orbitron',fontWeight:'700'}}>{rActualTotal}</div>
-                </div>
-                <div style={{textAlign:'center'}}>
-                  <div style={{fontSize:'0.58rem',color:'#4a7a6a',fontFamily:'Orbitron',letterSpacing:'0.5px'}}>POTENTIAL</div>
-                  <div style={{fontSize:'1.1rem',color:'#c090ff',fontFamily:'Orbitron',fontWeight:'700'}}>{rPotTotal}</div>
-                </div>
-              </div>
+            {/* RIGHT */}
+            <div style={{background:'rgba(5,12,28,0.7)',borderRadius:'12px',padding:'14px',border:`1px solid ${!lWins&&!tie?'rgba(74,255,138,0.3)':'rgba(74,158,255,0.15)'}`}}>
+              <CardHeader p={right} score={rScore} act={rAct} pot={rPot} isWinner={!lWins} flip={true}/>
               {deltas.map(d=>(
-                <div key={d.attr} style={{display:'flex',alignItems:'center',gap:'5px',marginBottom:'4px'}}>
-                  <AttrBar val={d.right} max={d.max} color={d.right>d.left?'#4aff4a':d.right<d.left?'#7ec8ff':'#4a9a6a'} flip={true}/>
-                  <span style={{fontSize:'0.6rem',color:'#4a7a6a',fontFamily:'Orbitron',width:'22px',textAlign:'right'}}>{d.attr}</span>
+                <div key={d.attr} style={{display:'flex',alignItems:'center',gap:'6px',marginBottom:'5px'}}>
+                  <Bar val={d.rv} max={d.max} win={d.rv>=d.lv} flip={true}/>
+                  <span style={{fontSize:'0.58rem',color:'#3a6a7a',fontFamily:'Orbitron',width:'22px',textAlign:'right',flexShrink:0}}>{d.attr}</span>
                 </div>
               ))}
-              {rContract && (
-                <div style={{marginTop:'10px',padding:'7px 10px',background:'rgba(0,0,0,0.2)',borderRadius:'7px',border:'1px solid rgba(61,220,132,0.2)'}}>
-                  <div style={{fontSize:'0.58rem',color:'#3a7a5a',fontFamily:'Orbitron',letterSpacing:'0.5px',marginBottom:'3px'}}>CONTRACT</div>
-                  <div style={{fontSize:'0.78rem',color:'#3ddc84',fontFamily:'Roboto Condensed'}}>
-                    {rContract.contractLength}yr · {rContract.currentSalary ? fmtSalary(rContract.currentSalary)+'/yr' : 'salary N/A'} · {rContract.yearsLeft} left
-                  </div>
-                </div>
-              )}
+              {rContract&&<div style={{marginTop:'10px',padding:'7px 10px',background:'rgba(0,0,0,0.3)',borderRadius:'7px',border:'1px solid rgba(61,220,132,0.15)'}}>
+                <div style={{fontSize:'0.55rem',color:'#2a6a4a',fontFamily:'Orbitron',marginBottom:'2px'}}>CONTRACT</div>
+                <div style={{fontSize:'0.76rem',color:'#3ddc84',fontFamily:'Roboto Condensed'}}>{rContract.contractLength}yr · {rContract.currentSalary?fmtSalary(rContract.currentSalary)+'/yr':'N/A'} · {rContract.yearsLeft}yr left</div>
+              </div>}
             </div>
           </div>
 
           {/* Analysis writeup */}
-          <div style={{padding:'12px 16px',background:'rgba(0,0,0,0.25)',borderRadius:'10px',border:'1px solid rgba(74,158,255,0.15)'}}>
-            <div style={{fontSize:'0.6rem',color:'#3a6a9a',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'6px'}}>
-              {tie ? '🤝 ANALYSIS — EVEN MATCH' : '👑 ANALYSIS — ' + (lWins?left.name:right.name).toUpperCase() + ' WINS'}
+          <div style={{padding:'12px 16px',background:'rgba(0,0,0,0.3)',borderRadius:'10px',border:`1px solid ${tie?'rgba(255,255,255,0.08)':'rgba(74,255,138,0.15)'}`}}>
+            <div style={{fontSize:'0.58rem',color:tie?'#4a7a6a':'#2a7a4a',fontFamily:'Orbitron',letterSpacing:'1px',marginBottom:'6px'}}>
+              {tie?'🤝 VERDICT — EVEN MATCH':`👑 VERDICT — ${winName.toUpperCase()} IS THE BETTER PLAYER`}
             </div>
-            <div style={{fontSize:'0.84rem',color:'#a0c0e0',fontFamily:'Roboto Condensed',lineHeight:1.6}}>{writeup}</div>
+            <div style={{fontSize:'0.85rem',color:'#9abcca',fontFamily:'Roboto Condensed',lineHeight:1.65}}>{writeup}</div>
           </div>
         </div>
       </div>
@@ -5620,6 +5566,203 @@ function PowerRankings({ getTeamData, weights, depth, designation }) {
 }
 
 // ── Main App ──
+// ══════════════════════════════════════════════════════════════
+// LEGAL MODAL — About, Privacy, Terms, Contact
+// ══════════════════════════════════════════════════════════════
+function LegalModal({ page, onClose }) {
+  const YEAR = new Date().getFullYear();
+
+  const hd = (text) => (
+    <div style={{fontFamily:'Orbitron',fontSize:'0.72rem',color:'#4a9eff',letterSpacing:'1.5px',textTransform:'uppercase',marginTop:'22px',marginBottom:'8px',paddingBottom:'5px',borderBottom:'1px solid rgba(74,158,255,0.15)'}}>{text}</div>
+  );
+  const p = (text) => (
+    <p style={{color:'#8ab0c0',fontFamily:'Roboto Condensed',fontSize:'0.88rem',lineHeight:1.75,margin:'0 0 10px'}}>{text}</p>
+  );
+  const li = (text) => (
+    <li style={{color:'#8ab0c0',fontFamily:'Roboto Condensed',fontSize:'0.88rem',lineHeight:1.75,marginBottom:'4px'}}>{text}</li>
+  );
+
+  const pages = {
+    about: {
+      title: 'About FBpro98 League Comparison Tool',
+      icon: '🏈',
+      content: (
+        <div>
+          {hd('What Is the FBpro98 League Comparison Tool?')}
+          {p('The FBpro98 League Comparison Tool is a purpose-built analytics platform for the FBpro98 football simulation league — a fully customized, privately operated franchise-style simulation league. The tool lives at fbpro98.com and is designed to give league managers, coaches, and analysts deep, data-driven insight into every roster, player, and matchup across the league\'s 18 franchises.')}
+          {p('The name breaks down simply: FBpro98 is the league identity, and "League Comparison Tool" describes exactly what it does — it empowers you to compare any two or more teams, players, or positions using live data pulled directly from the league\'s official stat pages.')}
+
+          {hd('Core Features')}
+          <ul style={{margin:'0 0 12px',paddingLeft:'20px'}}>
+            {li('📊 Team Comparison — Select any two or more of the 18 franchises and run a full head-to-head breakdown across every offensive and defensive position group, with configurable attribute weights and depth settings.')}
+            {li('⚔ Player Comparison — Pick any two players at the same position and see a side-by-side card breakdown: individual attribute bars, score delta, combined actual and potential totals, contract data, and a written analysis with the better player crowned.')}
+            {li('📋 Roster & Depth Panels — View each team\'s full positional roster with actual and potential attribute ratings, status indicators, and scoring breakdowns at every position.')}
+            {li('💰 Contract Intelligence — Load the league contract file to see salary, contract length, years remaining, and draft pedigree on every player card.')}
+            {li('🤖 AI Analyst — An integrated AI assistant (powered by local Ollama or cloud HuggingFace) provides natural-language scouting reports, player analysis, and team assessments grounded in live PNFL simulation data.')}
+            {li('🔊 Voice Narration — Enable voice mode to hear AI-generated reports and player analyses spoken aloud with emotion-matched narration — upbeat for offensive highlights, measured for analysis, concerned for areas of weakness.')}
+            {li('📈 Scouting Reports — Generate full AI-written team scouting reports covering offense, defense, weekly highlights, top performers, and areas to improve.')}
+            {li('🏆 Power Rankings — Live league power rankings with opponent win totals and schedule context.')}
+            {li('🔄 Historical Weeks — Switch between any simulated week\'s data to analyze how rosters and standings evolved across the season.')}
+            {li('⚖ Trade Analyzer — Compare player groups across teams to evaluate potential trade value using weighted attribute scoring.')}
+          </ul>
+
+          {hd('How Data Works')}
+          {p('All data is sourced in real time from the official PNFL simulation league stat pages at pnfl.biz. Roster data, standings, season stats, and game stats are fetched via CORS proxy on demand. Contract data is loaded from the official Contracts.xlsx file. All stats and player names reflect the simulation game only — not any real-world NFL player.')}
+
+          {hd('Version')}
+          {p(`FBpro98 League Comparison Tool — Version ${APP_VERSION}. Built for the FBpro98 simulation league community.`)}
+        </div>
+      ),
+    },
+    privacy: {
+      title: 'Privacy Policy',
+      icon: '🔒',
+      content: (
+        <div>
+          {p(`Effective date: January 1, ${YEAR} | fbpro98.com`)}
+          {hd('Overview')}
+          {p('FBpro98 League Comparison Tool ("the Tool", "we", "us") is a free utility for the FBpro98 simulation league community. We take your privacy seriously. This policy explains what information we collect, how we use it, and your rights.')}
+
+          {hd('Information We Collect')}
+          {p('The Tool operates entirely in your browser. We do not operate servers that collect personal data. Specifically:')}
+          <ul style={{margin:'0 0 12px',paddingLeft:'20px'}}>
+            {li('No account registration or login is required.')}
+            {li('No personally identifiable information is collected or transmitted to fbpro98.com servers.')}
+            {li('Roster, stats, and contract data are fetched from pnfl.biz (a third-party simulation league host) via public CORS proxies.')}
+            {li('AI features optionally connect to Ollama (running locally on your machine) or a Cloudflare Worker proxy you configure. We do not log AI queries.')}
+            {li('Browser localStorage and sessionStorage are used to cache roster data, settings, and contract data locally on your device. This data never leaves your browser.')}
+          </ul>
+
+          {hd('Cookies & Tracking')}
+          {p('The Tool does not set cookies, run analytics scripts, serve advertisements, or use third-party tracking. There are no tracking pixels, fingerprinting scripts, or behavioral analytics of any kind.')}
+
+          {hd('Third-Party Services')}
+          {p('The Tool fetches data from pnfl.biz. That site\'s own privacy practices apply when your browser contacts it. The allorigins.win CORS proxy may log request URLs transiently. We have no control over or affiliation with these services.')}
+
+          {hd('Data Retention')}
+          {p('All cached data (rosters, contracts, settings) is stored in your browser only. You can clear it at any time using the "Clear Cache" button in the app, or by clearing your browser\'s site data.')}
+
+          {hd('Children\'s Privacy')}
+          {p('The Tool is not directed at children under 13. We do not knowingly collect any data from children.')}
+
+          {hd('Changes to This Policy')}
+          {p(`We may update this policy from time to time. Updates will be reflected on fbpro98.com. Last updated: January ${YEAR}.`)}
+
+          {hd('Contact')}
+          {p('Questions about this privacy policy? Use the Contact page at fbpro98.com.')}
+        </div>
+      ),
+    },
+    terms: {
+      title: 'Terms of Use',
+      icon: '📜',
+      content: (
+        <div>
+          {p(`Last updated: January 1, ${YEAR} | fbpro98.com`)}
+          {hd('Acceptance of Terms')}
+          {p('By accessing or using the FBpro98 League Comparison Tool at fbpro98.com, you agree to be bound by these Terms of Use. If you do not agree, please do not use the Tool.')}
+
+          {hd('Permitted Use')}
+          {p('The Tool is provided for personal, non-commercial use by members of the FBpro98 simulation league community. You may use the Tool to:')}
+          <ul style={{margin:'0 0 12px',paddingLeft:'20px'}}>
+            {li('View and compare simulation league team and player data.')}
+            {li('Generate reports and analysis for personal league management purposes.')}
+            {li('Share screenshots or excerpts for discussion within the FBpro98 community.')}
+          </ul>
+
+          {hd('Prohibited Use')}
+          <ul style={{margin:'0 0 12px',paddingLeft:'20px'}}>
+            {li('Redistribution or resale of the Tool or its data for commercial purposes.')}
+            {li('Automated scraping of pnfl.biz data in violation of that site\'s terms.')}
+            {li('Reverse engineering, modification, or republication of the Tool\'s source code without permission.')}
+            {li('Use of the Tool to defame, harass, or harm any individual or organization.')}
+          </ul>
+
+          {hd('Simulation Data Disclaimer')}
+          {p('All player names, team names, stats, and contracts displayed in this Tool refer exclusively to the FBpro98 football simulation game. They do not represent real-world NFL players, teams, salaries, or organizations. Any resemblance to real persons is incidental and relates solely to the simulation game data.')}
+
+          {hd('No Warranty')}
+          {p('The Tool is provided "as is" without warranty of any kind. We do not guarantee the accuracy, completeness, or availability of any data. Simulation data is sourced from pnfl.biz and may contain errors or delays.')}
+
+          {hd('Limitation of Liability')}
+          {p('To the fullest extent permitted by law, fbpro98.com and its operators shall not be liable for any indirect, incidental, or consequential damages arising from use of the Tool.')}
+
+          {hd('Governing Law')}
+          {p('These terms are governed by the laws of the applicable jurisdiction of the operator. Any disputes shall be resolved informally in the first instance via the Contact page at fbpro98.com.')}
+
+          {hd('Changes to Terms')}
+          {p('We reserve the right to update these terms at any time. Continued use of the Tool after changes constitutes acceptance of the revised terms.')}
+        </div>
+      ),
+    },
+    contact: {
+      title: 'Contact Us',
+      icon: '✉️',
+      content: (
+        <div>
+          {hd('Get in Touch')}
+          {p('Have a question, found a bug, want to suggest a feature, or need help with the FBpro98 League Comparison Tool? We want to hear from you.')}
+
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',margin:'16px 0'}}>
+            {[
+              {icon:'🌐',label:'Website',val:'fbpro98.com',sub:'Home & league hub'},
+              {icon:'🐛',label:'Bug Reports',val:'fbpro98.com/bugs',sub:'Report issues with the tool'},
+              {icon:'💡',label:'Feature Requests',val:'fbpro98.com/ideas',sub:'Suggest new features'},
+              {icon:'📣',label:'League Discussion',val:'fbpro98.com/community',sub:'Talk with other managers'},
+            ].map(({icon,label,val,sub})=>(
+              <div key={label} style={{padding:'14px',background:'rgba(74,158,255,0.05)',borderRadius:'10px',border:'1px solid rgba(74,158,255,0.15)'}}>
+                <div style={{fontSize:'1.4rem',marginBottom:'5px'}}>{icon}</div>
+                <div style={{fontFamily:'Orbitron',fontSize:'0.65rem',color:'#4a9eff',letterSpacing:'0.5px',marginBottom:'3px'}}>{label}</div>
+                <div style={{fontFamily:'Roboto Condensed',fontSize:'0.82rem',color:'#7ec8ff',fontWeight:'700'}}>{val}</div>
+                <div style={{fontFamily:'Roboto Condensed',fontSize:'0.72rem',color:'#4a7a8a',marginTop:'2px'}}>{sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {hd('About the Tool')}
+          {p('The FBpro98 League Comparison Tool is built and maintained for the FBpro98 simulation league community. It is not affiliated with the NFL, EA Sports, or any commercial entity. All simulation data is sourced from pnfl.biz.')}
+
+          {hd('Response Time')}
+          {p('This is a community project. We aim to respond to all messages within 2–5 business days. For urgent league matters, use the main community channel at fbpro98.com/community.')}
+        </div>
+      ),
+    },
+  };
+
+  const current = pages[page];
+  if (!current) return null;
+
+  return (
+    <div className="footer-legal-modal-overlay" onClick={onClose}>
+      <div className="footer-legal-modal" onClick={e=>e.stopPropagation()}>
+        {/* Header */}
+        <div style={{padding:'20px 26px 16px',borderBottom:'1px solid rgba(74,158,255,0.15)',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,background:'rgba(8,18,35,0.98)',zIndex:1,backdropFilter:'blur(4px)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+            <span style={{fontSize:'1.6rem'}}>{current.icon}</span>
+            <div>
+              <div style={{fontFamily:'Orbitron',fontSize:'0.88rem',fontWeight:'900',color:'#4a9eff',letterSpacing:'1px'}}>{current.title}</div>
+              <div style={{fontFamily:'Roboto Condensed',fontSize:'0.68rem',color:'#3a6a7a',marginTop:'2px'}}>fbpro98.com</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#3a6a8a',fontSize:'1.5rem',cursor:'pointer',lineHeight:1,padding:'4px'}}>✕</button>
+        </div>
+        {/* Body */}
+        <div style={{padding:'20px 26px 28px'}}>
+          {current.content}
+        </div>
+        {/* Footer */}
+        <div style={{padding:'14px 26px',borderTop:'1px solid rgba(74,158,255,0.1)',display:'flex',justifyContent:'space-between',alignItems:'center',background:'rgba(0,0,0,0.2)'}}>
+          <span style={{fontFamily:'Roboto Condensed',fontSize:'0.72rem',color:'#3a5a6a'}}>© {YEAR} fbpro98.com · All rights reserved</span>
+          <button onClick={onClose} className="haptic-btn"
+            style={{padding:'7px 18px',background:'rgba(74,158,255,0.1)',border:'1px solid rgba(74,158,255,0.25)',borderRadius:'8px',color:'#4a9eff',fontFamily:'Orbitron',fontSize:'0.62rem',fontWeight:'700',cursor:'pointer',letterSpacing:'0.5px'}}>
+            CLOSE
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [teams,setTeams]=useState(['','']);
   const [data,setData]=useState(null);
@@ -5633,6 +5776,7 @@ function App() {
   const [gameStatsData,setGameStatsData]=useState(()=>loadGameStatsCache());
   const [currentWeekKey, setCurrentWeekKey]=useState('live');
   const [showPlayerCompare, setShowPlayerCompare]=useState(false);
+  const [legalPage, setLegalPage]=useState(null);
 
   // Bootstrap pnflDB on mount with cached season/week
   React.useEffect(() => {
@@ -5902,6 +6046,14 @@ function App() {
 
     return (
     <div className="container">
+      {showPlayerCompare && (
+        <ComparePlayersModal
+          rosterData={rosterData}
+          contractData={contractData}
+          onClose={()=>setShowPlayerCompare(false)}
+        />
+      )}
+      {legalPage && <LegalModal page={legalPage} onClose={()=>setLegalPage(null)}/>}
       <header>
         {/* Looping video background */}
         <video id="header-video" autoPlay muted loop playsInline preload="auto"
@@ -6091,11 +6243,68 @@ function App() {
         </div>
       )}
 
-      <div className="footer-note">
-        <strong style={{color:'#608060'}}>FBpro98 League Comparison Tool v{APP_VERSION}</strong> • Live data from pnfl.biz •
-        <a href="https://pnfl.biz/pnflstats/PNFL_roster.htm#A0" target="_blank" rel="noopener noreferrer" style={{marginLeft:'8px'}}>Source Rosters →</a>
-        <span style={{marginLeft:'8px',opacity:0.5}}>| Created by S.Hamilton</span>
-      </div>
+      <footer className="site-footer">
+        {/* Top border accent */}
+        <div style={{height:'2px',background:'linear-gradient(90deg,transparent,rgba(74,158,255,0.4),rgba(255,215,0,0.3),rgba(74,158,255,0.4),transparent)'}}/>
+
+        {/* Main footer body */}
+        <div style={{padding:'32px 40px 24px',display:'grid',gridTemplateColumns:'1fr auto',gap:'32px',alignItems:'start'}}>
+
+          {/* Left — brand + description */}
+          <div>
+            <div style={{fontFamily:'Orbitron',fontSize:'1rem',fontWeight:'900',background:'linear-gradient(180deg,#ffd700,#ff6b00)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text',marginBottom:'6px',letterSpacing:'1px'}}>
+              FBpro98 League Comparison Tool
+            </div>
+            <div style={{fontFamily:'Roboto Condensed',fontSize:'0.78rem',color:'#3a6a5a',lineHeight:1.6,maxWidth:'420px',marginBottom:'14px'}}>
+              A real-time analytics platform for the FBpro98 simulation league. Compare teams, players, and positions using live data across all 18 franchises.
+            </div>
+            <div style={{display:'flex',gap:'8px',flexWrap:'wrap',alignItems:'center'}}>
+              <span style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#2a4a3a',padding:'3px 9px',borderRadius:'12px',border:'1px solid rgba(74,158,255,0.12)',background:'rgba(74,158,255,0.04)'}}>
+                v{APP_VERSION}
+              </span>
+              <span style={{color:'#2a4a3a',fontSize:'0.7rem',fontFamily:'Roboto Condensed'}}>•</span>
+              <a href="https://pnfl.biz" target="_blank" rel="noopener noreferrer"
+                style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#3a6a8a'}}>
+                Data: pnfl.biz
+              </a>
+              <span style={{color:'#2a4a3a',fontSize:'0.7rem',fontFamily:'Roboto Condensed'}}>•</span>
+              <a href="https://pnfl.biz/pnflstats/PNFL_roster.htm" target="_blank" rel="noopener noreferrer"
+                style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#3a6a8a'}}>
+                Source Rosters →
+              </a>
+            </div>
+          </div>
+
+          {/* Right — nav links */}
+          <div style={{display:'flex',flexDirection:'column',gap:'10px',alignItems:'flex-end'}}>
+            <div style={{fontFamily:'Orbitron',fontSize:'0.55rem',color:'#2a4a5a',letterSpacing:'2px',textTransform:'uppercase',marginBottom:'4px'}}>Legal & Info</div>
+            {[
+              {label:'About Us',    page:'about'},
+              {label:'Privacy',     page:'privacy'},
+              {label:'Terms',       page:'terms'},
+              {label:'Contact Us',  page:'contact'},
+            ].map(({label,page})=>(
+              <button key={page} onClick={()=>{playSound('click');haptic('light');setLegalPage(page);}}
+                className="haptic-btn"
+                style={{background:'none',border:'none',cursor:'pointer',fontFamily:'Roboto Condensed',fontSize:'0.82rem',color:'#4a7a9a',padding:'2px 0',textAlign:'right',transition:'color 0.2s'}}
+                onMouseEnter={e=>e.target.style.color='#ffd700'}
+                onMouseLeave={e=>e.target.style.color='#4a7a9a'}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Bottom bar */}
+        <div style={{padding:'12px 40px',borderTop:'1px solid rgba(45,90,45,0.3)',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px',background:'rgba(0,0,0,0.2)'}}>
+          <span style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#2a4a3a'}}>
+            © {new Date().getFullYear()} fbpro98.com · FBpro98 League Comparison Tool · All rights reserved
+          </span>
+          <span style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#2a4a3a'}}>
+            Simulation data only · Not affiliated with the NFL
+          </span>
+        </div>
+      </footer>
     </div>
   );
 }
