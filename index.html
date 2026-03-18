@@ -989,7 +989,7 @@ textarea:focus { border-color: #4a9eff; }
 <div id="preloader">
   <div class="pl-title">FBpro98 League</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v6.9 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v6.9.1 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1065,7 +1065,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '6.9'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '6.9.1'; window.APP_VERSION = APP_VERSION;
 // Update preloader immediately — runs before any heavy scripts
 (function(){ try{ var e=document.getElementById('pl-version'); if(e) e.textContent='v'+APP_VERSION+' — Loading...'; var t=document.getElementById('page-title'); if(t) t.textContent='FBpro98 League Comparison Tool v'+APP_VERSION; }catch(x){} })();
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
@@ -4633,6 +4633,66 @@ function ScoutingReportCard({ report, data: d, rosterMeta }) {
 }
 
 
+// ── Logo-aware team picker dropdown ──
+function TeamPickerDropdown({ value, teams, onChange, accentColor }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+
+  // Close when clicking outside
+  React.useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const accent = accentColor || '#4a9eff';
+  const selectedTeam = value || '';
+
+  return (
+    <div ref={ref} style={{position:'relative',marginBottom:'6px',userSelect:'none'}}>
+      {/* Trigger button */}
+      <div onClick={()=>setOpen(o=>!o)}
+        style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 10px',borderRadius:'7px',cursor:'pointer',
+          background:'rgba(10,20,40,0.95)',border:`1px solid ${open?accent:'rgba(74,158,255,0.25)'}`,
+          transition:'border-color 0.15s'}}>
+        {selectedTeam
+          ? <><TeamLogo teamName={selectedTeam} size="tiny"/>
+              <span style={{flex:1,fontFamily:'Roboto Condensed',fontSize:'0.82rem',color:'#a0d2ff'}}>{selectedTeam}</span></>
+          : <><span style={{width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.7rem',color:'#3a5a7a',flexShrink:0}}>🏈</span>
+              <span style={{flex:1,fontFamily:'Roboto Condensed',fontSize:'0.82rem',color:'#3a6a8a',fontStyle:'italic'}}>All Teams</span></>
+        }
+        <span style={{fontSize:'0.6rem',color:'#3a5a7a',flexShrink:0}}>{open?'▲':'▼'}</span>
+      </div>
+
+      {/* Dropdown list */}
+      {open && (
+        <div style={{position:'absolute',top:'calc(100% + 4px)',left:0,right:0,zIndex:200,
+          background:'rgba(8,18,36,0.99)',border:`1px solid ${accent}44`,borderRadius:'9px',
+          maxHeight:'220px',overflowY:'auto',boxShadow:'0 8px 32px rgba(0,0,0,0.7)'}}>
+          {/* All teams option */}
+          <div onClick={()=>{onChange('');setOpen(false);}}
+            style={{display:'flex',alignItems:'center',gap:'8px',padding:'7px 10px',cursor:'pointer',
+              background:!selectedTeam?`${accent}18`:'transparent',
+              borderBottom:'1px solid rgba(74,158,255,0.08)'}}>
+            <span style={{width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.75rem',flexShrink:0}}>🏈</span>
+            <span style={{fontFamily:'Roboto Condensed',fontSize:'0.82rem',color:!selectedTeam?accent:'#7090a0',fontStyle:'italic'}}>All Teams</span>
+          </div>
+          {teams.map(t=>(
+            <div key={t} onClick={()=>{onChange(t);setOpen(false);}}
+              style={{display:'flex',alignItems:'center',gap:'8px',padding:'6px 10px',cursor:'pointer',transition:'background 0.1s',
+                background:t===selectedTeam?`${accent}18`:'transparent'}}
+              onMouseEnter={e=>e.currentTarget.style.background=t===selectedTeam?`${accent}20`:'rgba(255,255,255,0.04)'}
+              onMouseLeave={e=>e.currentTarget.style.background=t===selectedTeam?`${accent}18`:'transparent'}>
+              <TeamLogo teamName={t} size="tiny"/>
+              <span style={{fontFamily:'Roboto Condensed',fontSize:'0.82rem',color:t===selectedTeam?accent:'#a0c0d0',fontWeight:t===selectedTeam?'700':'400'}}>{t}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // COMPARE PLAYERS — modal + result (self-contained, rendered in App)
 // ══════════════════════════════════════════════════════════════════════
@@ -4726,11 +4786,13 @@ function ComparePlayersModal({ rosterData, contractData, onClose }) {
               {/* Column header */}
               <div style={{padding:'10px 14px 6px',flexShrink:0}}>
                 <div style={{fontFamily:'Orbitron',fontSize:'0.62rem',color:ci===0?'#4a9eff':'#4aff8a',letterSpacing:'2px',marginBottom:'8px'}}>PLAYER {col.side}</div>
-                {/* Team filter */}
-                <select value={col.team} onChange={e=>{col.setTeam(e.target.value);col.setPick(null);}} style={selStyle}>
-                  <option value="">All Teams</option>
-                  {teamNames.map(t=><option key={t} value={t}>{t}</option>)}
-                </select>
+                {/* Logo team picker — custom so logos show */}
+                <TeamPickerDropdown
+                  value={col.team}
+                  teams={teamNames}
+                  accentColor={ci===0?'#4a9eff':'#4aff8a'}
+                  onChange={t=>{col.setTeam(t);col.setPick(null);}}
+                />
                 {/* Name search */}
                 <input type="text" value={col.search} onChange={e=>col.setSearch(e.target.value)}
                   placeholder={`Search ${pos}…`}
@@ -6245,7 +6307,7 @@ function App() {
 
       <footer className="site-footer">
         {/* Top border accent */}
-        <div style={{height:'2px',background:'linear-gradient(90deg,transparent,rgba(74,158,255,0.4),rgba(255,215,0,0.3),rgba(74,158,255,0.4),transparent)'}}/>
+        <div style={{height:'1px',background:'linear-gradient(90deg,transparent,rgba(74,158,255,0.25),rgba(255,215,0,0.15),rgba(74,158,255,0.25),transparent)'}}/>
 
         {/* Main footer body */}
         <div style={{padding:'32px 40px 24px',display:'grid',gridTemplateColumns:'1fr auto',gap:'32px',alignItems:'start'}}>
@@ -6255,21 +6317,21 @@ function App() {
             <div style={{fontFamily:'Orbitron',fontSize:'1rem',fontWeight:'900',background:'linear-gradient(180deg,#ffd700,#ff6b00)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text',marginBottom:'6px',letterSpacing:'1px'}}>
               FBpro98 League Comparison Tool
             </div>
-            <div style={{fontFamily:'Roboto Condensed',fontSize:'0.78rem',color:'#3a6a5a',lineHeight:1.6,maxWidth:'420px',marginBottom:'14px'}}>
+            <div style={{fontFamily:'Roboto Condensed',fontSize:'0.78rem',color:'#4a6a5a',lineHeight:1.6,maxWidth:'420px',marginBottom:'14px'}}>
               A real-time analytics platform for the FBpro98 simulation league. Compare teams, players, and positions using live data across all 18 franchises.
             </div>
             <div style={{display:'flex',gap:'8px',flexWrap:'wrap',alignItems:'center'}}>
-              <span style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#2a4a3a',padding:'3px 9px',borderRadius:'12px',border:'1px solid rgba(74,158,255,0.12)',background:'rgba(74,158,255,0.04)'}}>
+              <span style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#4a6a5a'}}>
                 v{APP_VERSION}
               </span>
-              <span style={{color:'#2a4a3a',fontSize:'0.7rem',fontFamily:'Roboto Condensed'}}>•</span>
+              <span style={{color:'#3a5a4a',fontSize:'0.7rem',fontFamily:'Roboto Condensed'}}>•</span>
               <a href="https://pnfl.biz" target="_blank" rel="noopener noreferrer"
-                style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#3a6a8a'}}>
+                style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#4a7a8a'}}>
                 Data: pnfl.biz
               </a>
-              <span style={{color:'#2a4a3a',fontSize:'0.7rem',fontFamily:'Roboto Condensed'}}>•</span>
+              <span style={{color:'#3a5a4a',fontSize:'0.7rem',fontFamily:'Roboto Condensed'}}>•</span>
               <a href="https://pnfl.biz/pnflstats/PNFL_roster.htm" target="_blank" rel="noopener noreferrer"
-                style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#3a6a8a'}}>
+                style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#4a7a8a'}}>
                 Source Rosters →
               </a>
             </div>
@@ -6277,7 +6339,6 @@ function App() {
 
           {/* Right — nav links */}
           <div style={{display:'flex',flexDirection:'column',gap:'10px',alignItems:'flex-end'}}>
-            <div style={{fontFamily:'Orbitron',fontSize:'0.55rem',color:'#2a4a5a',letterSpacing:'2px',textTransform:'uppercase',marginBottom:'4px'}}>Legal & Info</div>
             {[
               {label:'About Us',    page:'about'},
               {label:'Privacy',     page:'privacy'},
@@ -6296,11 +6357,11 @@ function App() {
         </div>
 
         {/* Bottom bar */}
-        <div style={{padding:'12px 40px',borderTop:'1px solid rgba(45,90,45,0.3)',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px',background:'rgba(0,0,0,0.2)'}}>
-          <span style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#2a4a3a'}}>
+        <div style={{padding:'12px 40px',borderTop:'1px solid rgba(45,90,45,0.2)',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
+          <span style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#555'}}>
             © {new Date().getFullYear()} fbpro98.com · FBpro98 League Comparison Tool · All rights reserved
           </span>
-          <span style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#2a4a3a'}}>
+          <span style={{fontFamily:'Roboto Condensed',fontSize:'0.7rem',color:'#555'}}>
             Simulation data only · Not affiliated with the NFL
           </span>
         </div>
