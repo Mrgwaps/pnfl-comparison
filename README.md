@@ -1,4 +1,4 @@
-# PNFL Team Comparison Tool
+# FBpro98 Team Comparison Tool
 
 A fully client-side NFL team comparison tool built for the PNFL fantasy/simulation league.
 
