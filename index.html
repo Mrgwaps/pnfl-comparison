@@ -904,6 +904,27 @@ font-family: 'Courier New', monospace; font-size: 0.9rem; resize: vertical; marg
 background: rgba(10,22,40,0.8); color: #fff; outline: none;
 }
 textarea:focus { border-color: #4a9eff; }
+.scores-ticker-wrap {
+  overflow: hidden; position: relative;
+  background: rgba(5,12,8,0.85);
+  border: 1px solid rgba(255,215,0,0.2);
+  border-radius: 10px; margin: 0 0 18px;
+}
+.scores-ticker-inner {
+  display: flex; align-items: center;
+  white-space: nowrap;
+  animation: tickerScroll 40s linear infinite;
+  padding: 0 40px;
+}
+.scores-ticker-inner:hover { animation-play-state: paused; }
+@keyframes toastSlide {
+  from { opacity:0; transform:translateY(-12px); }
+  to   { opacity:1; transform:translateY(0); }
+}
+@keyframes tickerScroll {
+  0%   { transform: translateX(100vw); }
+  100% { transform: translateX(-100%); }
+}
 .site-footer {
   margin-top: 48px;
   border-top: 1px solid rgba(45,90,45,0.5);
@@ -989,7 +1010,7 @@ textarea:focus { border-color: #4a9eff; }
 <div id="preloader">
   <div class="pl-title">FBpro98 League</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v6.9.2 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v7.1.1 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1065,7 +1086,28 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '6.9.2'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.1.1'; window.APP_VERSION = APP_VERSION;
+window._toastQueue = [];
+window._appAlert = function(msg) {
+  try {
+    var el = document.getElementById('app-toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'app-toast';
+      el.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;max-width:90vw;';
+      document.body.appendChild(el);
+    }
+    var toast = document.createElement('div');
+    toast.style.cssText = 'background:rgba(8,20,14,0.98);border:2px solid rgba(74,255,74,0.6);border-radius:12px;padding:14px 24px;color:#c0e8c0;font-family:Roboto Condensed,sans-serif;font-size:0.9rem;line-height:1.6;box-shadow:0 8px 40px rgba(0,0,0,0.8),0 0 20px rgba(74,255,74,0.2);max-width:500px;text-align:center;pointer-events:auto;white-space:pre-line;cursor:pointer;animation:toastSlide 0.3s ease;';
+    toast.textContent = msg;
+    el.appendChild(toast);
+    toast.onclick = function(){ if(toast.parentNode) toast.parentNode.removeChild(toast); };
+    setTimeout(function(){ if(toast.parentNode){ toast.style.opacity='0'; toast.style.transition='opacity 0.5s'; setTimeout(function(){if(toast.parentNode)toast.parentNode.removeChild(toast);},500); }}, 8000);
+  } catch(e) { console.log('[Toast]', msg); }
+};
+window._appConfirm = function(msg) {
+  try { return window.confirm('FBpro98 Comparison Tool\n\n' + msg); } catch(e) { return true; }
+};
 // Update preloader immediately — runs before any heavy scripts
 (function(){ try{ var e=document.getElementById('pl-version'); if(e) e.textContent='v'+APP_VERSION+' — Loading...'; var t=document.getElementById('page-title'); if(t) t.textContent='FBpro98 League Comparison Tool v'+APP_VERSION; }catch(x){} })();
 const MONEY_ICON_URI = "data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAwADADASIAAhEBAxEB/8QAGgABAAIDAQAAAAAAAAAAAAAACAAHAgQGA//EAC8QAAIBBAAEBAQGAwAAAAAAAAECAwAEBREGBxIhEzFBgQgiUXEUFTJSYaGDkbH/xAAZAQADAQEBAAAAAAAAAAAAAAADBAUCBgH/xAArEQACAQMBBgQHAAAAAAAAAAABAhEAAwQhBQYSExVxMVGh0UFSYWKB0uH/2gAMAwEAAhEDEQA/ABlUqxcNy7tb23tXa/uHe4RGARAO7Aff613lryCt10Z712/yk/8AEFF5LfGkOo2ZgSfxR+qUhm5TcGWFyLe+v4xMPNemVtffTaHvXTWXKDhVUVxbxyoRsEQoQR9yDXvJ8zWOpIdFU+nvRTqUl+IeC0wt434LFqbPW0kSBe3buG6QAPWjtn4RbZ3IW4XpEV1IgGta0xFZe3wiZouLmc9mXhiKWHwyYzH5HB2V7cwCWeGGNULHsukA3r67Bq9Wx1r4blbdeoKSPPzo5fC1l7i1wNksYRkZXDhh+13A0ftSZjvLMxI/jxr1KDosNilsq8VI1rls0KMhkmIquXwGNZmke3jLE7Ynfc/7rp+E8bZfl7RLEnQjkL59vXVe2TtcZJJ1peGNWO2VYyw9qzgymJsIFiSUhV9TobP176pS3duESz1Dx7JsXZZtO9bV7iLJ7OZGhTpaNgd/yKL3OfgHhO1wfEObhxXhZJdzCZZ5P1Egk9Jbp9T6UjsxmLS7ZFjuUEajuvWDs+xNVF8QJjbl9m5YwCHiADdOt6CilWzS91EDeJ86ZbIuLk2zacgcSgwTqCRR55OcTZvHcW4rGWuSkhspZyGjAGjsHtsjfnSjw+YkEzJkbydoivykux0fag/UqjlYqZKFW/tdJtfd9s/IW+l3ggRETPfUU77m9wdxE0cs5O/Xockf1WlajCQzCR73xAp2F8FgPftQdqVOTYqW1KrcaD29qmvug7sGa8JH2H96e5zeLVSVnBIHYCNhv+qq/nHf3F3wBmmuJT0+D8q70o2w7CixUouFsixiMWSSfrHpRBund5yXGv6KQYCxMGfmNf/Z";
@@ -1174,7 +1216,7 @@ const ESPN_LOGOS = {
   "New York":      "https://a.espncdn.com/i/teamlogos/nfl/500/nyg.png",
   "Philadelphia":  "https://a.espncdn.com/i/teamlogos/nfl/500/phi.png",
   "San Francisco": "https://a.espncdn.com/i/teamlogos/nfl/500/sf.png",
-  "Chicago":       "https://a.espncdn.com/i/teamlogos/nfl/500/ari.png",
+  "Chicago":       "https://a.espncdn.com/i/teamlogos/nfl/500/chi.png",
   "Minnesota":     "https://a.espncdn.com/i/teamlogos/nfl/500/min.png",
   "Seattle":       "https://a.espncdn.com/i/teamlogos/nfl/500/sea.png",
   "Green Bay":     "https://a.espncdn.com/i/teamlogos/nfl/500/gb.png",
@@ -1627,7 +1669,13 @@ function saveContractCache(c) {
 }
 function loadSeasonCache()    { return storageWithSession.get('pnfl_season')    || null; }
 function saveSeasonCache(d)   { storageWithSession.set('pnfl_season', d); }
-function loadGameStatsCache() { return storageWithSession.get('pnfl_gamestats') || null; }
+function loadGameStatsCache() {
+  try {
+    const d = storageWithSession.get('pnfl_gamestats');
+    if (d && Array.isArray(d.games)) return d;
+    return null;
+  } catch(e) { return null; }
+}
 function saveGameStatsCache(d){ storageWithSession.set('pnfl_gamestats', d); }
 
 // ── Contract Data Parser (SheetJS) ──
@@ -2779,7 +2827,6 @@ function TeamLogo({ teamName, size = "medium" }) {
       alt={teamName}
       width={sz}
       height={sz}
-      crossOrigin="anonymous"
       onError={() => setImgFailed(true)}
       style={{flexShrink:0,width:sz,height:sz,objectFit:"contain",borderRadius:0,
         background:"transparent",display:"block",
@@ -2798,6 +2845,7 @@ function AIConnectModal({ onClose, onConnected }) {
   const [ollamaUrl, setOllamaUrl] = useState(() => sessionStorage.getItem('pnfl_ollama_url') || 'http://localhost:11434');
   const [status, setStatus]       = useState('idle');
   const [errorMsg, setErrorMsg]   = useState('');
+  const [availModels, setAvailModels] = useState([]);
 
   React.useEffect(() => {
     if (window.pnflAI?.isReady?.()) setStatus('success');
@@ -2857,6 +2905,19 @@ function AIConnectModal({ onClose, onConnected }) {
               <button onClick={()=>{onConnected?.();onClose?.();}} className="haptic-btn" style={{flex:1,padding:'9px',background:'linear-gradient(135deg,rgba(160,100,255,0.2),rgba(100,60,180,0.3))',border:'2px solid #c090ff55',borderRadius:'8px',color:'#c090ff',fontFamily:'Orbitron',fontSize:'0.72rem',fontWeight:'700',cursor:'pointer'}}>✓ Done</button>
               <button onClick={disconnect} className="haptic-btn" style={{padding:'9px 12px',background:'rgba(255,80,80,0.08)',border:'1px solid rgba(255,80,80,0.25)',borderRadius:'8px',color:'#ff8080',fontFamily:'Roboto Condensed',fontSize:'0.76rem',cursor:'pointer'}}>Disconnect</button>
             </div>
+            {mode==='ollama' && availModels.length > 0 && (
+              <div style={{marginTop:'10px',paddingTop:'10px',borderTop:'1px solid rgba(160,100,255,0.12)'}}>
+                <div style={{fontSize:'0.6rem',color:'#604080',fontFamily:'Orbitron',marginBottom:'5px'}}>Switch Model</div>
+                <select value={ollamaModel} onChange={e=>{
+                  var m=e.target.value; setOllamaModel(m);
+                  if(window.pnflAI){window.pnflAI._model=m;sessionStorage.setItem('pnfl_ollama_model',m);}
+                  onConnected&&onConnected();
+                }}
+                  style={{width:'100%',padding:'6px 10px',borderRadius:'7px',background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.25)',color:'#d0b0ff',fontFamily:'Roboto Condensed',fontSize:'0.82rem',outline:'none',cursor:'pointer'}}>
+                  {availModels.map(function(m){return <option key={m} value={m}>{m}</option>;})}
+                </select>
+              </div>
+            )}
           </div>
         ) : (
           <div>
@@ -2877,19 +2938,41 @@ function AIConnectModal({ onClose, onConnected }) {
             {mode === 'ollama' && (
               <div>
                 <div style={{marginBottom:'9px'}}>
-                  <div style={{fontSize:'0.62rem',color:'#604080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'3px'}}>Model</div>
-                  <input list="ollama-models" value={ollamaModel} onChange={e=>setOllamaModel(e.target.value)}
-                    style={{width:'100%',padding:'7px 11px',borderRadius:'7px',background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.2)',color:'#d0b0ff',fontFamily:'Roboto Condensed',fontSize:'0.85rem',outline:'none',boxSizing:'border-box'}}
-                    placeholder="llama3.2:1b"/>
-                  <datalist id="ollama-models">
-                    {['llama3.2:1b','llama3.2:3b','qwen2.5:1.5b','qwen2.5:7b','phi3.5','mistral'].map(m=><option key={m} value={m}/>)}
-                  </datalist>
+                  <div style={{fontSize:'0.62rem',color:'#604080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'3px'}}>URL</div>
+                  <div style={{display:'flex',gap:'6px'}}>
+                    <input type="text" value={ollamaUrl} onChange={e=>setOllamaUrl(e.target.value)}
+                      style={{flex:1,padding:'7px 11px',borderRadius:'7px',background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.2)',color:'#d0b0ff',fontFamily:'Roboto Condensed',fontSize:'0.85rem',outline:'none',boxSizing:'border-box'}}
+                      placeholder="http://localhost:11434"/>
+                    <button className="haptic-btn" onClick={function(){
+                      fetch(ollamaUrl+'/api/tags',{signal:AbortSignal.timeout(4000)})
+                        .then(function(r){return r.json();})
+                        .then(function(d){
+                          var models=(d.models||[]).map(function(m){return m.name;});
+                          if(models.length){setOllamaModel(models[0]);setAvailModels(models);}
+                          else setAvailModels([]);
+                        }).catch(function(){setAvailModels([]);});
+                    }}
+                      style={{padding:'7px 10px',borderRadius:'7px',background:'rgba(160,100,255,0.12)',border:'1px solid rgba(160,100,255,0.2)',color:'#c090ff',fontFamily:'Orbitron',fontSize:'0.6rem',cursor:'pointer',flexShrink:0,whiteSpace:'nowrap'}}>
+                      Scan
+                    </button>
+                  </div>
                 </div>
                 <div style={{marginBottom:'12px'}}>
-                  <div style={{fontSize:'0.62rem',color:'#604080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'3px'}}>URL</div>
-                  <input type="text" value={ollamaUrl} onChange={e=>setOllamaUrl(e.target.value)}
-                    style={{width:'100%',padding:'7px 11px',borderRadius:'7px',background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.2)',color:'#d0b0ff',fontFamily:'Roboto Condensed',fontSize:'0.85rem',outline:'none',boxSizing:'border-box'}}
-                    placeholder="http://localhost:11434"/>
+                  <div style={{fontSize:'0.62rem',color:'#604080',fontFamily:'Orbitron',letterSpacing:'0.5px',textTransform:'uppercase',marginBottom:'3px'}}>
+                    {availModels.length > 0 ? 'Model (' + availModels.length + ' found)' : 'Model'}
+                  </div>
+                  {availModels.length > 0
+                    ? <select value={ollamaModel} onChange={e=>setOllamaModel(e.target.value)}
+                        style={{width:'100%',padding:'7px 11px',borderRadius:'7px',background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.3)',color:'#d0b0ff',fontFamily:'Roboto Condensed',fontSize:'0.85rem',outline:'none',cursor:'pointer'}}>
+                        {availModels.map(function(m){return <option key={m} value={m}>{m}</option>;})}
+                      </select>
+                    : <input list="ollama-models" value={ollamaModel} onChange={e=>setOllamaModel(e.target.value)}
+                        style={{width:'100%',padding:'7px 11px',borderRadius:'7px',background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.2)',color:'#d0b0ff',fontFamily:'Roboto Condensed',fontSize:'0.85rem',outline:'none',boxSizing:'border-box'}}
+                        placeholder="llama3.2:1b"/>
+                  }
+                  <datalist id="ollama-models">
+                    {['llama3.2:1b','llama3.2:3b','qwen2.5:1.5b','qwen2.5:7b','phi3.5','mistral','deepseek-r1:1.5b','gemma3:1b'].map(m=><option key={m} value={m}/>)}
+                  </datalist>
                 </div>
               </div>
             )}
@@ -3038,7 +3121,7 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
             <option key={key} value={key}>{w.label}</option>
           ))}
         </select>
-        <button onClick={()=>{playSound('click');haptic('medium');onFetch(selectedWeek);}} disabled={fetching} className="haptic-btn"
+        <button onClick={()=>{console.log('[Btn] Fetch Rosters clicked');playSound('click');haptic('medium');onFetch(selectedWeek);}} disabled={fetching} className="haptic-btn"
           style={{
             background: fetching ? 'rgba(45,90,45,0.4)' : 'linear-gradient(135deg, #2d5a2d, #1a6a1a)',
             border:'2px solid #ffd700', borderRadius:'8px', color:'#fff',
@@ -4157,7 +4240,7 @@ ${aiQuery}`;
           </div>
 
           <div style={{marginTop:'8px',fontSize:'0.65rem',color:'#3a5a3a',fontFamily:'Roboto Condensed',textAlign:'center'}}>
-            🟢 Actual at player potential ceiling &nbsp;|&nbsp; 🔵 Player potential at position max &nbsp;|&nbsp; Click outside to close
+            🟢 Actual at player potential ceiling {" | "} 🔵 Player potential at position max {" | "} Click outside to close
           </div>
         </div>
       </div>
@@ -5050,8 +5133,8 @@ function DataHelpers({ contractData, onFetchContracts, fetchingContracts, roster
   const rosterLoaded = !!(rosterMeta && rosterMeta.source === 'live');
   const copy=()=>{
     const s=`// PNFL Console Parser — paste in browser console on the roster page\nfunction parsePNFL(){\nconst out=document.body.innerText;\nconsole.log(out);\nreturn out;\n}\nparsePNFL();`;
-    if(navigator.clipboard){navigator.clipboard.writeText(s).then(()=>alert('✓ Copied! Run in console on PNFL roster page, then paste the output below.'));}
-    else alert('Clipboard not available.');
+    if(navigator.clipboard){navigator.clipboard.writeText(s).then(()=>window._appAlert('✓ Copied! Run in console on PNFL roster page, then paste the output below.'));}
+    else window._appAlert('Clipboard not available.');
   };
   return(
     <div className="control-group">
@@ -5063,7 +5146,7 @@ function DataHelpers({ contractData, onFetchContracts, fetchingContracts, roster
       {show&&(<>
         <textarea value={paste} onChange={e=>setPaste(e.target.value)} placeholder="Paste raw roster page text here as fallback..."/>
         <button type="button" className="btn-primary" style={{marginTop:'10px',width:'100%'}}
-          onClick={()=>{if(paste.trim())alert('✓ Pasted. Use the Fetch button to apply.');else alert('Nothing pasted.');}}>
+          onClick={()=>{if(paste.trim())window._appAlert('✓ Pasted. Use the Fetch button to apply.');else window._appAlert('Nothing pasted.');}}>
           ✓ Load Pasted Text
         </button>
       </>)}
@@ -5158,8 +5241,8 @@ function TradeAnalyzer({ getTeamData, weights, depth, designation }) {
     );
   };
   const analyzeTrade=()=>{
-    if(!teamA||!teamB){alert('Select both teams first');return;}
-    if(giveAway.length===0&&getBack.length===0){alert('Select at least one player to trade');return;}
+    if(!teamA||!teamB){window._appAlert('Select both teams first');return;}
+    if(giveAway.length===0&&getBack.length===0){window._appAlert('Select at least one player to trade');return;}
     const cloneRoster=(team)=>JSON.parse(JSON.stringify(getTeamData(team)||buildPlaceholderRoster(team)));
     const tdA=cloneRoster(teamA); const tdB=cloneRoster(teamB);
     const beforeA=computeTeamResult(teamA,tdA,weights,depth,designation);
@@ -5215,8 +5298,8 @@ function TradeAnalyzer({ getTeamData, weights, depth, designation }) {
         {(giveAway.length>0||getBack.length>0)&&(
           <div style={{background:'rgba(0,0,0,0.25)',borderRadius:'8px',padding:'10px 14px',marginBottom:'14px',border:'1px solid #2d5a2d',fontSize:'0.85rem',color:'#a0d2a0'}}>
             <strong style={{color:'#ffd700'}}>Trade: </strong>
-            {giveAway.length>0&&<span>{teamA} sends {giveAway.map(p=>`${p.name}(${p.pos})`).join(', ')} </span>}
-            {getBack.length>0&&<span>| {teamB} sends {getBack.map(p=>`${p.name}(${p.pos})`).join(', ')}</span>}
+            {giveAway.length > 0 && (<span>{teamA} sends {giveAway.map(p=>`${p.name}(${p.pos})`).join(', ')} </span>)}
+            {getBack.length > 0 && (<span>| {teamB} sends {getBack.map(p=>`${p.name}(${p.pos})`).join(', ')}</span>)}
           </div>
         )}
         <button className="btn-primary" onClick={analyzeTrade} style={{width:'100%',fontSize:'1.1rem',padding:'13px',marginBottom:'18px'}}>
@@ -5449,7 +5532,6 @@ function LeaguePowerRankings({ standingsData }) {
                                         src={ESPN_LOGOS[opp]}
                                         alt={opp}
                                         width={20} height={20}
-                                        crossOrigin="anonymous"
                                         style={{objectFit:'contain',width:'20px',height:'20px'}}
                                         onError={e => {
                                           e.target.style.display='none';
@@ -5526,7 +5608,7 @@ function PowerRankings({ getTeamData, weights, depth, designation }) {
         }).sort((a,b)=>b.overallScore-a.overallScore);
         setRankings(res);
       } catch(err) {
-        alert('Rankings error: ' + err.message);
+        window._appAlert('Rankings error: ' + err.message);
         console.error(err);
       }
       setWorking(false);
@@ -5565,7 +5647,7 @@ function PowerRankings({ getTeamData, weights, depth, designation }) {
 
   return(
     <div className="panel-content">
-      <div className="helper-text" style={{marginBottom:'16px',color:'#a0d2a0'}}>All 18 teams ranked by roster strength using your current weights &amp; depth. Scores normalized against position attribute ceilings. Sortable by column.</div>
+      <div className="helper-text" style={{marginBottom:'16px',color:'#a0d2a0'}}>All 18 teams ranked by roster strength using your current weights & depth. Scores normalized against position attribute ceilings. Sortable by column.</div>
       <div style={{display:'flex',gap:'10px',flexWrap:'wrap',marginBottom:'18px',alignItems:'center'}}>
         <button className="btn-primary" onClick={generate} disabled={working} style={{fontSize:'1rem',padding:'11px 22px'}}>
           {working?'⏳ Calculating...':'📊 Generate Rankings'}
@@ -5650,28 +5732,28 @@ function LegalModal({ page, onClose }) {
       icon: '🏈',
       content: (
         <div>
-          {hd('What Is the FBpro98 League Comparison Tool?')}
-          {p('The FBpro98 League Comparison Tool is a purpose-built analytics platform for the FBpro98 football simulation league — a fully customized, privately operated franchise-style simulation league. The tool lives at fbpro98.com and is designed to give league managers, coaches, and analysts deep, data-driven insight into every roster, player, and matchup across the league\'s 18 franchises.')}
-          {p('The name breaks down simply: FBpro98 is the league identity, and "League Comparison Tool" describes exactly what it does — it empowers you to compare any two or more teams, players, or positions using live data pulled directly from the league\'s official stat pages.')}
+          {hd(`What Is the FBpro98 League Comparison Tool?`)}
+          {p(`The FBpro98 League Comparison Tool is a purpose-built analytics platform for the FBpro98 football simulation league — a fully customized, privately operated franchise-style simulation league. The tool lives at fbpro98.com and is designed to give league managers, coaches, and analysts deep, data-driven insight into every roster, player, and matchup across the league's 18 franchises.`)}
+          {p(`The name breaks down simply: FBpro98 is the league identity, and "League Comparison Tool" describes exactly what it does — it empowers you to compare any two or more teams, players, or positions using live data pulled directly from the league's official stat pages.`)}
 
-          {hd('Core Features')}
+          {hd(`Core Features`)}
           <ul style={{margin:'0 0 12px',paddingLeft:'20px'}}>
-            {li('📊 Team Comparison — Select any two or more of the 18 franchises and run a full head-to-head breakdown across every offensive and defensive position group, with configurable attribute weights and depth settings.')}
-            {li('⚔ Player Comparison — Pick any two players at the same position and see a side-by-side card breakdown: individual attribute bars, score delta, combined actual and potential totals, contract data, and a written analysis with the better player crowned.')}
-            {li('📋 Roster & Depth Panels — View each team\'s full positional roster with actual and potential attribute ratings, status indicators, and scoring breakdowns at every position.')}
-            {li('💰 Contract Intelligence — Load the league contract file to see salary, contract length, years remaining, and draft pedigree on every player card.')}
-            {li('🤖 AI Analyst — An integrated AI assistant (powered by local Ollama or cloud HuggingFace) provides natural-language scouting reports, player analysis, and team assessments grounded in live PNFL simulation data.')}
-            {li('🔊 Voice Narration — Enable voice mode to hear AI-generated reports and player analyses spoken aloud with emotion-matched narration — upbeat for offensive highlights, measured for analysis, concerned for areas of weakness.')}
-            {li('📈 Scouting Reports — Generate full AI-written team scouting reports covering offense, defense, weekly highlights, top performers, and areas to improve.')}
-            {li('🏆 Power Rankings — Live league power rankings with opponent win totals and schedule context.')}
-            {li('🔄 Historical Weeks — Switch between any simulated week\'s data to analyze how rosters and standings evolved across the season.')}
-            {li('⚖ Trade Analyzer — Compare player groups across teams to evaluate potential trade value using weighted attribute scoring.')}
+            {li(`📊 Team Comparison — Select any two or more of the 18 franchises and run a full head-to-head breakdown across every offensive and defensive position group, with configurable attribute weights and depth settings.`)}
+            {li(`⚔ Player Comparison — Pick any two players at the same position and see a side-by-side card breakdown: individual attribute bars, score delta, combined actual and potential totals, contract data, and a written analysis with the better player crowned.`)}
+            {li(`📋 Roster & Depth Panels — View each team's full positional roster with actual and potential attribute ratings, status indicators, and scoring breakdowns at every position.`)}
+            {li(`💰 Contract Intelligence — Load the league contract file to see salary, contract length, years remaining, and draft pedigree on every player card.`)}
+            {li(`🤖 AI Analyst — An integrated AI assistant (powered by local Ollama or cloud HuggingFace) provides natural-language scouting reports, player analysis, and team assessments grounded in live PNFL simulation data.`)}
+            {li(`🔊 Voice Narration — Enable voice mode to hear AI-generated reports and player analyses spoken aloud with emotion-matched narration — upbeat for offensive highlights, measured for analysis, concerned for areas of weakness.`)}
+            {li(`📈 Scouting Reports — Generate full AI-written team scouting reports covering offense, defense, weekly highlights, top performers, and areas to improve.`)}
+            {li(`🏆 Power Rankings — Live league power rankings with opponent win totals and schedule context.`)}
+            {li(`🔄 Historical Weeks — Switch between any simulated week's data to analyze how rosters and standings evolved across the season.`)}
+            {li(`⚖ Trade Analyzer — Compare player groups across teams to evaluate potential trade value using weighted attribute scoring.`)}
           </ul>
 
-          {hd('How Data Works')}
-          {p('All data is sourced in real time from the official PNFL simulation league stat pages at pnfl.biz. Roster data, standings, season stats, and game stats are fetched via CORS proxy on demand. Contract data is loaded from the official Contracts.xlsx file. All stats and player names reflect the simulation game only — not any real-world NFL player.')}
+          {hd(`How Data Works`)}
+          {p(`All data is sourced in real time from the official PNFL simulation league stat pages at pnfl.biz. Roster data, standings, season stats, and game stats are fetched via CORS proxy on demand. Contract data is loaded from the official Contracts.xlsx file. All stats and player names reflect the simulation game only — not any real-world NFL player.`)}
 
-          {hd('Version')}
+          {hd(`Version`)}
           {p(`FBpro98 League Comparison Tool — Version ${APP_VERSION}. Built for the FBpro98 simulation league community.`)}
         </div>
       ),
@@ -5682,36 +5764,36 @@ function LegalModal({ page, onClose }) {
       content: (
         <div>
           {p(`Effective date: January 1, ${YEAR} | fbpro98.com`)}
-          {hd('Overview')}
-          {p('FBpro98 League Comparison Tool ("the Tool", "we", "us") is a free utility for the FBpro98 simulation league community. We take your privacy seriously. This policy explains what information we collect, how we use it, and your rights.')}
+          {hd(`Overview`)}
+          {p(`FBpro98 League Comparison Tool ("the Tool", "we", "us") is a free utility for the FBpro98 simulation league community. We take your privacy seriously. This policy explains what information we collect, how we use it, and your rights.`)}
 
-          {hd('Information We Collect')}
-          {p('The Tool operates entirely in your browser. We do not operate servers that collect personal data. Specifically:')}
+          {hd(`Information We Collect`)}
+          {p(`The Tool operates entirely in your browser. We do not operate servers that collect personal data. Specifically:`)}
           <ul style={{margin:'0 0 12px',paddingLeft:'20px'}}>
-            {li('No account registration or login is required.')}
-            {li('No personally identifiable information is collected or transmitted to fbpro98.com servers.')}
-            {li('Roster, stats, and contract data are fetched from pnfl.biz (a third-party simulation league host) via public CORS proxies.')}
-            {li('AI features optionally connect to Ollama (running locally on your machine) or a Cloudflare Worker proxy you configure. We do not log AI queries.')}
-            {li('Browser localStorage and sessionStorage are used to cache roster data, settings, and contract data locally on your device. This data never leaves your browser.')}
+            {li(`No account registration or login is required.`)}
+            {li(`No personally identifiable information is collected or transmitted to fbpro98.com servers.`)}
+            {li(`Roster, stats, and contract data are fetched from pnfl.biz (a third-party simulation league host) via public CORS proxies.`)}
+            {li(`AI features optionally connect to Ollama (running locally on your machine) or a Cloudflare Worker proxy you configure. We do not log AI queries.`)}
+            {li(`Browser localStorage and sessionStorage are used to cache roster data, settings, and contract data locally on your device. This data never leaves your browser.`)}
           </ul>
 
-          {hd('Cookies & Tracking')}
-          {p('The Tool does not set cookies, run analytics scripts, serve advertisements, or use third-party tracking. There are no tracking pixels, fingerprinting scripts, or behavioral analytics of any kind.')}
+          {hd(`Cookies & Tracking`)}
+          {p(`The Tool does not set cookies, run analytics scripts, serve advertisements, or use third-party tracking. There are no tracking pixels, fingerprinting scripts, or behavioral analytics of any kind.`)}
 
-          {hd('Third-Party Services')}
-          {p('The Tool fetches data from pnfl.biz. That site\'s own privacy practices apply when your browser contacts it. The allorigins.win CORS proxy may log request URLs transiently. We have no control over or affiliation with these services.')}
+          {hd(`Third-Party Services`)}
+          {p(`The Tool fetches data from pnfl.biz. That site's own privacy practices apply when your browser contacts it. The allorigins.win CORS proxy may log request URLs transiently. We have no control over or affiliation with these services.`)}
 
-          {hd('Data Retention')}
-          {p('All cached data (rosters, contracts, settings) is stored in your browser only. You can clear it at any time using the "Clear Cache" button in the app, or by clearing your browser\'s site data.')}
+          {hd(`Data Retention`)}
+          {p(`All cached data (rosters, contracts, settings) is stored in your browser only. You can clear it at any time using the "Clear Cache" button in the app, or by clearing your browser's site data.`)}
 
-          {hd('Children\'s Privacy')}
-          {p('The Tool is not directed at children under 13. We do not knowingly collect any data from children.')}
+          {hd(`Children's Privacy`)}
+          {p(`The Tool is not directed at children under 13. We do not knowingly collect any data from children.`)}
 
-          {hd('Changes to This Policy')}
+          {hd(`Changes to This Policy`)}
           {p(`We may update this policy from time to time. Updates will be reflected on fbpro98.com. Last updated: January ${YEAR}.`)}
 
-          {hd('Contact')}
-          {p('Questions about this privacy policy? Use the Contact page at fbpro98.com.')}
+          {hd(`Contact`)}
+          {p(`Questions about this privacy policy? Use the Contact page at fbpro98.com.`)}
         </div>
       ),
     },
@@ -5721,39 +5803,39 @@ function LegalModal({ page, onClose }) {
       content: (
         <div>
           {p(`Last updated: January 1, ${YEAR} | fbpro98.com`)}
-          {hd('Acceptance of Terms')}
-          {p('By accessing or using the FBpro98 League Comparison Tool at fbpro98.com, you agree to be bound by these Terms of Use. If you do not agree, please do not use the Tool.')}
+          {hd(`Acceptance of Terms`)}
+          {p(`By accessing or using the FBpro98 League Comparison Tool at fbpro98.com, you agree to be bound by these Terms of Use. If you do not agree, please do not use the Tool.`)}
 
-          {hd('Permitted Use')}
-          {p('The Tool is provided for personal, non-commercial use by members of the FBpro98 simulation league community. You may use the Tool to:')}
+          {hd(`Permitted Use`)}
+          {p(`The Tool is provided for personal, non-commercial use by members of the FBpro98 simulation league community. You may use the Tool to:`)}
           <ul style={{margin:'0 0 12px',paddingLeft:'20px'}}>
-            {li('View and compare simulation league team and player data.')}
-            {li('Generate reports and analysis for personal league management purposes.')}
-            {li('Share screenshots or excerpts for discussion within the FBpro98 community.')}
+            {li(`View and compare simulation league team and player data.`)}
+            {li(`Generate reports and analysis for personal league management purposes.`)}
+            {li(`Share screenshots or excerpts for discussion within the FBpro98 community.`)}
           </ul>
 
-          {hd('Prohibited Use')}
+          {hd(`Prohibited Use`)}
           <ul style={{margin:'0 0 12px',paddingLeft:'20px'}}>
-            {li('Redistribution or resale of the Tool or its data for commercial purposes.')}
-            {li('Automated scraping of pnfl.biz data in violation of that site\'s terms.')}
-            {li('Reverse engineering, modification, or republication of the Tool\'s source code without permission.')}
-            {li('Use of the Tool to defame, harass, or harm any individual or organization.')}
+            {li(`Redistribution or resale of the Tool or its data for commercial purposes.`)}
+            {li(`Automated scraping of pnfl.biz data in violation of that site's terms.`)}
+            {li(`Reverse engineering, modification, or republication of the Tool's source code without permission.`)}
+            {li(`Use of the Tool to defame, harass, or harm any individual or organization.`)}
           </ul>
 
-          {hd('Simulation Data Disclaimer')}
-          {p('All player names, team names, stats, and contracts displayed in this Tool refer exclusively to the FBpro98 football simulation game. They do not represent real-world NFL players, teams, salaries, or organizations. Any resemblance to real persons is incidental and relates solely to the simulation game data.')}
+          {hd(`Simulation Data Disclaimer`)}
+          {p(`All player names, team names, stats, and contracts displayed in this Tool refer exclusively to the FBpro98 football simulation game. They do not represent real-world NFL players, teams, salaries, or organizations. Any resemblance to real persons is incidental and relates solely to the simulation game data.`)}
 
-          {hd('No Warranty')}
-          {p('The Tool is provided "as is" without warranty of any kind. We do not guarantee the accuracy, completeness, or availability of any data. Simulation data is sourced from pnfl.biz and may contain errors or delays.')}
+          {hd(`No Warranty`)}
+          {p(`The Tool is provided "as is" without warranty of any kind. We do not guarantee the accuracy, completeness, or availability of any data. Simulation data is sourced from pnfl.biz and may contain errors or delays.`)}
 
-          {hd('Limitation of Liability')}
-          {p('To the fullest extent permitted by law, fbpro98.com and its operators shall not be liable for any indirect, incidental, or consequential damages arising from use of the Tool.')}
+          {hd(`Limitation of Liability`)}
+          {p(`To the fullest extent permitted by law, fbpro98.com and its operators shall not be liable for any indirect, incidental, or consequential damages arising from use of the Tool.`)}
 
-          {hd('Governing Law')}
-          {p('These terms are governed by the laws of the applicable jurisdiction of the operator. Any disputes shall be resolved informally in the first instance via the Contact page at fbpro98.com.')}
+          {hd(`Governing Law`)}
+          {p(`These terms are governed by the laws of the applicable jurisdiction of the operator. Any disputes shall be resolved informally in the first instance via the Contact page at fbpro98.com.`)}
 
-          {hd('Changes to Terms')}
-          {p('We reserve the right to update these terms at any time. Continued use of the Tool after changes constitutes acceptance of the revised terms.')}
+          {hd(`Changes to Terms`)}
+          {p(`We reserve the right to update these terms at any time. Continued use of the Tool after changes constitutes acceptance of the revised terms.`)}
         </div>
       ),
     },
@@ -5762,8 +5844,8 @@ function LegalModal({ page, onClose }) {
       icon: '✉️',
       content: (
         <div>
-          {hd('Get in Touch')}
-          {p('Have a question, found a bug, want to suggest a feature, or need help with the FBpro98 League Comparison Tool? We want to hear from you.')}
+          {hd(`Get in Touch`)}
+          {p(`Have a question, found a bug, want to suggest a feature, or need help with the FBpro98 League Comparison Tool? We want to hear from you.`)}
 
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',margin:'16px 0'}}>
             {[
@@ -5781,11 +5863,11 @@ function LegalModal({ page, onClose }) {
             ))}
           </div>
 
-          {hd('About the Tool')}
-          {p('The FBpro98 League Comparison Tool is built and maintained for the FBpro98 simulation league community. It is not affiliated with the NFL, EA Sports, or any commercial entity. All simulation data is sourced from pnfl.biz.')}
+          {hd(`About the Tool`)}
+          {p(`The FBpro98 League Comparison Tool is built and maintained for the FBpro98 simulation league community. It is not affiliated with the NFL, EA Sports, or any commercial entity. All simulation data is sourced from pnfl.biz.`)}
 
-          {hd('Response Time')}
-          {p('This is a community project. We aim to respond to all messages within 2–5 business days. For urgent league matters, use the main community channel at fbpro98.com/community.')}
+          {hd(`Response Time`)}
+          {p(`This is a community project. We aim to respond to all messages within 2–5 business days. For urgent league matters, use the main community channel at fbpro98.com/community.`)}
         </div>
       ),
     },
@@ -5825,6 +5907,46 @@ function LegalModal({ page, onClose }) {
   );
 }
 
+function ScoresTicker({ gameStatsData }) {
+  if (!gameStatsData || !Array.isArray(gameStatsData.games) || gameStatsData.games.length === 0) return null;
+  var games = gameStatsData.games.map(function(g) {
+    if (g.team1 !== undefined) return { away:g.team1, awayScore:g.score1, home:g.team2, homeScore:g.score2 };
+    return { away:g.away, awayScore:g.awayScore, home:g.home, homeScore:g.homeScore };
+  }).filter(function(g){ return g.away && g.home; });
+  if (!games.length) return null;
+  var items = games.concat(games);
+  return (
+    <div className="scores-ticker-wrap">
+      <div style={{position:'absolute',left:0,top:0,bottom:0,zIndex:2,display:'flex',alignItems:'center',padding:'0 14px',background:'linear-gradient(90deg,rgba(5,12,8,0.98) 85%,transparent)',borderRight:'1px solid rgba(255,215,0,0.15)'}}>
+        <span style={{fontFamily:'Orbitron',fontSize:'0.6rem',fontWeight:'900',color:'#ffd700',letterSpacing:'2px',textTransform:'uppercase'}}>
+          WK {gameStatsData.week || ''} SCORES
+        </span>
+      </div>
+      <div style={{padding:'8px 0 8px 130px',overflow:'hidden'}}>
+        <div className="scores-ticker-inner">
+          {items.map(function(g,i){
+            var aw = g.awayScore > g.homeScore;
+            var hw = g.homeScore > g.awayScore;
+            return (
+              <span key={i} style={{display:'inline-flex',alignItems:'center',marginRight:'32px'}}>
+                <TeamLogo teamName={g.away} size="tiny"/>
+                <span style={{fontFamily:'Orbitron',fontSize:'0.75rem',fontWeight:'900',color:aw?'#ffd700':'#a0c0b0',margin:'0 4px'}}>{g.away}</span>
+                <span style={{fontFamily:'Orbitron',fontSize:'0.82rem',fontWeight:'900',color:aw?'#4aff8a':'#608060',marginRight:'8px'}}>{g.awayScore}</span>
+                <span style={{color:'#3a6a4a',fontFamily:'Orbitron',fontSize:'0.65rem',margin:'0 6px'}}>AT</span>
+                <TeamLogo teamName={g.home} size="tiny"/>
+                <span style={{fontFamily:'Orbitron',fontSize:'0.75rem',fontWeight:'900',color:hw?'#ffd700':'#a0c0b0',margin:'0 4px'}}>{g.home}</span>
+                <span style={{fontFamily:'Orbitron',fontSize:'0.82rem',fontWeight:'900',color:hw?'#4aff8a':'#608060',marginRight:'24px'}}>{g.homeScore}</span>
+              </span>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{position:'absolute',right:0,top:0,bottom:0,width:'60px',background:'linear-gradient(90deg,transparent,rgba(5,12,8,0.95))',pointerEvents:'none',zIndex:2}}/>
+    </div>
+  );
+}
+
+
 function App() {
   const [teams,setTeams]=useState(['','']);
   const [data,setData]=useState(null);
@@ -5859,7 +5981,7 @@ function App() {
 
   // Clear all cached data
   const clearCache=()=>{
-    if(!window.confirm('Clear all cached roster data and reset settings to defaults?')) return;
+    if(!window._appConfirm('Clear all cached roster data and reset settings to defaults?')) return;
     storageWithSession.clear();
     setRosterData(null);
     setStandingsData(null);
@@ -5868,7 +5990,7 @@ function App() {
     setWeights(JSON.parse(JSON.stringify(DEFAULT_WEIGHTS)));
     setDepth(JSON.parse(JSON.stringify(DEFAULT_DEPTH)));
     setTeams(['','']);
-    alert('✓ Cache cleared. Fetch fresh rosters when ready.');
+    window._appAlert('✓ Cache cleared. Fetch fresh rosters when ready.');
   };
 
   // Helper: fetch a URL through multiple CORS proxies, return raw text
@@ -5900,8 +6022,10 @@ function App() {
 
   // Fetch live roster + standings via CORS proxy (both fetched simultaneously)
   const fetchRosters=useCallback(async(weekKey)=>{
+    console.log('[FetchRosters] called with weekKey:', weekKey);
     setFetching(true);
     setFetchError(null);
+    try {
 
     // Build GameStats URL based on current week (updated each fetch)
     const currentWeek = rosterData?.week || standingsData?.week || '3';
@@ -5983,6 +6107,10 @@ function App() {
         setGameStatsData(parsed);
         console.log('[PNFL] GameStats loaded:', parsed.games.length, 'games');
       } catch(e) { console.warn('GameStats parse failed:', e.message); }
+    } else if (window.pnflDB && window.pnflDB.games && window.pnflDB.games.length > 0) {
+      var fb = { games:window.pnflDB.games, week:window.pnflDB.week, season:window.pnflDB.season, fetchedAt:new Date().toISOString() };
+      setGameStatsData(fb);
+      console.log('[PNFL] GameStats from pnflDB:', fb.games.length, 'games');
     }
 
     if (rosterOk || standingsOk) {
@@ -5991,13 +6119,24 @@ function App() {
       if (standingsOk) msgs.push(`✓ Power Rankings: Week ${loadStandingsCache()?.week}`);
       if (!rosterOk) msgs.push(`⚠️ Rosters fetch failed`);
       if (!standingsOk) msgs.push(`⚠️ Standings fetch failed`);
-      alert(msgs.join('\n'));
+      window._appAlert(msgs.join('\n'));
     } else {
       setFetchError(rosterResult.error || standingsResult.error || 'Unknown error');
-      alert(`⚠️ All fetches failed. CORS proxies may be temporarily busy. Your built-in Week 1 data is still active.`);
+      // Use built-in Week 1 data so comparisons still work offline/in preview
+      if (!rosterData && HARDCODED_ROSTER_DATA && HARDCODED_ROSTER_DATA.teams && Object.keys(HARDCODED_ROSTER_DATA.teams).length > 0) {
+        setRosterData(HARDCODED_ROSTER_DATA);
+        window._appAlert('⚠ Live fetch unavailable (preview/offline). Loaded built-in Week 1 roster data. Deploy to fbpro98.com for live data.');
+      } else {
+        window._appAlert('⚠ All fetches failed. CORS proxies may be busy. Your built-in Week 1 data is still active.');
+      }
     }
 
-    setFetching(false);
+    } catch(fetchErr) {
+      console.error('[FetchRosters] uncaught error:', fetchErr);
+      window._appAlert('Fetch failed: ' + fetchErr.message);
+    } finally {
+      setFetching(false);
+    }
   },[]);
 
   // Fetch and parse the contracts XLSX file
@@ -6027,7 +6166,7 @@ function App() {
     }
 
     if (!arrayBuffer) {
-      alert(`⚠️ Contract file fetch failed.\n${lastError}\n\nTry again in a moment.`);
+      window._appAlert(`⚠️ Contract file fetch failed.\n${lastError}\n\nTry again in a moment.`);
       setFetchingContracts(false);
       return;
     }
@@ -6038,9 +6177,9 @@ function App() {
       saveContractCache(parsed);
       playSound('contractOk');
       setContractData(parsed);
-      alert(`✓ Contracts loaded!\n${parsed.playerCount} players across ${parsed.teamCount} teams.\nLast updated: ${new Date().toLocaleString()}`);
+      window._appAlert(`✓ Contracts loaded!\n${parsed.playerCount} players across ${parsed.teamCount} teams.\nLast updated: ${new Date().toLocaleString()}`);
     } catch(e) {
-      alert(`⚠️ Contract parse failed: ${e.message}`);
+      window._appAlert(`⚠️ Contract parse failed: ${e.message}`);
     }
     setFetchingContracts(false);
   },[]);
@@ -6052,11 +6191,11 @@ function App() {
 
   const compare=()=>{
     const valid=teams.filter(t=>t&&TEAM_NAMES.includes(t));
-    if(valid.length<2){alert('Select at least 2 teams');return;}
+    if(valid.length<2){window._appAlert('Select at least 2 teams');return;}
     // Only warn if NO data at all (live or hardcoded)
     const missing=valid.filter(t=>!getTeamData(t));
     if(missing.length>0){
-      const ok=window.confirm(`No roster data available for: ${missing.join(', ')}.\n\nProceed with placeholder data?`);
+      const ok=window._appConfirm(`No roster data available for: ${missing.join(', ')}.\n\nProceed with placeholder data?`);
       if(!ok) return;
     }
     setLoading(true);
@@ -6088,7 +6227,7 @@ function App() {
       setData(res);
       playSound('compareDone');
       } catch(err) {
-        alert('Comparison error: ' + err.message);
+        window._appAlert('Comparison error: ' + err.message);
         console.error(err);
       }
       setLoading(false);
@@ -6134,6 +6273,8 @@ function App() {
           <span style={{color:'#a0d2a0cc',fontSize:'0.78rem',letterSpacing:'2px',fontFamily:"'Roboto Condensed',sans-serif",fontStyle:'italic'}}>Created by S.Hamilton</span>
         </div>
       </header>
+
+      <ScoresTicker gameStatsData={gameStatsData}/>
 
       <RosterBanner rosterMeta={rosterMeta} onFetch={fetchRosters} fetching={fetching} onClearCache={clearCache} onFetchContracts={fetchContracts} fetchingContracts={fetchingContracts} contractData={contractData} selectedWeek={currentWeekKey} onWeekChange={(wk)=>{setCurrentWeekKey(wk);if(wk==='live'){fetchRosters('live');}else{const snap=window.PNFL_WEEKS?.getRosterForWeek(wk);if(snap){setRosterData(snap);if(window.pnflDB){window.pnflDB.fetch(snap.season,snap.week).catch(e=>console.warn(e));}}else{fetchRosters(wk);}}}}/>
 
