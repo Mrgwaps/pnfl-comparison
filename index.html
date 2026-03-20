@@ -1016,7 +1016,7 @@ textarea:focus { border-color: #4a9eff; }
 <div id="preloader">
   <div class="pl-title">FBpro98 League</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v7.5.5 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v7.6 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1092,7 +1092,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.5.5'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.6'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -6379,83 +6379,31 @@ function App() {
   const [showGuide, setShowGuide]=useState(false);
 
   // Bootstrap pnflDB on mount with cached season/week
-  // Wire global guide trigger
+  // Wire global guide trigger + restore logo cache from localStorage on mount
   React.useEffect(function() {
     window._showGuide = function() { setShowGuide(true); };
-    return function() { window._showGuide = null; };
-  }, []);
 
-  // ── Post-mount logo cache: fetch all logos AFTER app is running ──
-  // Runs once. Skips entirely if localStorage already has all logos cached.
-  React.useEffect(function() {
-    var CACHE_KEY = 'pnfl_logo_cache_v2';
-    var LOGO_URLS = {
-      'Buffalo':       'https://a.espncdn.com/i/teamlogos/nfl/500/buf.png',
-      'New England':   'https://a.espncdn.com/i/teamlogos/nfl/500/ne.png',
-      'Miami':         'https://a.espncdn.com/i/teamlogos/nfl/500/mia.png',
-      'Jacksonville':  'https://a.espncdn.com/i/teamlogos/nfl/500/jax.png',
-      'Pittsburgh':    'https://a.espncdn.com/i/teamlogos/nfl/500/pit.png',
-      'Denver':        'https://a.espncdn.com/i/teamlogos/nfl/500/den.png',
-      'Las Vegas':     'https://a.espncdn.com/i/teamlogos/nfl/500/lv.png',
-      'Los Angeles':   'https://a.espncdn.com/i/teamlogos/nfl/500/lar.png',
-      'Cincinnati':    'https://a.espncdn.com/i/teamlogos/nfl/500/cin.png',
-      'Atlanta':       'https://a.espncdn.com/i/teamlogos/nfl/500/atl.png',
-      'Washington':    'https://a.espncdn.com/i/teamlogos/nfl/500/wsh.png',
-      'New York':      'https://a.espncdn.com/i/teamlogos/nfl/500/nyg.png',
-      'Philadelphia':  'https://a.espncdn.com/i/teamlogos/nfl/500/phi.png',
-      'San Francisco': 'https://a.espncdn.com/i/teamlogos/nfl/500/sf.png',
-      'Chicago':       'https://a.espncdn.com/i/teamlogos/nfl/500/ari.png',
-      'Minnesota':     'https://a.espncdn.com/i/teamlogos/nfl/500/min.png',
-      'Seattle':       'https://a.espncdn.com/i/teamlogos/nfl/500/sea.png',
-      'Green Bay':     'https://a.espncdn.com/i/teamlogos/nfl/500/gb.png'
-    };
-    var teams = Object.keys(LOGO_URLS);
-    window.LOGO_CACHE = window.LOGO_CACHE || {};
-
-    // Check if already fully cached in localStorage
+    // Restore logos from localStorage into memory (instant, no network)
     try {
-      var stored = localStorage.getItem(CACHE_KEY);
+      var stored = localStorage.getItem('pnfl_logo_cache_v2');
       if (stored) {
-        var parsed = JSON.parse(stored);
-        var allPresent = teams.every(function(t) { return parsed[t] && parsed[t].startsWith('data:'); });
-        if (allPresent) {
-          // Populate in-memory cache and signal components
-          Object.assign(window.LOGO_CACHE, parsed);
+        var logoMap = JSON.parse(stored);
+        var count = Object.keys(logoMap).filter(function(k) {
+          return logoMap[k] && logoMap[k].startsWith('data:');
+        }).length;
+        if (count > 0) {
+          window.LOGO_CACHE = window.LOGO_CACHE || {};
+          Object.assign(window.LOGO_CACHE, logoMap);
           window.dispatchEvent(new Event('logoCacheReady'));
-          console.log('[Logos] All ' + teams.length + ' logos loaded from localStorage cache');
-          return;
+          console.log('[Logos] Restored ' + count + ' logos from localStorage on mount');
         }
       }
     } catch(e) {}
 
-    // Not cached yet — fetch after a brief delay to let the app finish painting
-    var timer = setTimeout(function() {
-      console.log('[Logos] Fetching team logos in background...');
-      var newCache = {};
-      var loaded = 0;
-      teams.forEach(function(team) {
-        fetch(LOGO_URLS[team])
-          .then(function(r) { return r.blob(); })
-          .then(function(blob) {
-            var reader = new FileReader();
-            reader.onload = function() {
-              newCache[team] = reader.result;
-              window.LOGO_CACHE[team] = reader.result;
-              loaded++;
-              window.dispatchEvent(new Event('logoCacheReady'));
-              if (loaded === teams.length) {
-                try { localStorage.setItem(CACHE_KEY, JSON.stringify(newCache)); } catch(e) {}
-                console.log('[Logos] All ' + teams.length + ' logos cached to localStorage');
-              }
-            };
-            reader.readAsDataURL(blob);
-          })
-          .catch(function() { loaded++; });
-      });
-    }, 1500); // 1.5s delay — app is fully rendered and interactive before any logo work starts
-
-    return function() { clearTimeout(timer); };
+    return function() { window._showGuide = null; };
   }, []);
+
+
 
   React.useEffect(() => {
     const cached = loadRosterCache();
@@ -6634,6 +6582,104 @@ function App() {
   },[]);
 
   // Fetch and parse the contracts XLSX file
+
+  // ── Logo Asset Downloader ──
+  // Called after contracts complete. Downloads all 18 ESPN team logos in parallel,
+  // converts each to base64, saves to localStorage + window.LOGO_CACHE.
+  // Skips logos that are already cached. Dispatches 'logoCacheReady' as each arrives.
+  const downloadLogoAssets = function() {
+    var CACHE_KEY = 'pnfl_logo_cache_v2';
+    var LOGO_URLS = {
+      'Buffalo':       'https://a.espncdn.com/i/teamlogos/nfl/500/buf.png',
+      'New England':   'https://a.espncdn.com/i/teamlogos/nfl/500/ne.png',
+      'Miami':         'https://a.espncdn.com/i/teamlogos/nfl/500/mia.png',
+      'Jacksonville':  'https://a.espncdn.com/i/teamlogos/nfl/500/jax.png',
+      'Pittsburgh':    'https://a.espncdn.com/i/teamlogos/nfl/500/pit.png',
+      'Denver':        'https://a.espncdn.com/i/teamlogos/nfl/500/den.png',
+      'Las Vegas':     'https://a.espncdn.com/i/teamlogos/nfl/500/lv.png',
+      'Los Angeles':   'https://a.espncdn.com/i/teamlogos/nfl/500/lar.png',
+      'Cincinnati':    'https://a.espncdn.com/i/teamlogos/nfl/500/cin.png',
+      'Atlanta':       'https://a.espncdn.com/i/teamlogos/nfl/500/atl.png',
+      'Washington':    'https://a.espncdn.com/i/teamlogos/nfl/500/wsh.png',
+      'New York':      'https://a.espncdn.com/i/teamlogos/nfl/500/nyg.png',
+      'Philadelphia':  'https://a.espncdn.com/i/teamlogos/nfl/500/phi.png',
+      'San Francisco': 'https://a.espncdn.com/i/teamlogos/nfl/500/sf.png',
+      'Chicago':       'https://a.espncdn.com/i/teamlogos/nfl/500/ari.png',
+      'Minnesota':     'https://a.espncdn.com/i/teamlogos/nfl/500/min.png',
+      'Seattle':       'https://a.espncdn.com/i/teamlogos/nfl/500/sea.png',
+      'Green Bay':     'https://a.espncdn.com/i/teamlogos/nfl/500/gb.png'
+    };
+    var teams = Object.keys(LOGO_URLS);
+    window.LOGO_CACHE = window.LOGO_CACHE || {};
+
+    // Load what's already in localStorage into memory first
+    var existingCache = {};
+    try {
+      var stored = localStorage.getItem(CACHE_KEY);
+      if (stored) existingCache = JSON.parse(stored);
+    } catch(e) {}
+
+    // Check which logos are missing
+    var missing = teams.filter(function(t) {
+      return !existingCache[t] || !existingCache[t].startsWith('data:');
+    });
+
+    // If already fully cached — just load into memory and signal
+    if (missing.length === 0) {
+      Object.assign(window.LOGO_CACHE, existingCache);
+      window.dispatchEvent(new Event('logoCacheReady'));
+      console.log('[Logos] All ' + teams.length + ' logos already cached — loaded instantly');
+      return Promise.resolve();
+    }
+
+    // Seed memory cache with what we already have
+    Object.assign(window.LOGO_CACHE, existingCache);
+
+    console.log('[Logos] Downloading ' + missing.length + ' missing logo(s) in parallel...');
+
+    // Helper: fetch one logo, convert to base64
+    var fetchLogo = function(team) {
+      return fetch(LOGO_URLS[team], {signal: AbortSignal.timeout(12000)})
+        .then(function(r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.blob();
+        })
+        .then(function(blob) {
+          return new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onload  = function() { resolve(reader.result); };
+            reader.onerror = function() { reject(new Error('FileReader failed')); };
+            reader.readAsDataURL(blob);
+          });
+        })
+        .then(function(dataUri) {
+          existingCache[team]        = dataUri;
+          window.LOGO_CACHE[team]    = dataUri;
+          // Persist incrementally so partial cache survives if user closes tab
+          try { localStorage.setItem(CACHE_KEY, JSON.stringify(existingCache)); } catch(e) {}
+          // Signal React components to update — fires once per logo as it arrives
+          window.dispatchEvent(new Event('logoCacheReady'));
+          console.log('[Logos] Downloaded: ' + team);
+          return {team: team, ok: true};
+        })
+        .catch(function(e) {
+          console.warn('[Logos] Failed: ' + team + ' — ' + e.message);
+          return {team: team, ok: false};
+        });
+    };
+
+    // Fire ALL missing logos in parallel
+    return Promise.all(missing.map(fetchLogo))
+      .then(function(results) {
+        var ok      = results.filter(function(r){return r.ok;}).length;
+        var failed  = results.filter(function(r){return !r.ok;}).length;
+        console.log('[Logos] Complete — ' + ok + ' downloaded, ' + failed + ' failed');
+        if (ok > 0) {
+          try { localStorage.setItem(CACHE_KEY, JSON.stringify(existingCache)); } catch(e) {}
+        }
+      });
+  };
+
   const fetchContracts=useCallback(async()=>{
     setFetchingContracts(true);
     const CONTRACT_URL = 'https://pnfl.biz/pnflstats/Contracts.xlsx';
@@ -6672,6 +6718,11 @@ function App() {
       playSound('contractOk');
       setContractData(parsed);
       window._appAlert(`✓ Contracts loaded!\n${parsed.playerCount} players across ${parsed.teamCount} teams.\nLast updated: ${new Date().toLocaleString()}`);
+      // ── Sequential: contracts done → now download logo assets in parallel ──
+      console.log('[Assets] Contracts complete — starting logo asset download...');
+      downloadLogoAssets().catch(function(e) {
+        console.warn('[Assets] Logo download error:', e.message);
+      });
     } catch(e) {
       window._appAlert(`⚠️ Contract parse failed: ${e.message}`);
     }
