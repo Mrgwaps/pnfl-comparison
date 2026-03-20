@@ -1092,7 +1092,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.9.1'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.9.2'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -1666,12 +1666,29 @@ function loadContractCache() {
     return null;
   } catch(e) { return null; }
 }
-function saveContractCache(c) {
-  if (!c) return;
-  // Strip the _index Map before serializing — Maps become {} in JSON
-  // It gets rebuilt lazily on first lookupContract() call
-  const toSave = { contracts: c.contracts, playerCount: c.playerCount, teamCount: c.teamCount, fetchedAt: c.fetchedAt, sheets: c.sheets };
-  storageWithSession.set('pnfl_contracts', toSave);
+function saveContractCache(data) {
+  if (!data) return;
+  try {
+    // Strip non-serializable Map index before saving
+    const toSave = {
+      contracts:   data.contracts,
+      playerCount: data.playerCount,
+      teamCount:   data.teamCount,
+      fetchedAt:   data.fetchedAt || new Date().toISOString(),
+      sheets:      data.sheets,
+    };
+    storageWithSession.set('pnfl_contracts', toSave);
+    console.log('[Contracts] Cached: ' + toSave.playerCount + ' players, ' + Math.round(JSON.stringify(toSave).length/1024) + 'KB');
+  } catch(e) {
+    console.warn('[Contracts] Cache save failed:', e.message);
+    // Try saving just the essentials if full save fails (quota exceeded)
+    try {
+      storageWithSession.set('pnfl_contracts', {
+        contracts: data.contracts, playerCount: data.playerCount,
+        teamCount: data.teamCount, fetchedAt: data.fetchedAt || new Date().toISOString(),
+      });
+    } catch(e2) { console.warn('[Contracts] Minimal cache save also failed'); }
+  }
 }
 function loadSeasonCache()    { return storageWithSession.get('pnfl_season')    || null; }
 function saveSeasonCache(d)   { storageWithSession.set('pnfl_season', d); }
@@ -6798,78 +6815,100 @@ function App() {
   };
 
     const fetchContracts=useCallback(async()=>{
-    setFetchingContracts(true);
     const CONTRACT_URL = 'https://pnfl.biz/pnflstats/Contracts.xlsx';
-    const FC_KEY = 'fc-ba4ebe938334457ba8c4c29d22f8c41f';
+    const FC_KEY       = 'fc-ba4ebe938334457ba8c4c29d22f8c41f';
+    const CACHE_MAX_AGE_HRS = 6; // re-download if cache older than 6 hours
+
+    // ── Cache-first: serve from localStorage immediately if fresh enough ──
+    const existing = loadContractCache();
+    if (existing && existing.fetchedAt) {
+      const ageHrs = (Date.now() - new Date(existing.fetchedAt).getTime()) / 3600000;
+      if (ageHrs < CACHE_MAX_AGE_HRS) {
+        // Cache is fresh — set state immediately, no network call needed
+        setContractData(existing);
+        console.log('[Contracts] Served from cache (' + ageHrs.toFixed(1) + 'h old)');
+        // Still kick off logo preload
+        downloadLogoAssets().catch(function(){});
+        return; // done — no spinner, no wait
+      }
+      // Cache exists but stale — show it immediately, refresh in background
+      setContractData(existing);
+      console.log('[Contracts] Cache stale (' + ageHrs.toFixed(1) + 'h) — refreshing in background...');
+    }
+
+    // ── Show loading state ──
+    setFetchingContracts(true);
+
+    // ── Fetch the xlsx binary via proxy chain ──
+    // Firecrawl can't return binary xlsx — use CORS proxies for binary
+    // Order chosen for reliability with binary files
+    const PROXY_FNS = [
+      u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+      u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+      u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+      u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}`,
+    ];
+
     let arrayBuffer = null;
-    let lastError = '';
+    let lastError   = '';
 
-    // ── Tier 1: Firecrawl for xlsx ──
-    try {
-      const fcRes = await fetch('https://api.firecrawl.dev/v1/scrape', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + FC_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: CONTRACT_URL, formats: ['rawHtml'] }),
-        signal: AbortSignal.timeout(35000),
-      });
-      if (fcRes.ok) {
-        // Firecrawl returns text for xlsx — try to get raw bytes via a proxy with the scraped url
-        // Actually for binary files, fall through to direct proxy fetch
-      }
-    } catch(e) {}
-
-    // ── Tier 1b: Direct fetch (works if deployed on same domain or CORS allowed) ──
-    try {
-      const directRes = await fetch(CONTRACT_URL, {signal: AbortSignal.timeout(15000)});
-      if (directRes.ok) {
-        const buf = await directRes.arrayBuffer();
-        if (buf.byteLength >= 1000) { arrayBuffer = buf; }
-      }
-    } catch(e) { lastError = e.message; }
-
-    // ── Tier 2: CORS proxies ──
-    if (!arrayBuffer) {
-      const PROXIES = [
-        url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-        url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-      ];
-      for (let i = 0; i < PROXIES.length; i++) {
-        try {
-          const res = await fetch(PROXIES[i](CONTRACT_URL), {signal: AbortSignal.timeout(30000)});
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const buf = await res.arrayBuffer();
-          if (buf.byteLength < 1000) throw new Error('Response too small to be a valid xlsx');
-          arrayBuffer = buf;
-          console.log('[Contracts] Proxy ' + (i+1) + ' success');
-          break;
-        } catch(e) {
-          lastError = e.message;
-          console.warn(`Contract proxy ${i+1} failed:`, e.message);
+    // Try each proxy with generous timeout (xlsx can be 200KB+ over slow proxies)
+    for (let i = 0; i < PROXY_FNS.length; i++) {
+      try {
+        console.log('[Contracts] Trying proxy ' + (i+1) + '...');
+        const res = await fetch(PROXY_FNS[i](CONTRACT_URL), {
+          signal: AbortSignal.timeout(45000), // 45s — xlsx is large, proxies can be slow
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const ct  = res.headers.get('content-type') || '';
+        let buf;
+        if (ct.includes('application/json')) {
+          // allorigins /get wraps in JSON
+          const json = await res.json();
+          const b64  = json.contents || json.body || '';
+          if (!b64) throw new Error('Empty JSON contents');
+          // Convert base64 to ArrayBuffer if needed, else treat as binary string
+          const raw  = atob(b64.replace(/^data:[^;]+;base64,/, ''));
+          buf = new ArrayBuffer(raw.length);
+          const view = new Uint8Array(buf);
+          for (let j = 0; j < raw.length; j++) view[j] = raw.charCodeAt(j);
+        } else {
+          buf = await res.arrayBuffer();
         }
+        if (!buf || buf.byteLength < 1000) throw new Error('Response too small (' + (buf ? buf.byteLength : 0) + ' bytes)');
+        arrayBuffer = buf;
+        console.log('[Contracts] Proxy ' + (i+1) + ' success — ' + buf.byteLength + ' bytes');
+        break;
+      } catch(e) {
+        lastError = e.message;
+        console.warn('[Contracts] Proxy ' + (i+1) + ' failed:', e.message);
       }
     }
 
+    // ── If all proxies failed and we have stale cache, keep using it ──
     if (!arrayBuffer) {
-      window._appAlert(`⚠️ Contract file fetch failed.\n${lastError}\n\nTry again in a moment.`);
       setFetchingContracts(false);
+      if (existing) {
+        window._appAlert('⚠ Contract refresh failed — using cached data from ' + new Date(existing.fetchedAt).toLocaleDateString() + '.\n\nError: ' + lastError);
+      } else {
+        window._appAlert('⚠ Contract fetch failed.\n' + lastError + '\n\nTry again in a moment.');
+      }
       return;
     }
 
+    // ── Parse xlsx ──
     try {
       const parsed = await parseContractAsync(arrayBuffer);
       if (!parsed || parsed.playerCount === 0) throw new Error('No player contracts found in file');
       saveContractCache(parsed);
       playSound('contractOk');
       setContractData(parsed);
-      window._appAlert(`✓ Contracts loaded!\n${parsed.playerCount} players across ${parsed.teamCount} teams.\nLast updated: ${new Date().toLocaleString()}`);
-      // ── Sequential: contracts done → now download logo assets in parallel ──
-      console.log('[Assets] Contracts complete — starting logo asset download...');
-      downloadLogoAssets().catch(function(e) {
-        console.warn('[Assets] Logo download error:', e.message);
-      });
+      window._appAlert('✓ Contracts loaded — ' + parsed.playerCount + ' players across ' + parsed.teamCount + ' teams.');
+      // Kick off logo download after contracts
+      downloadLogoAssets().catch(function(){});
     } catch(e) {
-      window._appAlert(`⚠️ Contract parse failed: ${e.message}`);
+      window._appAlert('⚠ Contract parse failed: ' + e.message);
+      // Keep stale cache displayed — don't wipe state
     }
     setFetchingContracts(false);
   },[]);
