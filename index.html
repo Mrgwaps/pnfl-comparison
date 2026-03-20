@@ -1010,7 +1010,7 @@ textarea:focus { border-color: #4a9eff; }
 <div id="preloader">
   <div class="pl-title">FBpro98 League</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v7.5 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v7.5.2 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1086,7 +1086,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.5'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.5.2'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -3231,46 +3231,24 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
         <div style={{marginLeft:'auto',flexShrink:0}}>
           <button
             onClick={function(){window._showGuide&&window._showGuide();}}
-            title="FBpro98 User Guide — How to use each feature"
+            title="FBpro98 User Guide"
             className="haptic-btn"
-            style={{
-              padding:0,
-              background:'none',
-              border:'none',
-              cursor:'pointer',
-              display:'block',
-              position:'relative',
-            }}>
+            style={{padding:0,background:'none',border:'none',cursor:'pointer',display:'block',position:'relative'}}>
             <img
               src={window._fbpro98Logo||''}
               alt="FBpro98 Guide"
-              style={{{{
-                width:'72px',
-                height:'56px',
-                objectFit:'cover',
-                borderRadius:'10px',
-                display:'block',
-                boxShadow:'0 8px 24px rgba(0,0,0,0.7),0 4px 8px rgba(0,0,0,0.5),0 2px 4px rgba(0,0,0,0.4)',
+              style={{width:'72px',height:'56px',objectFit:'cover',borderRadius:'10px',display:'block',
+                boxShadow:'0 8px 24px rgba(0,0,0,0.7),0 4px 8px rgba(0,0,0,0.5)',
                 border:'2px solid rgba(255,215,0,0.5)',
-                transform:'translateY(-2px)',
-                transition:'all 0.15s ease',
-                filter:'brightness(1.05)',
-              }}}}
-              onMouseEnter={function(e){{e.target.style.transform='translateY(-5px) scale(1.04)';e.target.style.boxShadow='0 14px 36px rgba(0,0,0,0.8),0 6px 14px rgba(255,215,0,0.15)';}}
-              }
-              onMouseLeave={function(e){{e.target.style.transform='translateY(-2px) scale(1)';e.target.style.boxShadow='0 8px 24px rgba(0,0,0,0.7),0 4px 8px rgba(0,0,0,0.5),0 2px 4px rgba(0,0,0,0.4)';}}
-              }
+                transform:'translateY(-2px)',transition:'all 0.15s ease',
+                filter:'brightness(1.05)'}}
+              onMouseEnter={function(e){e.target.style.transform='translateY(-5px) scale(1.04)';e.target.style.boxShadow='0 14px 36px rgba(0,0,0,0.8)';}}
+              onMouseLeave={function(e){e.target.style.transform='translateY(-2px)';e.target.style.boxShadow='0 8px 24px rgba(0,0,0,0.7),0 4px 8px rgba(0,0,0,0.5)';}}
             />
-            <div style={{{{
-              position:'absolute',
-              bottom:'-1px',left:'50%',transform:'translateX(-50%)',
-              width:'60%',height:'8px',
-              background:'rgba(0,0,0,0.35)',
-              borderRadius:'50%',
-              filter:'blur(5px)',
-            }}}}/>
+            <div style={{position:'absolute',bottom:'-1px',left:'50%',transform:'translateX(-50%)',
+              width:'60%',height:'8px',background:'rgba(0,0,0,0.35)',borderRadius:'50%',filter:'blur(5px)'}}/>
           </button>
-          <div style={{{{textAlign:'center',fontSize:'0.52rem',color:'#4a6a3a',fontFamily:'Orbitron',marginTop:'4px',letterSpacing:'1px',textTransform:'uppercase'}}}}>Guide</div>
+          <div style={{textAlign:'center',fontSize:'0.52rem',color:'#4a6a3a',fontFamily:'Orbitron',marginTop:'4px',letterSpacing:'1px',textTransform:'uppercase'}}>Guide</div>
         </div>
       </div>
       <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
@@ -6276,8 +6254,8 @@ function UserGuideModal({ onClose }) {
           <Step num="3">Ollama starts automatically on <strong style={{color:'#a0d2a0'}}>http://localhost:11434</strong></Step>
           <Step num="4">In this tool, click the <strong style={{color:'#c090ff'}}>AI Analyst toggle</strong> in the action bar to open the connect modal</Step>
           <Step num="5">Select <strong style={{color:'#c090ff'}}>⚡ Local (Ollama)</strong>, leave the URL as localhost:11434, click <strong style={{color:'#c090ff'}}>↺ Scan</strong> to detect your installed models, then click <strong style={{color:'#c090ff'}}>Connect</strong></Step>
-          <Warn>If you get a CORS error, run this command once in your terminal, then restart Ollama:<br/><code style={{background:'rgba(0,0,0,0.4)',padding:'3px 8px',borderRadius:'4px',color:'#4aff8a',fontFamily:'monospace',fontSize:'0.8em'}}>setx OLLAMA_ORIGINS "https://mrgwaps.github.io" /M</code></Warn>
-          <Note>On Mac/Linux use: <code style={{background:'rgba(0,0,0,0.3)',padding:'2px 6px',borderRadius:'4px',color:'#a0f090',fontFamily:'monospace'}}>launchctl setenv OLLAMA_ORIGINS "https://mrgwaps.github.io"</code> then restart Ollama</Note>
+          <Warn>If you get a CORS error, run this once in a terminal, then restart Ollama:<br/><code style={{background:'rgba(0,0,0,0.4)',padding:'3px 8px',borderRadius:'4px',color:'#4aff8a',fontFamily:'monospace',fontSize:'0.8em'}}>{'setx OLLAMA_ORIGINS "https://mrgwaps.github.io" /M'}</code></Warn>
+          <Note>On Mac/Linux: <code style={{background:'rgba(0,0,0,0.3)',padding:'2px 6px',borderRadius:'4px',color:'#a0f090',fontFamily:'monospace'}}>{'launchctl setenv OLLAMA_ORIGINS "https://mrgwaps.github.io"'}</code> then restart Ollama</Note>
         </Section>
         <Section title="Free Ollama Models" color="#4aff4a">
           <ModelCard name="llama3.2:1b" size="~800MB" desc="Meta's compact model. Fast responses, good for analysis. Best starting point." free={true}/>
@@ -6291,7 +6269,7 @@ function UserGuideModal({ onClose }) {
           <P><strong style={{color:'#a0d2f0'}}>HuggingFace</strong> offers a free Serverless Inference API. No install required — but you need a free account and API token.</P>
           <Step num="1">Go to <strong style={{color:'#4a9eff'}}>huggingface.co</strong> and create a free account</Step>
           <Step num="2">Click your profile avatar (top right) → <strong style={{color:'#a0d2f0'}}>Settings</strong> → <strong style={{color:'#a0d2f0'}}>Access Tokens</strong></Step>
-          <Step num="3">Click <strong style={{color:'#4aff4a'}}>New Token</strong> → choose <strong style={{color:'#4aff4a'}}>Read</strong> role → enable <strong style={{color:'#4aff4a'}}"Make calls to serverless Inference API"</strong> → click <strong style={{color:'#4aff4a'}}>Create Token</strong></Step>
+          <Step num="3">Click <strong style={{color:'#4aff4a'}}>New Token</strong> → choose <strong style={{color:'#4aff4a'}}>Read</strong> role → enable <strong style={{color:'#4aff4a'}}>Make calls to serverless Inference API</strong> → click <strong style={{color:'#4aff4a'}}>Create Token</strong></Step>
           <Step num="4">Copy the token (starts with <code style={{background:'rgba(0,0,0,0.3)',padding:'2px 6px',borderRadius:'4px',color:'#a0f090',fontFamily:'monospace'}}>hf_</code>)</Step>
           <Step num="5">In this tool, open the AI connect modal, select <strong style={{color:'#a0d2f0'}}>☁ HuggingFace</strong>, paste your token, and click <strong style={{color:'#c090ff'}}>Connect</strong></Step>
           <Note>The HuggingFace free tier has rate limits (a few hundred requests/day). For heavy use, Ollama local is recommended.</Note>
@@ -6305,8 +6283,8 @@ function UserGuideModal({ onClose }) {
           <P>The <strong style={{color:'#4aff4a'}}>🔄 Trade Analyzer</strong> panel lets you model trades between two teams and see the projected roster impact before you commit.</P>
           <Step num="1">Open the Trade Analyzer panel from the toolbar</Step>
           <Step num="2">Select Team A and Team B from the dropdowns</Step>
-          <Step num="3">Click players from Team A's roster to add them to the "giving away" side</Step>
-          <Step num="4">Click players from Team B's roster to add them to the "getting back" side</Step>
+          <Step num="3">Click players from Team A's roster to add them to the giving away side</Step>
+          <Step num="4">Click players from Team B's roster to add them to the getting back side</Step>
           <Step num="5">Click <strong style={{color:'#4aff4a'}}>🔄 Analyze Trade Impact</strong> to see before/after overall, offense, and defense scores for both teams</Step>
           <Note>Score changes shown as deltas (▲ up or ▼ down) indicate whether the trade helps or hurts each team's roster strength based on your current weights.</Note>
         </Section>
