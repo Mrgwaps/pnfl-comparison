@@ -1010,7 +1010,7 @@ textarea:focus { border-color: #4a9eff; }
 <div id="preloader">
   <div class="pl-title">FBpro98 League</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v7.1.1 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v7.2 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1086,7 +1086,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.1.1'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.2'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -1216,7 +1216,7 @@ const ESPN_LOGOS = {
   "New York":      "https://a.espncdn.com/i/teamlogos/nfl/500/nyg.png",
   "Philadelphia":  "https://a.espncdn.com/i/teamlogos/nfl/500/phi.png",
   "San Francisco": "https://a.espncdn.com/i/teamlogos/nfl/500/sf.png",
-  "Chicago":       "https://a.espncdn.com/i/teamlogos/nfl/500/chi.png",
+  "Chicago":       "https://a.espncdn.com/i/teamlogos/nfl/500/ari.png",
   "Minnesota":     "https://a.espncdn.com/i/teamlogos/nfl/500/min.png",
   "Seattle":       "https://a.espncdn.com/i/teamlogos/nfl/500/sea.png",
   "Green Bay":     "https://a.espncdn.com/i/teamlogos/nfl/500/gb.png",
@@ -6394,6 +6394,7 @@ function App() {
           <ChartsPanel teams={teams.filter(t=>t)} data={data}/>
           {data.overall.winner&&(
             <div className="winner-banner full-width">
+              {/* Winner header */}
               <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'20px',flexWrap:'wrap'}}>
                 <FootballIcon size={40} style={{filter:'drop-shadow(0 0 8px rgba(255,200,50,0.8))',transform:'rotate(-15deg)',flexShrink:0}}/>
                 <div style={{display:'flex',alignItems:'center',gap:'14px'}}>
@@ -6404,9 +6405,144 @@ function App() {
                 </div>
                 <FootballIcon size={40} style={{filter:'drop-shadow(0 0 8px rgba(255,200,50,0.8))',transform:'rotate(15deg)',flexShrink:0}}/>
               </div>
-              <div style={{fontSize:'1rem',fontWeight:'normal',marginTop:'12px',opacity:0.9,fontFamily:'Roboto Condensed'}}>
+              <div style={{fontSize:'1rem',fontWeight:'normal',marginTop:'8px',marginBottom:'20px',opacity:0.9,fontFamily:'Roboto Condensed'}}>
                 Based on your configured weights & depth • Overall Score: {data.teams[data.overall.winner]?.overallScore?.toFixed(1)}
               </div>
+
+              {/* Position group superiority breakdown — side by side per team */}
+              {(()=>{
+                const validTeams = teams.filter(t=>t && data.teams[t]);
+                if(validTeams.length < 2) return null;
+
+                // For each position group, find the winner
+                const offGroups = [
+                  {key:'QB',  label:'QB'},
+                  {key:'HB',  label:'HB'},
+                  {key:'FB',  label:'FB'},
+                  {key:'WR',  label:'WR'},
+                  {key:'TE',  label:'TE'},
+                  {key:'OL_TOTAL', label:'O-Line'},
+                  {key:'K',   label:'K/P'},
+                ];
+                const defGroups = [
+                  {key:'DL_TOTAL', label:'D-Line'},
+                  {key:'LB',  label:'LB'},
+                  {key:'CB',  label:'CB'},
+                  {key:'S',   label:'Safety'},
+                ];
+
+                function groupWinner(groups, posKey) {
+                  var best = null, bestScore = -1;
+                  validTeams.forEach(function(t) {
+                    var pos = data.teams[t].offensePositions || {};
+                    var dPos = data.teams[t].defensePositions || {};
+                    var score = pos[posKey] !== undefined ? pos[posKey] : (dPos[posKey] !== undefined ? dPos[posKey] : null);
+                    if(score !== null && score > bestScore) { bestScore = score; best = t; }
+                  });
+                  return best;
+                }
+
+                var TEAM_COLORS = ['#4a9eff','#ffd700','#4aff8a','#ff9944'];
+
+                return (
+                  <div style={{marginTop:'4px'}}>
+                    <div style={{fontSize:'0.6rem',color:'#4a6a5a',fontFamily:'Orbitron',letterSpacing:'2px',textTransform:'uppercase',marginBottom:'12px'}}>
+                      Position Group Superiority
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px'}}>
+                      {/* OFFENSE */}
+                      <div style={{background:'rgba(74,158,255,0.06)',border:'1px solid rgba(74,158,255,0.2)',borderRadius:'10px',padding:'12px 14px'}}>
+                        <div style={{fontSize:'0.58rem',color:'#4a9eff',fontFamily:'Orbitron',letterSpacing:'1.5px',marginBottom:'10px'}}>🔵 OFFENSE</div>
+                        {offGroups.map(function(g) {
+                          var win = groupWinner(offGroups, g.key);
+                          return (
+                            <div key={g.key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'4px 0',borderBottom:'1px solid rgba(255,255,255,0.05)'}}>
+                              <span style={{fontSize:'0.72rem',color:'#6a9a8a',fontFamily:'Roboto Condensed',minWidth:'52px'}}>{g.label}</span>
+                              <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+                                {validTeams.map(function(t, ti) {
+                                  var isWin = win === t;
+                                  return (
+                                    <div key={t} style={{display:'flex',alignItems:'center',gap:'3px',minWidth:'80px',justifyContent:'flex-end'}}>
+                                      <span style={{fontSize:'0.68rem',fontFamily:'Roboto Condensed',color:isWin?TEAM_COLORS[ti]:'#3a5a4a',fontWeight:isWin?'700':'400',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:'60px'}}>{t}</span>
+                                      {isWin && <span style={{color:'#4aff4a',fontSize:'0.8rem',flexShrink:0}}>✓</span>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {/* Offense total */}
+                        {(function(){
+                          var best=null, bestS=-1;
+                          validTeams.forEach(function(t){ var s=data.teams[t]?.offenseScore||0; if(s>bestS){bestS=s;best=t;} });
+                          return (
+                            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 0 2px',marginTop:'4px',borderTop:'1px solid rgba(74,158,255,0.25)'}}>
+                              <span style={{fontSize:'0.72rem',color:'#4a9eff',fontFamily:'Orbitron',fontSize:'0.6rem'}}>TOTAL</span>
+                              <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+                                {validTeams.map(function(t,ti){
+                                  var isBest=best===t;
+                                  return (
+                                    <div key={t} style={{display:'flex',alignItems:'center',gap:'3px',minWidth:'80px',justifyContent:'flex-end'}}>
+                                      <span style={{fontSize:'0.7rem',fontFamily:'Orbitron',color:isBest?TEAM_COLORS[ti]:'#3a5a4a',fontWeight:isBest?'700':'400'}}>{(data.teams[t]?.offenseScore||0).toFixed(1)}</span>
+                                      {isBest && <span style={{color:'#4aff4a',fontSize:'0.8rem',flexShrink:0}}>✓</span>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* DEFENSE */}
+                      <div style={{background:'rgba(255,107,107,0.06)',border:'1px solid rgba(255,107,107,0.2)',borderRadius:'10px',padding:'12px 14px'}}>
+                        <div style={{fontSize:'0.58rem',color:'#ff6b6b',fontFamily:'Orbitron',letterSpacing:'1.5px',marginBottom:'10px'}}>🔴 DEFENSE</div>
+                        {defGroups.map(function(g) {
+                          var win = groupWinner(defGroups, g.key);
+                          return (
+                            <div key={g.key} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'4px 0',borderBottom:'1px solid rgba(255,255,255,0.05)'}}>
+                              <span style={{fontSize:'0.72rem',color:'#6a9a8a',fontFamily:'Roboto Condensed',minWidth:'52px'}}>{g.label}</span>
+                              <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+                                {validTeams.map(function(t, ti) {
+                                  var isWin = win === t;
+                                  return (
+                                    <div key={t} style={{display:'flex',alignItems:'center',gap:'3px',minWidth:'80px',justifyContent:'flex-end'}}>
+                                      <span style={{fontSize:'0.68rem',fontFamily:'Roboto Condensed',color:isWin?TEAM_COLORS[ti]:'#3a5a4a',fontWeight:isWin?'700':'400',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:'60px'}}>{t}</span>
+                                      {isWin && <span style={{color:'#4aff4a',fontSize:'0.8rem',flexShrink:0}}>✓</span>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {/* Defense total */}
+                        {(function(){
+                          var best=null, bestS=-1;
+                          validTeams.forEach(function(t){ var s=data.teams[t]?.defenseScore||0; if(s>bestS){bestS=s;best=t;} });
+                          return (
+                            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 0 2px',marginTop:'4px',borderTop:'1px solid rgba(255,107,107,0.25)'}}>
+                              <span style={{fontFamily:'Orbitron',fontSize:'0.6rem',color:'#ff6b6b'}}>TOTAL</span>
+                              <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+                                {validTeams.map(function(t,ti){
+                                  var isBest=best===t;
+                                  return (
+                                    <div key={t} style={{display:'flex',alignItems:'center',gap:'3px',minWidth:'80px',justifyContent:'flex-end'}}>
+                                      <span style={{fontSize:'0.7rem',fontFamily:'Orbitron',color:isBest?TEAM_COLORS[ti]:'#3a5a4a',fontWeight:isBest?'700':'400'}}>{(data.teams[t]?.defenseScore||0).toFixed(1)}</span>
+                                      {isBest && <span style={{color:'#4aff4a',fontSize:'0.8rem',flexShrink:0}}>✓</span>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
           <div className="card full-width">
