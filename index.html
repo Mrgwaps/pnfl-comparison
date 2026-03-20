@@ -1010,7 +1010,7 @@ textarea:focus { border-color: #4a9eff; }
 <div id="preloader">
   <div class="pl-title">FBpro98 League</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v7.2 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v7.3 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1086,7 +1086,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.2'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.3'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -2754,6 +2754,89 @@ window.pnflVoice = {
 window.pnflVoice.init();
 </script>
 
+
+<script>
+// ── Logo Cache System ──
+// Fetches all 18 team logos once, stores as base64 in localStorage
+// so they load instantly on every subsequent visit with no network calls
+window.LOGO_CACHE = {};
+
+(function() {
+  var LOGO_URLS = {
+    "Buffalo":       "https://a.espncdn.com/i/teamlogos/nfl/500/buf.png",
+    "New England":   "https://a.espncdn.com/i/teamlogos/nfl/500/ne.png",
+    "Miami":         "https://a.espncdn.com/i/teamlogos/nfl/500/mia.png",
+    "Jacksonville":  "https://a.espncdn.com/i/teamlogos/nfl/500/jax.png",
+    "Pittsburgh":    "https://a.espncdn.com/i/teamlogos/nfl/500/pit.png",
+    "Denver":        "https://a.espncdn.com/i/teamlogos/nfl/500/den.png",
+    "Las Vegas":     "https://a.espncdn.com/i/teamlogos/nfl/500/lv.png",
+    "Los Angeles":   "https://a.espncdn.com/i/teamlogos/nfl/500/lar.png",
+    "Cincinnati":    "https://a.espncdn.com/i/teamlogos/nfl/500/cin.png",
+    "Atlanta":       "https://a.espncdn.com/i/teamlogos/nfl/500/atl.png",
+    "Washington":    "https://a.espncdn.com/i/teamlogos/nfl/500/wsh.png",
+    "New York":      "https://a.espncdn.com/i/teamlogos/nfl/500/nyg.png",
+    "Philadelphia":  "https://a.espncdn.com/i/teamlogos/nfl/500/phi.png",
+    "San Francisco": "https://a.espncdn.com/i/teamlogos/nfl/500/sf.png",
+    "Chicago":       "https://a.espncdn.com/i/teamlogos/nfl/500/ari.png",
+    "Minnesota":     "https://a.espncdn.com/i/teamlogos/nfl/500/min.png",
+    "Seattle":       "https://a.espncdn.com/i/teamlogos/nfl/500/sea.png",
+    "Green Bay":     "https://a.espncdn.com/i/teamlogos/nfl/500/gb.png"
+  };
+  var CACHE_KEY = 'pnfl_logo_cache_v2';
+
+  // Try to load from localStorage first
+  try {
+    var stored = localStorage.getItem(CACHE_KEY);
+    if (stored) {
+      var parsed = JSON.parse(stored);
+      var teams = Object.keys(LOGO_URLS);
+      var allPresent = teams.every(function(t) { return parsed[t] && parsed[t].startsWith('data:'); });
+      if (allPresent) {
+        window.LOGO_CACHE = parsed;
+        // Dispatch immediately so React components can pick up cached logos
+        setTimeout(function() { window.dispatchEvent(new Event('logoCacheReady')); }, 50);
+        console.log('[Logos] Loaded ' + teams.length + ' logos from cache');
+        return;
+      }
+    }
+  } catch(e) {}
+
+  // Fetch all logos and convert to base64
+  console.log('[Logos] Fetching team logos...');
+  var teams = Object.keys(LOGO_URLS);
+  var loaded = 0;
+  var newCache = {};
+
+  teams.forEach(function(team) {
+    fetch(LOGO_URLS[team])
+      .then(function(r) { return r.blob(); })
+      .then(function(blob) {
+        var reader = new FileReader();
+        reader.onload = function() {
+          newCache[team] = reader.result;
+          window.LOGO_CACHE[team] = reader.result;
+          loaded++;
+          // Dispatch update after each logo loads so UI refreshes progressively
+          window.dispatchEvent(new Event('logoCacheReady'));
+          if (loaded === teams.length) {
+            // All done — persist to localStorage
+            try { localStorage.setItem(CACHE_KEY, JSON.stringify(newCache)); } catch(e) {}
+            console.log('[Logos] All ' + teams.length + ' logos cached locally');
+          }
+        };
+        reader.readAsDataURL(blob);
+      })
+      .catch(function(e) {
+        loaded++;
+        console.warn('[Logos] Failed to fetch ' + team + ':', e.message);
+        if (loaded === teams.length) {
+          try { localStorage.setItem(CACHE_KEY, JSON.stringify(newCache)); } catch(e) {}
+        }
+      });
+  });
+})();
+</script>
+
 <script type="text/babel">
 if(window._plStage) window._plStage("Compiling app (may take a few seconds)...");
 function FootballIcon({ size = 32, style = {} }) {
@@ -2810,9 +2893,35 @@ function TeamLogoFallback({ teamName, sz }) {
   );
 }
 function TeamLogo({ teamName, size = "medium" }) {
-  const [imgFailed, setImgFailed] = React.useState(false);
   const sz = size === "large" ? 80 : size === "medium" ? 60 : size === "small" ? 36 : 22;
-  const espnUrl = ESPN_LOGOS[teamName];
+  const [src, setSrc] = React.useState(() => {
+    if (!teamName) return null;
+    // Check in-memory cache first (fastest)
+    if (window.LOGO_CACHE && window.LOGO_CACHE[teamName]) return window.LOGO_CACHE[teamName];
+    return ESPN_LOGOS[teamName] || null;
+  });
+  const [failed, setFailed] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!teamName) return;
+    // If already have a data URI, done
+    if (src && src.startsWith('data:')) return;
+    // Check cache again (may have loaded since render)
+    if (window.LOGO_CACHE && window.LOGO_CACHE[teamName]) {
+      setSrc(window.LOGO_CACHE[teamName]);
+      return;
+    }
+    // Listen for cache ready event
+    var handler = function() {
+      if (window.LOGO_CACHE && window.LOGO_CACHE[teamName]) {
+        setSrc(window.LOGO_CACHE[teamName]);
+        setFailed(false);
+      }
+    };
+    window.addEventListener('logoCacheReady', handler);
+    return function() { window.removeEventListener('logoCacheReady', handler); };
+  }, [teamName]);
+
   if (!teamName) {
     return (
       <div style={{width:sz,height:sz,flexShrink:0,borderRadius:6,border:'2px solid #3a5a3a',
@@ -2820,14 +2929,14 @@ function TeamLogo({ teamName, size = "medium" }) {
         alignItems:'center',justifyContent:'center',fontSize:Math.round(sz*0.45)}}>🏈</div>
     );
   }
-  if (!espnUrl || imgFailed) return <TeamLogoFallback teamName={teamName} sz={sz} />;
+  if (!src || failed) return <TeamLogoFallback teamName={teamName} sz={sz} />;
   return (
     <img
-      src={espnUrl}
+      src={src}
       alt={teamName}
       width={sz}
       height={sz}
-      onError={() => setImgFailed(true)}
+      onError={function(){ setFailed(true); }}
       style={{flexShrink:0,width:sz,height:sz,objectFit:"contain",borderRadius:0,
         background:"transparent",display:"block",
         filter:"drop-shadow(0 2px 6px rgba(0,0,0,0.7))"}}
