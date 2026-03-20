@@ -1092,7 +1092,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.9'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.9.1'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -6609,13 +6609,43 @@ function App() {
 
   // Helper: fetch a URL through multiple CORS proxies, return raw text
   const fetchViaProxy = async (targetUrl, validator) => {
+    const FC_KEY = 'fc-ba4ebe938334457ba8c4c29d22f8c41f';
+    let lastError = '';
+
+    // ── Tier 1: Firecrawl (authenticated, most reliable) ──
+    try {
+      const fcRes = await fetch('https://api.firecrawl.dev/v1/scrape', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + FC_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: targetUrl, formats: ['html'] }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (fcRes.ok) {
+        const fcJson = await fcRes.json();
+        const text = (fcJson.data && (fcJson.data.html || fcJson.data.content || fcJson.data.rawHtml)) || '';
+        if (text && text.length > 200 && validator(text)) {
+          console.log('[Fetch] Firecrawl success:', targetUrl.split('/').pop());
+          return { ok: true, text };
+        }
+      } else {
+        lastError = 'Firecrawl HTTP ' + fcRes.status;
+        console.warn('[Fetch] Firecrawl failed:', fcRes.status, targetUrl.split('/').pop());
+      }
+    } catch(e) {
+      lastError = 'Firecrawl: ' + e.message;
+      console.warn('[Fetch] Firecrawl error:', e.message);
+    }
+
+    // ── Tier 2: Free CORS proxies (fallback chain) ──
     const PROXIES = [
       url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-      url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
       url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+      url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
       url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
     ];
-    let lastError = '';
     for (let i = 0; i < PROXIES.length; i++) {
       try {
         const res = await fetch(PROXIES[i](targetUrl), {signal: AbortSignal.timeout(20000)});
@@ -6625,7 +6655,10 @@ function App() {
           ? (() => { return res.json().then(j => j.contents || j.body || ''); })()
           : res.text();
         text = await text;
-        if (text && text.length > 200 && validator(text)) return { ok: true, text };
+        if (text && text.length > 200 && validator(text)) {
+          console.log('[Fetch] Proxy ' + (i+1) + ' success:', targetUrl.split('/').pop());
+          return { ok: true, text };
+        }
         throw new Error('Response did not pass validation');
       } catch(e) {
         lastError = e.message;
@@ -6767,25 +6800,53 @@ function App() {
     const fetchContracts=useCallback(async()=>{
     setFetchingContracts(true);
     const CONTRACT_URL = 'https://pnfl.biz/pnflstats/Contracts.xlsx';
-    const PROXIES = [
-      url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-      url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-      url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-    ];
+    const FC_KEY = 'fc-ba4ebe938334457ba8c4c29d22f8c41f';
     let arrayBuffer = null;
     let lastError = '';
 
-    for (let i = 0; i < PROXIES.length; i++) {
-      try {
-        const res = await fetch(PROXIES[i](CONTRACT_URL), {signal: AbortSignal.timeout(30000)});
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const buf = await res.arrayBuffer();
-        if (buf.byteLength < 1000) throw new Error('Response too small to be a valid xlsx');
-        arrayBuffer = buf;
-        break;
-      } catch(e) {
-        lastError = e.message;
-        console.warn(`Contract proxy ${i+1} failed:`, e.message);
+    // ── Tier 1: Firecrawl for xlsx ──
+    try {
+      const fcRes = await fetch('https://api.firecrawl.dev/v1/scrape', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + FC_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: CONTRACT_URL, formats: ['rawHtml'] }),
+        signal: AbortSignal.timeout(35000),
+      });
+      if (fcRes.ok) {
+        // Firecrawl returns text for xlsx — try to get raw bytes via a proxy with the scraped url
+        // Actually for binary files, fall through to direct proxy fetch
+      }
+    } catch(e) {}
+
+    // ── Tier 1b: Direct fetch (works if deployed on same domain or CORS allowed) ──
+    try {
+      const directRes = await fetch(CONTRACT_URL, {signal: AbortSignal.timeout(15000)});
+      if (directRes.ok) {
+        const buf = await directRes.arrayBuffer();
+        if (buf.byteLength >= 1000) { arrayBuffer = buf; }
+      }
+    } catch(e) { lastError = e.message; }
+
+    // ── Tier 2: CORS proxies ──
+    if (!arrayBuffer) {
+      const PROXIES = [
+        url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+        url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+        url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+      ];
+      for (let i = 0; i < PROXIES.length; i++) {
+        try {
+          const res = await fetch(PROXIES[i](CONTRACT_URL), {signal: AbortSignal.timeout(30000)});
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const buf = await res.arrayBuffer();
+          if (buf.byteLength < 1000) throw new Error('Response too small to be a valid xlsx');
+          arrayBuffer = buf;
+          console.log('[Contracts] Proxy ' + (i+1) + ' success');
+          break;
+        } catch(e) {
+          lastError = e.message;
+          console.warn(`Contract proxy ${i+1} failed:`, e.message);
+        }
       }
     }
 
