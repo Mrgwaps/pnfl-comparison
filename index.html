@@ -1010,7 +1010,7 @@ textarea:focus { border-color: #4a9eff; }
 <div id="preloader">
   <div class="pl-title">FBpro98 League</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v7.5.3 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v7.5.4 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1086,7 +1086,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.5.3'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.5.4'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -3104,8 +3104,33 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
       borderRadius:'12px', padding:'16px 24px',
       marginBottom:'25px', display:'flex', flexWrap:'wrap',
       alignItems:'center', justifyContent:'space-between', gap:'16px',
-      boxShadow:`0 0 20px ${isLive ? 'rgba(255,215,0,0.15)' : 'rgba(74,158,255,0.12)'}`
+      boxShadow:`0 0 20px ${isLive ? 'rgba(255,215,0,0.15)' : 'rgba(74,158,255,0.12)'}`,
+      position:'relative',
     }}>
+      {/* FBpro98 Guide Button — absolute top-right of banner */}
+      <div style={{position:'absolute',top:'10px',right:'14px',zIndex:10}}>
+        <button
+          onClick={function(){window._showGuide&&window._showGuide();}}
+          title="FBpro98 User Guide — click for feature help"
+          className="haptic-btn"
+          style={{padding:0,background:'none',border:'none',cursor:'pointer',display:'block',position:'relative'}}>
+          <img
+            src={window._fbpro98Logo||''}
+            alt="Guide"
+            style={{width:'64px',height:'50px',objectFit:'cover',borderRadius:'9px',display:'block',
+              boxShadow:'0 6px 18px rgba(0,0,0,0.7),0 3px 6px rgba(0,0,0,0.5)',
+              border:'2px solid rgba(255,215,0,0.55)',
+              transform:'translateY(-2px)',transition:'all 0.15s ease',
+              filter:'brightness(1.05)'}}
+            onMouseEnter={function(e){e.target.style.transform='translateY(-4px) scale(1.05)';e.target.style.boxShadow='0 12px 30px rgba(0,0,0,0.8),0 0 14px rgba(255,215,0,0.2)';}}
+            onMouseLeave={function(e){e.target.style.transform='translateY(-2px) scale(1)';e.target.style.boxShadow='0 6px 18px rgba(0,0,0,0.7),0 3px 6px rgba(0,0,0,0.5)';}}
+          />
+          <div style={{position:'absolute',bottom:'-2px',left:'50%',transform:'translateX(-50%)',
+            width:'55%',height:'7px',background:'rgba(0,0,0,0.3)',borderRadius:'50%',filter:'blur(4px)'}}/>
+        </button>
+        <div style={{textAlign:'center',fontSize:'0.5rem',color:'#4a7a3a',fontFamily:'Orbitron',marginTop:'5px',letterSpacing:'1.5px',textTransform:'uppercase'}}>Guide</div>
+      </div>
+
       <div style={{display:'flex',gap:'32px',flexWrap:'wrap',alignItems:'center'}}>
         {rosterMeta ? (<>
           <div>
@@ -3227,29 +3252,6 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
           🗑️ Clear Cache
         </button>
 
-        {/* FBpro98 Guide Button */}
-        <div style={{marginLeft:'auto',flexShrink:0}}>
-          <button
-            onClick={function(){window._showGuide&&window._showGuide();}}
-            title="FBpro98 User Guide"
-            className="haptic-btn"
-            style={{padding:0,background:'none',border:'none',cursor:'pointer',display:'block',position:'relative'}}>
-            <img
-              src={window._fbpro98Logo||''}
-              alt="FBpro98 Guide"
-              style={{width:'72px',height:'56px',objectFit:'cover',borderRadius:'10px',display:'block',
-                boxShadow:'0 8px 24px rgba(0,0,0,0.7),0 4px 8px rgba(0,0,0,0.5)',
-                border:'2px solid rgba(255,215,0,0.5)',
-                transform:'translateY(-2px)',transition:'all 0.15s ease',
-                filter:'brightness(1.05)'}}
-              onMouseEnter={function(e){e.target.style.transform='translateY(-5px) scale(1.04)';e.target.style.boxShadow='0 14px 36px rgba(0,0,0,0.8)';}}
-              onMouseLeave={function(e){e.target.style.transform='translateY(-2px)';e.target.style.boxShadow='0 8px 24px rgba(0,0,0,0.7),0 4px 8px rgba(0,0,0,0.5)';}}
-            />
-            <div style={{position:'absolute',bottom:'-1px',left:'50%',transform:'translateX(-50%)',
-              width:'60%',height:'8px',background:'rgba(0,0,0,0.35)',borderRadius:'50%',filter:'blur(5px)'}}/>
-          </button>
-          <div style={{textAlign:'center',fontSize:'0.52rem',color:'#4a6a3a',fontFamily:'Orbitron',marginTop:'4px',letterSpacing:'1px',textTransform:'uppercase'}}>Guide</div>
-        </div>
       </div>
       <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
 @keyframes spin2{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
@@ -6302,7 +6304,7 @@ function UserGuideModal({ onClose }) {
         background:'linear-gradient(160deg,rgba(5,14,10,0.99),rgba(3,10,20,0.99))',
         border:'1px solid rgba(74,255,74,0.2)',
         borderRadius:'16px',
-        width:'100%', maxWidth:'780px',
+        width:'100%', maxWidth:'960px',
         maxHeight:'90vh',
         display:'flex', flexDirection:'column',
         boxShadow:'0 20px 80px rgba(0,0,0,0.9),0 0 40px rgba(74,255,74,0.08)',
@@ -6319,15 +6321,15 @@ function UserGuideModal({ onClose }) {
         </div>
 
         {/* Tab bar */}
-        <div style={{display:'flex',gap:'4px',padding:'10px 16px',borderBottom:'1px solid rgba(74,255,74,0.08)',flexShrink:0,overflowX:'auto',background:'rgba(0,0,0,0.2)'}}>
+        <div style={{display:'flex',gap:'2px',padding:'10px 20px',borderBottom:'1px solid rgba(74,255,74,0.08)',flexShrink:0,overflowX:'auto',background:'rgba(0,0,0,0.2)',scrollbarWidth:'none'}}>
           {TABS.map(function(tab) {
             var active = activeTab === tab.id;
             return (
               <button key={tab.id} onClick={function(){setActiveTab(tab.id);}}
                 style={{
-                  padding:'6px 12px',borderRadius:'8px',cursor:'pointer',border:'none',
-                  fontFamily:'Orbitron',fontSize:'0.6rem',fontWeight:'700',
-                  whiteSpace:'nowrap',transition:'all 0.2s',letterSpacing:'0.5px',
+                  padding:'7px 16px',borderRadius:'8px',cursor:'pointer',border:'none',
+                  fontFamily:'Orbitron',fontSize:'0.62rem',fontWeight:'700',
+                  whiteSpace:'nowrap',transition:'all 0.2s',letterSpacing:'0.5px',flexShrink:0,
                   background: active ? 'linear-gradient(135deg,rgba(74,255,74,0.15),rgba(26,58,108,0.3))' : 'transparent',
                   color: active ? '#4aff8a' : '#3a6a4a',
                   borderBottom: active ? '2px solid #4aff4a' : '2px solid transparent',
@@ -6339,7 +6341,7 @@ function UserGuideModal({ onClose }) {
         </div>
 
         {/* Scrollable content */}
-        <div style={{flex:1,overflowY:'auto',padding:'24px 28px'}}>
+        <div style={{flex:1,overflowY:'auto',padding:'28px 36px'}}>
           {CONTENT[activeTab]}
         </div>
 
