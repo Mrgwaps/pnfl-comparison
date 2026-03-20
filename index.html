@@ -300,7 +300,7 @@ window.pnflAI = {
   _pingOllama: async function(ollamaUrl, model) {
     const url = (ollamaUrl || 'http://localhost:11434') + '/api/tags';
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
       if (!res.ok) return { ok: false, reason: 'Ollama responded with HTTP ' + res.status };
       const data = await res.json();
       const models = (data.models || []).map(m => m.name);
@@ -308,17 +308,23 @@ window.pnflAI = {
       return { ok: true, models, found, exact: found ? model : (models[0] || '') };
     } catch(e) {
       const msg = (e.message || '').toLowerCase();
-      // CORS or mixed-content block — Ollama IS running but browser is blocked
-      if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('cors') || msg.includes('blocked')) {
+      const type = (e.name  || '').toLowerCase();
+      // Any fetch failure against localhost when Ollama is set up = almost certainly CORS.
+      // "Failed to fetch" / "NetworkError" / "TypeError" all mean the browser blocked it.
+      const looksLikeCors = msg.includes('failed to fetch') ||
+                            msg.includes('networkerror')    ||
+                            msg.includes('cors')            ||
+                            msg.includes('blocked')         ||
+                            type === 'typeerror';
+      if (looksLikeCors && !msg.includes('timeout') && !msg.includes('aborted')) {
         return {
           ok: false,
           corsBlocked: true,
-          reason: 'CORS_BLOCKED: Ollama is running but your browser is blocking the connection from ' + location.origin + '.\n\nFix: set the OLLAMA_ORIGINS environment variable so Ollama allows this page.\n\nSee the setup instructions below.'
+          reason: 'CORS_BLOCKED: Ollama is running but your browser is blocking requests from this page (' + location.origin + ').\n\nRun the command shown below to allow this origin, then restart Ollama.'
         };
       }
-      // Timeout — likely not running
       if (msg.includes('timeout') || msg.includes('aborted')) {
-        return { ok: false, reason: 'Ollama not responding (timeout). Make sure Ollama is running.' };
+        return { ok: false, reason: 'Ollama not responding (timeout). Is Ollama running? Try: ollama serve' };
       }
       return { ok: false, reason: 'Cannot reach Ollama: ' + e.message };
     }
@@ -1010,7 +1016,7 @@ textarea:focus { border-color: #4a9eff; }
 <div id="preloader">
   <div class="pl-title">FBpro98 League</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v7.5.4 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v7.5.5 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1086,7 +1092,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.5.4'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.5.5'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -3035,7 +3041,7 @@ function AIConnectModal({ onClose, onConnected }) {
               <div style={{marginTop:'9px',padding:'9px 12px',background:'rgba(255,50,50,0.07)',border:'1px solid rgba(255,70,70,0.2)',borderRadius:'7px',fontSize:'0.71rem',color:'#ff9090',fontFamily:'Roboto Condensed',lineHeight:1.55,maxHeight:'110px',overflowY:'auto',wordBreak:'break-word'}}>
                 {(() => {
                   const msg = errorMsg || '';
-                  if (msg.includes('CORS_BLOCKED')) return <span><strong style={{color:'#ffaa44'}}>Browser blocking Ollama (CORS)</strong><br/>Run: <code style={{color:'#a0f090'}}>setx OLLAMA_ORIGINS "https://mrgwaps.github.io" /M</code><br/>Then restart Ollama.</span>;
+                  if (msg.includes('CORS_BLOCKED')) return <span><strong style={{color:'#ffaa44'}}>Browser blocking Ollama (CORS)</strong><br/>Run in a terminal, then restart Ollama:<br/><code style={{color:'#a0f090',fontSize:'0.78em',wordBreak:'break-all'}}>{'setx OLLAMA_ORIGINS "' + location.origin + '" /M'}</code><br/><span style={{fontSize:'0.75em',color:'#a0a060'}}>Mac/Linux: {'export OLLAMA_ORIGINS="' + location.origin + '"'}</span></span>;
                   if (msg.includes('WORKER_OUTDATED')) return <span><strong style={{color:'#ffaa44'}}>Worker outdated</strong> — redeploy pnfl_ai_proxy_worker.js</span>;
                   if (msg.includes('NO_PERMISSION'))   return <span><strong style={{color:'#ffaa44'}}>Token missing scope</strong> — enable "Make calls to serverless Inference API" on your HF token</span>;
                   return <span>{msg}</span>;
@@ -6256,8 +6262,8 @@ function UserGuideModal({ onClose }) {
           <Step num="3">Ollama starts automatically on <strong style={{color:'#a0d2a0'}}>http://localhost:11434</strong></Step>
           <Step num="4">In this tool, click the <strong style={{color:'#c090ff'}}>AI Analyst toggle</strong> in the action bar to open the connect modal</Step>
           <Step num="5">Select <strong style={{color:'#c090ff'}}>⚡ Local (Ollama)</strong>, leave the URL as localhost:11434, click <strong style={{color:'#c090ff'}}>↺ Scan</strong> to detect your installed models, then click <strong style={{color:'#c090ff'}}>Connect</strong></Step>
-          <Warn>If you get a CORS error, run this once in a terminal, then restart Ollama:<br/><code style={{background:'rgba(0,0,0,0.4)',padding:'3px 8px',borderRadius:'4px',color:'#4aff8a',fontFamily:'monospace',fontSize:'0.8em'}}>{'setx OLLAMA_ORIGINS "https://mrgwaps.github.io" /M'}</code></Warn>
-          <Note>On Mac/Linux: <code style={{background:'rgba(0,0,0,0.3)',padding:'2px 6px',borderRadius:'4px',color:'#a0f090',fontFamily:'monospace'}}>{'launchctl setenv OLLAMA_ORIGINS "https://mrgwaps.github.io"'}</code> then restart Ollama</Note>
+          <Warn>If you get a CORS error, the tool shows the exact command to run right in the error message — copy and paste it into a terminal, then restart Ollama. The command sets OLLAMA_ORIGINS to your current page's address so Ollama accepts connections from it.</Warn>
+          <Note>On Mac/Linux the error message shows the export command for your OS. You can also allow all origins permanently with <code style={{background:'rgba(0,0,0,0.3)',padding:'2px 6px',borderRadius:'4px',color:'#a0f090',fontFamily:'monospace'}}>OLLAMA_ORIGINS=*</code> — useful if you access the tool from multiple URLs.</Note>
         </Section>
         <Section title="Free Ollama Models" color="#4aff4a">
           <ModelCard name="llama3.2:1b" size="~800MB" desc="Meta's compact model. Fast responses, good for analysis. Best starting point." free={true}/>
