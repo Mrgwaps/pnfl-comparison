@@ -1016,7 +1016,7 @@ textarea:focus { border-color: #4a9eff; }
 <div id="preloader">
   <div class="pl-title">FBpro98 League</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v7.8 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v7.8.1 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1092,7 +1092,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.8'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.9'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -2122,16 +2122,14 @@ function buildPlaceholderRoster(teamName){
 
 // ── SVG Football Icon ──
 </script>
-
 <script>
-// ── LogoService — centralised logo cache manager ──
-// Single source of truth for all team logos.
-// Fetches each logo once, converts to base64 data URI, persists in localStorage.
-// Components call LogoService.get(team, callback) — callback fires immediately
-// if cached, or when the download completes.
+// ── LogoService v2 — Centralised ESPN logo cache ──
+// Single localStorage key, atomic per-team writes, no race conditions.
+// Each team downloaded once, stored as base64 data URI.
 (function() {
-  var CACHE_KEY  = 'pnfl_logo_cache_v3';
-  var LOGO_URLS  = {
+  var CACHE_KEY = 'pnfl_logos_v1';
+
+  var URLS = {
     'Buffalo':       'https://a.espncdn.com/i/teamlogos/nfl/500/buf.png',
     'New England':   'https://a.espncdn.com/i/teamlogos/nfl/500/ne.png',
     'Miami':         'https://a.espncdn.com/i/teamlogos/nfl/500/mia.png',
@@ -2152,166 +2150,127 @@ function buildPlaceholderRoster(teamName){
     'Green Bay':     'https://a.espncdn.com/i/teamlogos/nfl/500/gb.png'
   };
 
-  // In-memory store: team -> data URI string
-  var _cache     = {};
-  // Per-team subscriber lists: team -> [callback, ...]
-  var _listeners = {};
-  // Per-team download state: 'idle' | 'loading' | 'done' | 'failed'
-  var _state     = {};
+  // mem[team] = data URI string  (source of truth)
+  var mem = {};
+  // subs[team] = [ callback, ... ]  (waiting for this team)
+  var loading = {};  // team -> true if fetch in flight
 
-  // ── Initialise from localStorage ──
-  function _loadPersisted() {
+  // ── Read persisted cache from localStorage ──
+  function load() {
     try {
       var raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return;
-      var stored = JSON.parse(raw);
+      var obj = JSON.parse(raw);
       var n = 0;
-      Object.keys(stored).forEach(function(team) {
-        var uri = stored[team];
-        if (uri && typeof uri === 'string' && uri.startsWith('data:image')) {
-          _cache[team] = uri;
-          _state[team] = 'done';
+      Object.keys(obj).forEach(function(t) {
+        if (obj[t] && obj[t].slice(0,10) === 'data:image') {
+          mem[t] = obj[t];
           n++;
         }
       });
-      if (n > 0) console.log('[LogoService] Restored ' + n + '/18 logos from localStorage');
-    } catch(e) {
-      console.warn('[LogoService] Could not read localStorage:', e.message);
-    }
+      if (n) console.log('[LogoService] ' + n + '/18 from storage');
+    } catch(e) {}
   }
 
-  // ── Persist only this one team (atomic, no race) ──
-  function _persist(team, uri) {
+  // ── Atomic per-team localStorage write ──
+  // Reads current storage, merges one team, writes back.
+  // Never overwrites other teams.
+  function save(team, uri) {
     try {
       var raw = localStorage.getItem(CACHE_KEY);
-      var stored = raw ? JSON.parse(raw) : {};
-      stored[team] = uri;
-      localStorage.setItem(CACHE_KEY, JSON.stringify(stored));
-    } catch(e) {
-      // localStorage full or blocked — silently continue, in-memory cache still works
-    }
+      var obj = raw ? JSON.parse(raw) : {};
+      obj[team] = uri;
+      localStorage.setItem(CACHE_KEY, JSON.stringify(obj));
+    } catch(e) {}
   }
 
-  // ── Notify all listeners for a team ──
-  function _notify(team) {
-    var uri = _cache[team];
+  // ── Fire all waiting callbacks for one team ──
+  function notify(team) {
+    var uri = mem[team];
     if (!uri) return;
-    var cbs = (_listeners[team] || []).slice(); // copy so mutations during iteration are safe
-    _listeners[team] = [];                       // clear — one-shot callbacks
-    cbs.forEach(function(cb) { try { cb(uri); } catch(e) {} });
-    // Also fire a global event for components using event listeners
-    try { window.dispatchEvent(new CustomEvent('logoReady', { detail: { team: team, uri: uri } })); } catch(e) {}
+    // Dispatch typed event so components can filter by team
+    try {
+      window.dispatchEvent(new CustomEvent('logoReady', {detail:{team:team, uri:uri}}));
+    } catch(e) {}
   }
 
-  // ── Fetch one logo, convert to data URI ──
-  function _fetchOne(team) {
-    if (_state[team] === 'loading' || _state[team] === 'done') return;
-    var url = LOGO_URLS[team];
-    if (!url) { _state[team] = 'failed'; return; }
+  // ── Fetch one team's logo ──
+  function fetchOne(team) {
+    if (mem[team] || loading[team]) return;
+    if (!URLS[team]) return;
+    loading[team] = true;
 
-    _state[team] = 'loading';
-
-    fetch(url, { signal: AbortSignal.timeout(15000) })
-      .then(function(res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.blob();
+    fetch(URLS[team], {signal: AbortSignal.timeout(15000)})
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.blob();
       })
       .then(function(blob) {
-        return new Promise(function(resolve, reject) {
-          var reader    = new FileReader();
-          reader.onload = function() { resolve(reader.result); };
-          reader.onerror = function() { reject(new Error('FileReader failed')); };
-          reader.readAsDataURL(blob);
+        return new Promise(function(res, rej) {
+          var fr = new FileReader();
+          fr.onload  = function() { res(fr.result); };
+          fr.onerror = function() { rej(new Error('read failed')); };
+          fr.readAsDataURL(blob);
         });
       })
       .then(function(uri) {
-        // Validate it really is an image data URI
-        if (!uri || !uri.startsWith('data:image')) throw new Error('Not a valid image data URI');
-        _cache[team] = uri;
-        _state[team] = 'done';
-        _persist(team, uri);               // atomic per-team write — no race condition
-        _notify(team);
-        console.log('[LogoService] Cached:', team);
+        if (!uri || uri.slice(0,10) !== 'data:image') throw new Error('bad uri');
+        mem[team]     = uri;
+        loading[team] = false;
+        save(team, uri);   // atomic write — only this team
+        notify(team);
+        console.log('[LogoService] cached:', team);
       })
-      .catch(function(err) {
-        _state[team] = 'failed';
-        console.warn('[LogoService] Failed:', team, err.message);
-        // Retry once after 5 seconds
-        setTimeout(function() {
-          if (_state[team] === 'failed') {
-            _state[team] = 'idle';
-            _fetchOne(team);
-          }
-        }, 5000);
+      .catch(function(e) {
+        loading[team] = false;
+        console.warn('[LogoService] failed:', team, e.message);
+        // Retry once after 8s
+        setTimeout(function() { fetchOne(team); }, 8000);
       });
   }
 
-  // ── Public API ──
   window.LogoService = {
+    // Return cached URI synchronously, or null
+    getSync: function(team) { return mem[team] || null; },
 
-    // get(team, cb) — cb(uri) fires immediately if cached, else when download completes
-    // cb is called exactly once per call to get()
-    get: function(team, cb) {
-      if (!team || !LOGO_URLS[team]) { if (cb) cb(null); return null; }
+    // getCache() for legacy LOGO_CACHE compatibility
+    getCache: function() { return mem; },
 
-      // Already have it — fire immediately
-      if (_cache[team]) {
-        if (cb) setTimeout(function() { cb(_cache[team]); }, 0);
-        return _cache[team];
-      }
+    // Returns count
+    cachedCount: function() { return Object.keys(mem).length; },
+    totalCount:  function() { return Object.keys(URLS).length; },
+    hasUrl:      function(team) { return !!URLS[team]; },
 
-      // Register callback for when it arrives
-      if (cb) {
-        _listeners[team] = _listeners[team] || [];
-        _listeners[team].push(cb);
-      }
-
-      // Start download if not already running
-      _fetchOne(team);
-      return null; // not ready yet
-    },
-
-    // Preload all 18 logos in parallel (call this on app mount / after contracts)
+    // Fetch all 18 in parallel (skips already-cached ones)
     preloadAll: function() {
-      Object.keys(LOGO_URLS).forEach(function(team) {
-        if (!_cache[team]) _fetchOne(team);
-      });
+      Object.keys(URLS).forEach(function(t) { fetchOne(t); });
     },
 
-    // How many are cached right now
-    cachedCount: function() { return Object.keys(_cache).length; },
-    totalCount:  function() { return Object.keys(LOGO_URLS).length; },
-
-    // Direct access to in-memory cache (for legacy window.LOGO_CACHE compatibility)
-    getCache: function() { return _cache; },
-
-    // Clear everything (for testing/debugging)
-    clear: function() {
-      _cache = {}; _state = {}; _listeners = {};
-      try { localStorage.removeItem(CACHE_KEY); } catch(e) {}
-    },
+    // Ensure a specific team is fetched (for on-demand in TeamLogo)
+    ensure: function(team) { fetchOne(team); },
   };
 
-  // Keep window.LOGO_CACHE in sync for legacy code
-  Object.defineProperty(window, 'LOGO_CACHE', {
-    get: function() { return _cache; },
-    set: function() {}, // ignore external writes
-    configurable: true
-  });
+  // Keep LOGO_CACHE in sync (legacy code reads window.LOGO_CACHE)
+  try {
+    Object.defineProperty(window, 'LOGO_CACHE', {
+      get: function() { return mem; },
+      configurable: true
+    });
+  } catch(e) { window.LOGO_CACHE = mem; }
 
-  // Boot: load persisted cache, then signal for any already-rendered components
-  _loadPersisted();
-  if (Object.keys(_cache).length > 0) {
-    // Notify components that logos are available from cache
+  // Boot: restore from storage, then immediately notify for already-cached logos
+  load();
+
+  // After storage is loaded, fire events so any already-rendered components update
+  if (Object.keys(mem).length > 0) {
     setTimeout(function() {
-      Object.keys(_cache).forEach(function(team) { _notify(team); });
-    }, 0);
+      Object.keys(mem).forEach(function(t) { notify(t); });
+    }, 50);
   }
-
-  console.log('[LogoService] Ready — ' + window.LogoService.cachedCount() + '/18 in cache');
 })();
 
 </script>
+
 
 
 <script>
@@ -3013,85 +2972,76 @@ function TeamLogoFallback({ teamName, sz }) {
     </svg>
   );
 }
-function TeamLogo({ teamName, size = "medium" }) {
-  var sz = size === "large" ? 80 : size === "medium" ? 60 : size === "small" ? 36 : 22;
+function TeamLogo({ teamName, size }) {
+  var SZ = {large:80, medium:60, small:36, tiny:22};
+  var sz = SZ[size] || 60;
 
-  // Initialise src from LogoService cache (instant if already downloaded)
-  var [src, setSrc] = React.useState(function() {
-    if (!teamName) return null;
-    return (window.LogoService && window.LogoService.get(teamName)) || ESPN_LOGOS[teamName] || null;
+  var [uri, setUri] = React.useState(function() {
+    // Synchronous read from LogoService cache on first render
+    return window.LogoService ? window.LogoService.getSync(teamName) : null;
   });
 
   React.useEffect(function() {
     if (!teamName) return;
+    var live = true;
 
-    // If already a data URI, nothing to do
-    if (src && src.startsWith('data:')) return;
-
-    // Request from LogoService — callback fires when download completes
-    var cancelled = false;
-    if (window.LogoService) {
-      var cached = window.LogoService.get(teamName, function(uri) {
-        if (!cancelled && uri) {
-          setSrc(uri);
-        }
-      });
-      // If LogoService returned it synchronously, update immediately
-      if (cached && cached !== src) setSrc(cached);
+    // Re-check cache (may have arrived between render and effect)
+    var hit = window.LogoService && window.LogoService.getSync(teamName);
+    if (hit) { if (hit !== uri) setUri(hit); }
+    else if (window.LogoService) {
+      // Request this team specifically
+      window.LogoService.ensure(teamName);
     }
 
-    // Also listen for the global logoReady event (covers all broadcast cases)
-    function onLogoReady(e) {
-      if (!cancelled && e.detail && e.detail.team === teamName && e.detail.uri) {
-        setSrc(e.detail.uri);
+    // Listen for this team's logo arriving
+    function onReady(e) {
+      if (live && e.detail && e.detail.team === teamName && e.detail.uri) {
+        setUri(e.detail.uri);
       }
     }
-    window.addEventListener('logoReady', onLogoReady);
-
-    return function() {
-      cancelled = true;
-      window.removeEventListener('logoReady', onLogoReady);
-    };
+    window.addEventListener('logoReady', onReady);
+    return function() { live = false; window.removeEventListener('logoReady', onReady); };
   }, [teamName]);
 
   if (!teamName) {
-    return (
-      <div style={{width:sz,height:sz,flexShrink:0,borderRadius:6,border:'2px solid #3a5a3a',
-        background:'linear-gradient(135deg,#1a2e1a,#0a1628)',display:'flex',
-        alignItems:'center',justifyContent:'center',fontSize:Math.round(sz*0.45)}}>🏈</div>
-    );
+    return <div style={{width:sz,height:sz,flexShrink:0,borderRadius:6,
+      border:'2px solid #3a5a3a',background:'linear-gradient(135deg,#1a2e1a,#0a1628)',
+      display:'flex',alignItems:'center',justifyContent:'center',
+      fontSize:Math.round(sz*0.45)}}>🏈</div>;
   }
 
-  // Show real logo img if we have any src
-  // data URI → always works; ESPN URL → works in real browsers, may flash fallback in sandbox
-  if (src) {
-    if (src.startsWith('data:')) {
-      // Perfect cached logo — render directly, no fallback needed
-      return (
-        <img src={src} alt={teamName} width={sz} height={sz}
-          style={{flexShrink:0,width:sz,height:sz,objectFit:"contain",borderRadius:0,
-            background:"transparent",display:"block",
-            filter:"drop-shadow(0 2px 6px rgba(0,0,0,0.7))"}}
-        />
-      );
-    }
-    // ESPN URL — render with fallback underneath in case it blocks
+  // Cached data URI — always works
+  if (uri) {
+    return <img src={uri} alt={teamName} width={sz} height={sz}
+      style={{flexShrink:0,width:sz,height:sz,objectFit:'contain',
+        borderRadius:0,background:'transparent',display:'block',
+        filter:'drop-shadow(0 2px 6px rgba(0,0,0,0.7))'}}/>;
+  }
+
+  // Not cached yet — show ESPN URL with fallback underneath
+  // When data URI arrives via logoReady event, re-renders with the cached branch above
+  var espnUrl = ESPN_LOGOS[teamName];
+  if (espnUrl) {
     return (
       <div style={{position:'relative',width:sz,height:sz,flexShrink:0,display:'inline-block'}}>
         <TeamLogoFallback teamName={teamName} sz={sz}/>
-        <img src={src} alt={teamName} width={sz} height={sz}
-          onLoad={function(e){ e.target.style.opacity='1'; e.target.parentNode.firstChild.style.display='none'; }}
+        <img src={espnUrl} alt={teamName} width={sz} height={sz}
+          onLoad={function(e){
+            e.target.style.opacity = '1';
+            var fb = e.target.previousSibling;
+            if (fb) fb.style.visibility = 'hidden';
+          }}
           onError={function(e){ e.target.style.display='none'; }}
-          style={{position:'absolute',top:0,left:0,width:sz,height:sz,objectFit:"contain",
-            borderRadius:0,background:"transparent",display:"block",opacity:0,
-            filter:"drop-shadow(0 2px 6px rgba(0,0,0,0.7))",transition:"opacity 0.2s"}}
+          style={{position:'absolute',top:0,left:0,width:sz,height:sz,
+            objectFit:'contain',background:'transparent',display:'block',
+            opacity:0,transition:'opacity 0.2s',
+            filter:'drop-shadow(0 2px 6px rgba(0,0,0,0.7))'}}
         />
       </div>
     );
   }
 
-  // No src at all — show fallback SVG
-  return <TeamLogoFallback teamName={teamName} sz={sz} />;
+  return <TeamLogoFallback teamName={teamName} sz={sz}/>;
 }
 
 
@@ -3341,7 +3291,7 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
       {/* FBpro98 Guide Button — absolute top-right of banner */}
       <div style={{position:'absolute',top:'10px',right:'14px',zIndex:10}}>
         <button
-          onClick={function(){window._showGuide&&window._showGuide();}}
+          onClick={function(){playSound('click');haptic('light');window._showGuide&&window._showGuide();}}
           title="FBpro98 User Guide — click for feature help"
           className="haptic-btn"
           style={{padding:0,background:'none',border:'none',cursor:'pointer',display:'block',position:'relative'}}>
@@ -3627,7 +3577,7 @@ function TeamSelector({ selectedTeams, onTeamsChange }) {
       {selectedTeams.map((team,idx)=>(
         <div key={idx} className="team-select-container">
           <div className="team-select-wrapper">
-            <TeamLogo teamName={team} size="small"/>
+            <TeamLogo key={team||("slot"+idx)} teamName={team} size="small"/>
             <select value={team} onChange={e=>handle(e,idx)}>
               <option value="">-- Select Team --</option>
               {[...TEAM_NAMES].sort().map(t=><option key={t} value={t}>{t}</option>)}
@@ -3677,7 +3627,7 @@ function ComparisonTable({ teams, data, contractData }) {
             return(
               <div key={team} style={{background:ti%2===0?'rgba(8,18,35,0.97)':'rgba(12,28,20,0.97)',padding:'10px 12px',borderRight:ti<teams.length-1?'1px solid rgba(45,90,45,0.3)':'none'}}>
                 <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px',paddingBottom:'6px',borderBottom:'1px solid rgba(255,215,0,0.2)'}}>
-                  <TeamLogo teamName={team} size="small"/>
+                  <TeamLogo key={team||("slot"+idx)} teamName={team} size="small"/>
                   <span style={{fontFamily:'Orbitron',fontSize:'0.78rem',color:'#ffd700',fontWeight:'700'}}>{team}</span>
                   <span style={{marginLeft:'auto',fontSize:'0.68rem',color:'#608060',fontFamily:'Orbitron'}}>{scored.length} players</span>
                 </div>
@@ -3832,7 +3782,7 @@ function ComparisonTable({ teams, data, contractData }) {
                 boxShadow:isWinner?'0 0 20px rgba(255,215,0,0.4)':'none',
                 transform:isWinner?'scale(1.05)':'scale(1)',transition:'all 0.3s'}}>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'10px',marginBottom:'10px'}}>
-                  <TeamLogo teamName={team} size="small"/>
+                  <TeamLogo key={team||("slot"+idx)} teamName={team} size="small"/>
                   <div style={{fontWeight:'bold',fontSize:'1.1rem',fontFamily:'Orbitron'}}>{isWinner&&'👑 '}{team}</div>
                 </div>
                 <div style={{fontSize:'2.2rem',fontWeight:'900',fontFamily:'Orbitron',color:isWinner?'#ffd700':'#4a9eff'}}>
@@ -5025,7 +4975,7 @@ function TeamPickerDropdown({ value, teams, onChange, accentColor }) {
           background:'rgba(10,20,40,0.95)',border:`1px solid ${open?accent:'rgba(74,158,255,0.25)'}`,
           transition:'border-color 0.15s'}}>
         {selectedTeam
-          ? <><TeamLogo teamName={selectedTeam} size="tiny"/>
+          ? <><TeamLogo key={selectedTeam||"tpd"} teamName={selectedTeam} size="tiny"/>
               <span style={{flex:1,fontFamily:'Roboto Condensed',fontSize:'0.82rem',color:'#a0d2ff'}}>{selectedTeam}</span></>
           : <><span style={{width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.7rem',color:'#3a5a7a',flexShrink:0}}>🏈</span>
               <span style={{flex:1,fontFamily:'Roboto Condensed',fontSize:'0.82rem',color:'#3a6a8a',fontStyle:'italic'}}>All Teams</span></>
@@ -5597,7 +5547,7 @@ function TradeAnalyzer({ getTeamData, weights, depth, designation }) {
             {[{team:teamA,before:result.beforeA,after:result.afterA},{team:teamB,before:result.beforeB,after:result.afterB}].map(({team,before,after})=>(
               <div key={team} style={{marginBottom:'14px',background:'rgba(0,0,0,0.2)',borderRadius:'10px',padding:'13px',border:'1px solid #2d5a2d'}}>
                 <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'10px'}}>
-                  <TeamLogo teamName={team} size="small"/>
+                  <TeamLogo key={team||("slot"+idx)} teamName={team} size="small"/>
                   <span style={{fontFamily:'Orbitron',fontSize:'0.95rem',fontWeight:'700'}}>{team}</span>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'10px'}}>
@@ -6556,7 +6506,7 @@ function UserGuideModal({ onClose }) {
           {TABS.map(function(tab) {
             var active = activeTab === tab.id;
             return (
-              <button key={tab.id} onClick={function(){setActiveTab(tab.id);}}
+              <button key={tab.id} onClick={function(){playSound('click');setActiveTab(tab.id);}}
                 style={{
                   padding:'7px 16px',borderRadius:'8px',cursor:'pointer',border:'none',
                   fontFamily:'Orbitron',fontSize:'0.62rem',fontWeight:'700',
@@ -6608,22 +6558,16 @@ function App() {
   React.useEffect(function() {
     window._showGuide = function() { setShowGuide(true); };
 
-    // LogoService already loaded localStorage cache on script init — just log status
+    // LogoService boot: log status
     if (window.LogoService) {
-      console.log('[App] LogoService: ' + window.LogoService.cachedCount() + '/' + window.LogoService.totalCount() + ' logos in cache');
+      console.log('[App] LogoService: ' + window.LogoService.cachedCount() + '/' + window.LogoService.totalCount() + ' logos cached');
     }
 
-    // Step 2: Start background logo preload via LogoService
-    // Staggered: 2s delay so app paint completes first, then fetch all missing logos
+    // LogoService already started background fetching on script init (800ms delay).
+    // App mount just ensures it covers any that slipped through.
     var bgTimer = setTimeout(function() {
-      if (window.LogoService) {
-        var missing = window.LogoService.totalCount() - window.LogoService.cachedCount();
-        if (missing > 0) {
-          console.log('[App] Starting background logo preload for', missing, 'missing logos...');
-          window.LogoService.preloadAll();
-        }
-      }
-    }, 2000);
+      if (window.LogoService) { window.LogoService.preloadAll(); }
+    }, 4000);
 
     return function() {
       window._showGuide = null;
