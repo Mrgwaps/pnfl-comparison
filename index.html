@@ -1016,7 +1016,7 @@ textarea:focus { border-color: #4a9eff; }
 <div id="preloader">
   <div class="pl-title">FBpro98 League</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v7.6 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v7.7 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1092,7 +1092,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.6'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.7'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -2824,28 +2824,81 @@ function TeamLogoFallback({ teamName, sz }) {
 }
 function TeamLogo({ teamName, size = "medium" }) {
   const sz = size === "large" ? 80 : size === "medium" ? 60 : size === "small" ? 36 : 22;
-  // Read from localStorage cache synchronously - instant on repeat visits, no blocking
-  const [src, setSrc] = React.useState(function() {
-    if (!teamName) return null;
-    try {
-      var cached = localStorage.getItem('pnfl_logo_cache_v2');
-      if (cached) { var m = JSON.parse(cached); if (m[teamName]) return m[teamName]; }
-    } catch(e) {}
-    return ESPN_LOGOS[teamName] || null;
-  });
-  const [failed, setFailed] = React.useState(false);
 
-  // After mount: listen for logo downloads completing (only fires on first visit)
+  // Helper: read best available src from cache hierarchy
+  function getBestSrc(name) {
+    if (!name) return null;
+    // 1. In-memory cache (fastest - already a data URI)
+    if (window.LOGO_CACHE && window.LOGO_CACHE[name]) return window.LOGO_CACHE[name];
+    // 2. localStorage cache (fast - data URI, survives reloads)
+    try {
+      var stored = localStorage.getItem('pnfl_logo_cache_v2');
+      if (stored) {
+        var map = JSON.parse(stored);
+        if (map[name] && map[name].startsWith('data:')) {
+          window.LOGO_CACHE = window.LOGO_CACHE || {};
+          window.LOGO_CACHE[name] = map[name];
+          return map[name];
+        }
+      }
+    } catch(e) {}
+    // 3. ESPN direct URL (works in real browsers, may fail in sandboxed iframes)
+    return ESPN_LOGOS[name] || null;
+  }
+
+  const [src, setSrc] = React.useState(function() { return getBestSrc(teamName); });
+  const [imgOk, setImgOk] = React.useState(false); // true once img fires onLoad
+
   React.useEffect(function() {
-    if (!teamName || (src && src.startsWith('data:'))) return;
-    function handler() {
-      if (window.LOGO_CACHE && window.LOGO_CACHE[teamName]) {
-        setSrc(window.LOGO_CACHE[teamName]);
-        setFailed(false);
+    if (!teamName) return;
+    // Listen for cache events — fires as each logo downloads
+    function onCacheReady() {
+      var best = getBestSrc(teamName);
+      if (best && best.startsWith('data:') && best !== src) {
+        setSrc(best);
+        setImgOk(true);
       }
     }
-    window.addEventListener('logoCacheReady', handler);
-    return function() { window.removeEventListener('logoCacheReady', handler); };
+    window.addEventListener('logoCacheReady', onCacheReady);
+
+    // If we don't have a cached data URI yet, trigger on-demand background fetch
+    // for THIS specific team so it arrives as fast as possible
+    if (src && !src.startsWith('data:') && ESPN_LOGOS[teamName]) {
+      window._logoFetchInProgress = window._logoFetchInProgress || {};
+      if (!window._logoFetchInProgress[teamName]) {
+        window._logoFetchInProgress[teamName] = true;
+        fetch(ESPN_LOGOS[teamName], {signal: AbortSignal.timeout(10000)})
+          .then(function(r) { return r.blob(); })
+          .then(function(blob) {
+            return new Promise(function(resolve, reject) {
+              var rd = new FileReader();
+              rd.onload  = function() { resolve(rd.result); };
+              rd.onerror = function() { reject(); };
+              rd.readAsDataURL(blob);
+            });
+          })
+          .then(function(uri) {
+            window.LOGO_CACHE = window.LOGO_CACHE || {};
+            window.LOGO_CACHE[teamName] = uri;
+            // Persist to localStorage
+            try {
+              var existing = {};
+              var ls = localStorage.getItem('pnfl_logo_cache_v2');
+              if (ls) existing = JSON.parse(ls);
+              existing[teamName] = uri;
+              localStorage.setItem('pnfl_logo_cache_v2', JSON.stringify(existing));
+            } catch(e) {}
+            setSrc(uri);
+            setImgOk(true);
+            window.dispatchEvent(new Event('logoCacheReady'));
+          })
+          .catch(function() {
+            window._logoFetchInProgress[teamName] = false;
+          });
+      }
+    }
+
+    return function() { window.removeEventListener('logoCacheReady', onCacheReady); };
   }, [teamName]);
 
   if (!teamName) {
@@ -2855,18 +2908,38 @@ function TeamLogo({ teamName, size = "medium" }) {
         alignItems:'center',justifyContent:'center',fontSize:Math.round(sz*0.45)}}>🏈</div>
     );
   }
-  if (!src || failed) return <TeamLogoFallback teamName={teamName} sz={sz} />;
+
+  // Show fallback if no src at all
+  if (!src) return <TeamLogoFallback teamName={teamName} sz={sz} />;
+
+  // Show img — if it fails (blocked CDN), overlay the SVG fallback but keep trying cache
   return (
-    <img
-      src={src}
-      alt={teamName}
-      width={sz}
-      height={sz}
-      onError={function(){ setFailed(true); }}
-      style={{flexShrink:0,width:sz,height:sz,objectFit:"contain",borderRadius:0,
-        background:"transparent",display:"block",
-        filter:"drop-shadow(0 2px 6px rgba(0,0,0,0.7))"}}
-    />
+    <div style={{position:'relative',width:sz,height:sz,flexShrink:0}}>
+      {!imgOk && !src.startsWith('data:') && (
+        <div style={{position:'absolute',inset:0}}>
+          <TeamLogoFallback teamName={teamName} sz={sz}/>
+        </div>
+      )}
+      <img
+        src={src}
+        alt={teamName}
+        width={sz}
+        height={sz}
+        onLoad={function(){ setImgOk(true); }}
+        onError={function(){
+          // img failed — don't permanently fallback, wait for cache download
+          setImgOk(false);
+        }}
+        style={{
+          flexShrink:0,width:sz,height:sz,objectFit:"contain",borderRadius:0,
+          background:"transparent",display:"block",
+          filter:"drop-shadow(0 2px 6px rgba(0,0,0,0.7))",
+          opacity: imgOk ? 1 : 0,
+          position: imgOk ? 'relative' : 'absolute',
+          inset: 0,
+        }}
+      />
+    </div>
   );
 }
 
@@ -6379,28 +6452,43 @@ function App() {
   const [showGuide, setShowGuide]=useState(false);
 
   // Bootstrap pnflDB on mount with cached season/week
-  // Wire global guide trigger + restore logo cache from localStorage on mount
+  // Wire global guide trigger + boot logo background service on mount
   React.useEffect(function() {
     window._showGuide = function() { setShowGuide(true); };
 
-    // Restore logos from localStorage into memory (instant, no network)
+    // Step 1: Restore any already-cached logos from localStorage into memory instantly
+    window.LOGO_CACHE = window.LOGO_CACHE || {};
+    window._logoFetchInProgress = window._logoFetchInProgress || {};
     try {
       var stored = localStorage.getItem('pnfl_logo_cache_v2');
       if (stored) {
         var logoMap = JSON.parse(stored);
-        var count = Object.keys(logoMap).filter(function(k) {
-          return logoMap[k] && logoMap[k].startsWith('data:');
-        }).length;
+        var count = 0;
+        Object.keys(logoMap).forEach(function(k) {
+          if (logoMap[k] && logoMap[k].startsWith('data:')) {
+            window.LOGO_CACHE[k] = logoMap[k];
+            count++;
+          }
+        });
         if (count > 0) {
-          window.LOGO_CACHE = window.LOGO_CACHE || {};
-          Object.assign(window.LOGO_CACHE, logoMap);
           window.dispatchEvent(new Event('logoCacheReady'));
-          console.log('[Logos] Restored ' + count + ' logos from localStorage on mount');
+          console.log('[Logos] Restored ' + count + '/18 logos from localStorage');
         }
       }
     } catch(e) {}
 
-    return function() { window._showGuide = null; };
+    // Step 2: After a short delay, quietly download any logos not yet cached
+    // Uses the same downloadLogoAssets function triggered by contracts
+    var bgTimer = setTimeout(function() {
+      if (typeof downloadLogoAssets === 'function') {
+        downloadLogoAssets().catch(function(){});
+      }
+    }, 3000); // 3s after mount — app is fully painted and interactive
+
+    return function() {
+      window._showGuide = null;
+      clearTimeout(bgTimer);
+    };
   }, []);
 
 
