@@ -1010,7 +1010,7 @@ textarea:focus { border-color: #4a9eff; }
 <div id="preloader">
   <div class="pl-title">FBpro98 League</div>
   <div class="pl-spin"></div>
-  <div class="pl-sub" id="pl-version">v7.5.2 — Loading...</div>
+  <div class="pl-sub" id="pl-version">v7.5.3 — Loading...</div>
 </div>
 <div id="root"></div>
 <script>
@@ -1086,7 +1086,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.5.2'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.5.3'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -6740,8 +6740,8 @@ function App() {
           onClose={()=>setShowPlayerCompare(false)}
         />
       )}
-      {legalPage && <LegalModal page={legalPage} onClose={()=>setLegalPage(null)}/>
-      {showGuide && <UserGuideModal onClose={()=>setShowGuide(false)}/>}}
+      {legalPage && <LegalModal page={legalPage} onClose={()=>setLegalPage(null)}/>}
+      {showGuide && <UserGuideModal onClose={()=>setShowGuide(false)}/>}
       <header>
         {/* Looping video background */}
         <video id="header-video" autoPlay muted loop playsInline preload="auto"
