@@ -1123,6 +1123,124 @@ const storageWithSession = {
   clear: () => { Object.keys(sessionCache).forEach(k => delete sessionCache[k]); storage.clear(); }
 };
 
+// ── Static Asset Loader ──
+// Loads pre-fetched data files from /data/ (deployed via deploy script).
+// Falls back to CORS proxies if static files not available.
+window.StaticAssets = (function() {
+  var BASE = './data/';
+  var _manifest = null;
+
+  function fetchText(name) {
+    return fetch(BASE + name + '?_=' + Date.now(), {cache:'no-store'})
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      });
+  }
+
+  function fetchBinary(name) {
+    return fetch(BASE + name + '?_=' + Date.now(), {cache:'no-store'})
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.arrayBuffer();
+      });
+  }
+
+  function loadManifest() {
+    if (_manifest) return Promise.resolve(_manifest);
+    return fetch(BASE + 'manifest.json?_=' + Date.now(), {cache:'no-store'})
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(m) { _manifest = m; return m; })
+      .catch(function() { return null; });
+  }
+
+  function invalidateManifest() { _manifest = null; }
+
+  return {
+    manifest: loadManifest,
+    text:     fetchText,
+    binary:   fetchBinary,
+
+    available: function() {
+      return loadManifest().then(function(m) {
+        return m && m.files && Object.values(m.files).some(function(v){return v;});
+      });
+    },
+
+    logoUrl: function(abbr) {
+      if (!abbr) return null;
+      if (location.hostname.includes('github.io') || location.hostname === 'localhost' || location.protocol === 'file:') {
+        return './logos/' + abbr + '.png';
+      }
+      return 'https://a.espncdn.com/i/teamlogos/nfl/500/' + abbr + '.png';
+    },
+
+    // Check if the live site has advanced to a new week since last deploy.
+    // Fetches just the live roster page (small, fast) and extracts the week number.
+    // Returns { manifestWeek, liveWeek, liveSeason, isStale }
+    checkWeekStaleness: function() {
+      return loadManifest().then(function(manifest) {
+        if (!manifest) return { manifestWeek: null, liveWeek: null, isStale: false };
+
+        var manifestWeek   = parseInt(manifest.week   || '0', 10);
+        var manifestSeason = parseInt(manifest.season || '2048', 10);
+
+        // Quick fetch of the live roster page to get the current week
+        var PROXIES = [
+          'https://corsproxy.io/?',
+          'https://api.allorigins.win/raw?url=',
+        ];
+        var rosterUrl = 'https://pnfl.biz/pnflstats/PNFL_roster.htm';
+
+        function tryProxy(i) {
+          if (i >= PROXIES.length) return Promise.reject(new Error('all proxies failed'));
+          var url = PROXIES[i] + encodeURIComponent(rosterUrl);
+          return fetch(url, {signal: AbortSignal.timeout(12000)})
+            .then(function(r) {
+              if (!r.ok) throw new Error('HTTP ' + r.status);
+              return r.text();
+            })
+            .then(function(text) {
+              // Extract week and season from the roster text
+              var weekM   = text.match(/Week\s*(\d+)/i);
+              var seasonM = text.match(/(\d{4})\s*[Ss]eason/i);
+              var liveWeek   = weekM   ? parseInt(weekM[1], 10)   : manifestWeek;
+              var liveSeason = seasonM ? parseInt(seasonM[1], 10) : manifestSeason;
+
+              var isStale = (liveSeason > manifestSeason) ||
+                            (liveSeason === manifestSeason && liveWeek > manifestWeek);
+
+              console.log('[StaticAssets] Week check: manifest=' + manifestSeason + 'W' + manifestWeek +
+                          ' live=' + liveSeason + 'W' + liveWeek +
+                          (isStale ? ' STALE' : ' current'));
+
+              // Update in-memory manifest with live week so app uses correct week going forward
+              if (isStale && _manifest) {
+                _manifest.week   = String(liveWeek);
+                _manifest.season = String(liveSeason);
+              }
+
+              return {
+                manifestWeek:   manifestWeek,
+                manifestSeason: manifestSeason,
+                liveWeek:       liveWeek,
+                liveSeason:     liveSeason,
+                isStale:        isStale,
+                rosterHtml:     text,   // reuse the fetched text
+              };
+            })
+            .catch(function() { return tryProxy(i + 1); });
+        }
+
+        return tryProxy(0).catch(function() {
+          return { manifestWeek: manifestWeek, liveWeek: manifestWeek,
+                   liveSeason: manifestSeason, isStale: false, rosterHtml: null };
+        });
+      });
+    },
+  };
+})();
+
 // ── Constants ──
 const DEFAULT_WEIGHTS = {
   QB: { SP:1, AC:1, AG:1, ST:2, HA:1, EN:2, IN:3, DI:2 },
@@ -1148,7 +1266,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.9.7'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.9.9'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -2314,9 +2432,50 @@ function buildPlaceholderRoster(teamName){
     totalCount:  function() { return Object.keys(URLS).length; },
     hasUrl:      function(team) { return !!URLS[team]; },
 
-    // Fetch all 18 in parallel (skips already-cached ones)
+    // Fetch all 18 in parallel — try static /logos/ first, then ESPN CDN
     preloadAll: function() {
       Object.keys(URLS).forEach(function(t) { fetchOne(t); });
+    },
+
+    // Load all logos from static /logos/ path (GitHub Pages deployment)
+    // Much faster than ESPN CDN, no rate limits
+    loadFromStatic: function() {
+      var ABBR_MAP = {
+        'Buffalo':'buf','New England':'ne','Miami':'mia','Jacksonville':'jax',
+        'Pittsburgh':'pit','Denver':'den','Las Vegas':'lv','Los Angeles':'lar',
+        'Cincinnati':'cin','Atlanta':'atl','Washington':'wsh','New York':'nyg',
+        'Philadelphia':'phi','San Francisco':'sf','Chicago':'ari','Minnesota':'min',
+        'Seattle':'sea','Green Bay':'gb'
+      };
+      Object.keys(ABBR_MAP).forEach(function(team) {
+        if (mem[team]) return; // already cached
+        var abbr = ABBR_MAP[team];
+        var staticUrl = './logos/' + abbr + '.png';
+        fetch(staticUrl, {signal: AbortSignal.timeout(8000)})
+          .then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.blob();
+          })
+          .then(function(blob) {
+            return new Promise(function(res, rej) {
+              var fr = new FileReader();
+              fr.onload  = function() { res(fr.result); };
+              fr.onerror = function() { rej(new Error('read')); };
+              fr.readAsDataURL(blob);
+            });
+          })
+          .then(function(uri) {
+            if (!uri || uri.slice(0,10) !== 'data:image') return;
+            mem[team] = uri;
+            save(team, uri);
+            notify(team);
+            console.log('[LogoService] static logo:', team);
+          })
+          .catch(function() {
+            // Static not available — fetchOne will use ESPN CDN
+            fetchOne(team);
+          });
+      });
     },
 
     // Ensure a specific team is fetched (for on-demand in TeamLogo)
@@ -6701,9 +6860,149 @@ function App() {
   React.useEffect(function() {
     window._showGuide = function() { setShowGuide(true); };
 
-    // LogoService boot: log status
+    // LogoService boot
     if (window.LogoService) {
       console.log('[App] LogoService: ' + window.LogoService.cachedCount() + '/' + window.LogoService.totalCount() + ' logos cached');
+    }
+
+    // ── Smart data loader — static-first with live week staleness check ──
+    if (window.StaticAssets) {
+      window.StaticAssets.manifest().then(function(manifest) {
+        if (!manifest || !manifest.files) return;
+        console.log('[App] Static assets: season=' + manifest.season + ' week=' + manifest.week + ' built=' + (manifest.buildTime||'?'));
+
+        // ── Phase 1: Load static assets immediately (fast, no network wait) ──
+        var staticLoads = [];
+
+        if (manifest.files['gamestats.htm']) {
+          staticLoads.push(
+            window.StaticAssets.text('gamestats.htm').then(function(html) {
+              var parsed = parseGameStats(html);
+              if (parsed && parsed.games && parsed.games.length > 0) {
+                saveGameStatsCache(parsed);
+                setGameStatsData(parsed);
+                if (window.pnflDB) window.pnflDB._parseGameStats(html);
+                console.log('[App] Static game stats: ' + parsed.games.length + ' games (Wk' + manifest.week + ')');
+              }
+            }).catch(function(){})
+          );
+        }
+        if (manifest.files['roster.htm']) {
+          staticLoads.push(
+            window.StaticAssets.text('roster.htm').then(function(html) {
+              var parsed = parsePNFLRosterText(html);
+              if (parsed && Object.keys(parsed.teams||{}).length > 0) {
+                saveRosterCache(parsed);
+                setRosterData(parsed);
+                if (window.pnflDB) window.pnflDB.fetch(parsed.season||'2048', parsed.week||'3').catch(function(){});
+                console.log('[App] Static roster: ' + Object.keys(parsed.teams).length + ' teams');
+              }
+            }).catch(function(){})
+          );
+        }
+        if (manifest.files['standings.htm']) {
+          staticLoads.push(
+            window.StaticAssets.text('standings.htm').then(function(html) {
+              var parsed = parsePNFLStandingsText(html);
+              if (parsed && parsed.rankings && parsed.rankings.length > 0) {
+                saveStandingsCache(parsed);
+                setStandingsData(parsed);
+              }
+            }).catch(function(){})
+          );
+        }
+        if (manifest.files['season.htm']) {
+          staticLoads.push(
+            window.StaticAssets.text('season.htm').then(function(html) {
+              var parsed = parseSeasonStats(html);
+              saveSeasonCache(parsed);
+              setSeasonData(parsed);
+              if (window.pnflDB) window.pnflDB._parseSeason(html);
+            }).catch(function(){})
+          );
+        }
+
+        // ── Phase 2: Background week staleness check ──
+        // Runs after static load completes so it doesn't block the ticker
+        Promise.all(staticLoads).then(function() {
+          console.log('[App] Static load complete — checking for new week...');
+
+          window.StaticAssets.checkWeekStaleness().then(function(result) {
+            if (!result.isStale) {
+              console.log('[App] Data is current (Wk' + result.liveWeek + ') — no refresh needed');
+              return;
+            }
+
+            var liveW  = result.liveWeek;
+            var liveS  = result.liveSeason;
+            var yearSh = String(liveS).slice(-2);
+            console.log('[App] NEW WEEK DETECTED: Wk' + result.manifestWeek + ' -> Wk' + liveW + ' — fetching fresh data...');
+            window._appAlert('New week detected (Week ' + liveW + ') — updating data in background...');
+
+            // Build game stats URL for new week
+            var gsUrl = 'https://pnfl.biz/GameStats/' + liveS + '/' + yearSh + 'W' + liveW + '-PNFL_game%20stats.htm';
+            var PROXIES = [
+              function(u) { return 'https://corsproxy.io/?' + encodeURIComponent(u); },
+              function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
+            ];
+
+            var proxyFetch = function(url, proxyIdx) {
+              proxyIdx = proxyIdx || 0;
+              if (proxyIdx >= PROXIES.length) return Promise.reject(new Error('all proxies failed'));
+              return fetch(PROXIES[proxyIdx](url), {signal: AbortSignal.timeout(25000)})
+                .then(function(r) {
+                  if (!r.ok) throw new Error('HTTP ' + r.status);
+                  return r.text();
+                })
+                .catch(function() { return proxyFetch(url, proxyIdx + 1); });
+            };
+
+            // Update roster first (we already have it from the staleness check)
+            if (result.rosterHtml) {
+              try {
+                var rp = parsePNFLRosterText(result.rosterHtml);
+                if (rp && Object.keys(rp.teams||{}).length > 0) {
+                  saveRosterCache(rp);
+                  setRosterData(rp);
+                  console.log('[App] Live roster updated: Wk' + liveW);
+                }
+              } catch(e) {}
+            }
+
+            // Fetch new game stats, season stats, standings in parallel
+            var freshFetches = [
+              proxyFetch(gsUrl)
+                .then(function(html) {
+                  var parsed = parseGameStats(html);
+                  if (parsed && parsed.games && parsed.games.length > 0) {
+                    saveGameStatsCache(parsed);
+                    setGameStatsData(parsed);
+                    if (window.pnflDB) window.pnflDB._parseGameStats(html);
+                    console.log('[App] Live game stats: ' + parsed.games.length + ' games Wk' + liveW);
+                  }
+                })
+                .catch(function(e) { console.warn('[App] New game stats fetch failed:', e.message); }),
+
+              proxyFetch('https://pnfl.biz/pnflstats/PNFL_season.htm')
+                .then(function(html) {
+                  var parsed = parseSeasonStats(html);
+                  saveSeasonCache(parsed);
+                  setSeasonData(parsed);
+                  if (window.pnflDB) window.pnflDB._parseSeason(html);
+                  console.log('[App] Live season stats updated');
+                })
+                .catch(function(){});
+            ];
+
+            Promise.all(freshFetches).then(function() {
+              window._appAlert('Week ' + liveW + ' data loaded — roster, game stats, season stats updated.');
+            });
+          }).catch(function(e) {
+            console.warn('[App] Week staleness check failed:', e.message);
+          });
+        });
+
+      }).catch(function(){});
     }
 
     // LogoService already started background fetching on script init (800ms delay).
@@ -6817,84 +7116,98 @@ function App() {
     setFetchError(null);
     try {
 
-    // Build GameStats URL based on current week (updated each fetch)
-    const currentWeek = rosterData?.week || standingsData?.week || '3';
-    const currentSeason = rosterData?.season || standingsData?.season || '2048';
-    const yearShortFetch = String(currentSeason).slice(-2);
-    const gameStatsUrl = `https://pnfl.biz/GameStats/${currentSeason}/${yearShortFetch}W${currentWeek}-PNFL_game%20stats.htm`;
+    // ── Try static assets first (deployed via deploy script, no CORS needed) ──
+    var staticManifest = null;
+    try { staticManifest = await window.StaticAssets.manifest(); } catch(e) {}
+    var useStatic = staticManifest && staticManifest.files;
 
-    const [rosterResult, standingsResult, seasonResult, gameStatsResult] = await Promise.all([
-      fetchViaProxy(
-        'https://pnfl.biz/pnflstats/PNFL_roster.htm',
-        t => t.includes('Team Roster') || t.includes('PNFL')
-      ),
-      fetchViaProxy(
-        'https://pnfl.biz/pnflstats/PNFL_standings.htm',
-        t => t.includes('Power Rankings') || t.includes('PNFL') || t.includes('Miami') || t.includes('Pittsburgh')
-      ),
-      fetchViaProxy(
-        'https://pnfl.biz/pnflstats/PNFL_season.htm',
-        t => t.includes('PNFL') || t.length > 500
-      ),
-      fetchViaProxy(
-        gameStatsUrl,
-        t => t.includes('PNFL') || t.includes('stat') || t.length > 500
-      ),
-    ]);
+    var rosterHtml='', standingsHtml='', seasonHtml='', gameStatsHtml='', schedHtml='', teamStatsHtml='';
+
+    if (useStatic) {
+      console.log('[FetchRosters] Loading from static assets (season='+staticManifest.season+' week='+staticManifest.week+')');
+      await Promise.allSettled([
+        staticManifest.files['roster.htm']    ? window.StaticAssets.text('roster.htm').then(function(t){rosterHtml=t;}).catch(function(){}) : Promise.resolve(),
+        staticManifest.files['standings.htm'] ? window.StaticAssets.text('standings.htm').then(function(t){standingsHtml=t;}).catch(function(){}) : Promise.resolve(),
+        staticManifest.files['season.htm']    ? window.StaticAssets.text('season.htm').then(function(t){seasonHtml=t;}).catch(function(){}) : Promise.resolve(),
+        staticManifest.files['gamestats.htm'] ? window.StaticAssets.text('gamestats.htm').then(function(t){gameStatsHtml=t;}).catch(function(){}) : Promise.resolve(),
+        staticManifest.files['schedules.htm'] ? window.StaticAssets.text('schedules.htm').then(function(t){schedHtml=t;}).catch(function(){}) : Promise.resolve(),
+        staticManifest.files['teamstats.htm'] ? window.StaticAssets.text('teamstats.htm').then(function(t){teamStatsHtml=t;}).catch(function(){}) : Promise.resolve(),
+      ]);
+    }
+
+    // ── Fall back to CORS proxy for any missing files ──
+    var needProxy = !rosterHtml || !standingsHtml;
+    if (needProxy) {
+      console.log('[FetchRosters] Static assets incomplete — using CORS proxies');
+      const currentWeek = rosterData?.week || standingsData?.week || (staticManifest?.week) || '3';
+      const currentSeason = rosterData?.season || standingsData?.season || (staticManifest?.season) || '2048';
+      const yearShortFetch = String(currentSeason).slice(-2);
+      const gameStatsUrl = `https://pnfl.biz/GameStats/${currentSeason}/${yearShortFetch}W${currentWeek}-PNFL_game%20stats.htm`;
+
+      const [rr, sr, ser, gsr] = await Promise.all([
+        !rosterHtml    ? fetchViaProxy('https://pnfl.biz/pnflstats/PNFL_roster.htm', t=>t.includes('Team Roster')||t.includes('PNFL')) : Promise.resolve({ok:true,text:rosterHtml}),
+        !standingsHtml ? fetchViaProxy('https://pnfl.biz/pnflstats/PNFL_standings.htm', t=>t.includes('Power Rankings')||t.includes('PNFL')||t.includes('Miami')) : Promise.resolve({ok:true,text:standingsHtml}),
+        !seasonHtml    ? fetchViaProxy('https://pnfl.biz/pnflstats/PNFL_season.htm', t=>t.includes('PNFL')||t.length>500) : Promise.resolve({ok:true,text:seasonHtml}),
+        !gameStatsHtml ? fetchViaProxy(gameStatsUrl, t=>t.includes('PNFL')||t.includes('stat')||t.length>500) : Promise.resolve({ok:true,text:gameStatsHtml}),
+      ]);
+      if (rr.ok && rr.text)  rosterHtml    = rr.text;
+      if (sr.ok && sr.text)  standingsHtml = sr.text;
+      if (ser.ok && ser.text) seasonHtml   = ser.text;
+      if (gsr.ok && gsr.text) gameStatsHtml = gsr.text;
+    }
 
     let rosterOk = false, standingsOk = false;
 
-    if (rosterResult.ok) {
+    if (rosterHtml) {
       try {
-        const parsed = parsePNFLRosterText(rosterResult.text);
+        const parsed = parsePNFLRosterText(rosterHtml);
         const teamCount = Object.keys(parsed.teams).length;
         if (teamCount === 0) throw new Error('No teams parsed');
         saveRosterCache(parsed);
         setRosterData(parsed);
         rosterOk = true;
         playSound('fetchDone');
-        // Save week snapshot for historical access
         if (window.PNFL_WEEKS && parsed.season && parsed.week) {
           const wk = parsed.season + 'W' + parsed.week;
           window.PNFL_WEEKS.saveSnapshot(wk, parsed);
           setCurrentWeekKey(wk);
         }
-        // Update pnflDB with fresh data
         if (window.pnflDB) { window.pnflDB.fetch(parsed.season||'2048', parsed.week||'3').catch(e=>console.warn('[pnflDB]',e.message)); }
-      } catch(e) {
-        console.warn('Roster parse failed:', e.message);
-      }
+      } catch(e) { console.warn('Roster parse failed:', e.message); }
     }
 
-    if (standingsResult.ok) {
+    if (standingsHtml) {
       try {
-        const parsed = parsePNFLStandingsText(standingsResult.text);
+        const parsed = parsePNFLStandingsText(standingsHtml);
         if (parsed.rankings.length > 0) {
           saveStandingsCache(parsed);
           setStandingsData(parsed);
           standingsOk = true;
         }
-      } catch(e) {
-        console.warn('Standings parse failed:', e.message);
-      }
+      } catch(e) { console.warn('Standings parse failed:', e.message); }
     }
 
-    // Season stats
-    if (seasonResult.ok) {
+    if (seasonHtml) {
       try {
-        const parsed = parseSeasonStats(seasonResult.text);
+        const parsed = parseSeasonStats(seasonHtml);
         saveSeasonCache(parsed);
         setSeasonData(parsed);
+        // Also feed into pnflDB for AI context
+        if (window.pnflDB) { window.pnflDB._parseSeason(seasonHtml); }
         console.log('[PNFL] Season stats loaded');
       } catch(e) { console.warn('Season parse failed:', e.message); }
     }
 
-    // Game stats for current week
-    if (gameStatsResult.ok) {
+    if (gameStatsHtml) {
       try {
-        const parsed = parseGameStats(gameStatsResult.text);
+        const parsed = parseGameStats(gameStatsHtml);
         saveGameStatsCache(parsed);
         setGameStatsData(parsed);
+        // Feed ONLY game stats into pnflDB.playerGame — separate from season stats
+        if (window.pnflDB) {
+          window.pnflDB._parseGameStats(gameStatsHtml);
+          console.log('[pnflDB] playerGame entries:', Object.keys(window.pnflDB.playerGame).length);
+        }
         console.log('[PNFL] GameStats loaded:', parsed.games.length, 'games');
       } catch(e) { console.warn('GameStats parse failed:', e.message); }
     } else if (window.pnflDB && window.pnflDB.games && window.pnflDB.games.length > 0) {
@@ -6903,21 +7216,27 @@ function App() {
       console.log('[PNFL] GameStats from pnflDB:', fb.games.length, 'games');
     }
 
+    if (schedHtml && window.pnflDB) {
+      try { window.pnflDB._raw.schedules = schedHtml; } catch(e) {}
+    }
+    if (teamStatsHtml && window.pnflDB) {
+      try { window.pnflDB._raw.teamStats = teamStatsHtml; } catch(e) {}
+    }
+
     if (rosterOk || standingsOk) {
       const msgs = [];
-      if (rosterOk) msgs.push(`✓ Rosters: ${Object.keys(loadRosterCache()?.teams||{}).length} teams`);
-      if (standingsOk) msgs.push(`✓ Power Rankings: Week ${loadStandingsCache()?.week}`);
-      if (!rosterOk) msgs.push(`⚠️ Rosters fetch failed`);
-      if (!standingsOk) msgs.push(`⚠️ Standings fetch failed`);
+      if (rosterOk)    msgs.push('Rosters: ' + Object.keys(loadRosterCache()?.teams||{}).length + ' teams');
+      if (standingsOk) msgs.push('Power Rankings: Week ' + loadStandingsCache()?.week);
+      if (!rosterOk)   msgs.push('Rosters fetch failed');
+      if (!standingsOk) msgs.push('Standings fetch failed');
       window._appAlert(msgs.join('\n'));
     } else {
-      setFetchError(rosterResult.error || standingsResult.error || 'Unknown error');
-      // Use built-in Week 1 data so comparisons still work offline/in preview
-      if (!rosterData && HARDCODED_ROSTER_DATA && HARDCODED_ROSTER_DATA.teams && Object.keys(HARDCODED_ROSTER_DATA.teams).length > 0) {
+      setFetchError('Roster fetch failed');
+      if (!rosterData && HARDCODED_ROSTER_DATA && Object.keys(HARDCODED_ROSTER_DATA.teams||{}).length > 0) {
         setRosterData(HARDCODED_ROSTER_DATA);
-        window._appAlert('⚠ Live fetch unavailable (preview/offline). Loaded built-in Week 1 roster data. Deploy to fbpro98.com for live data.');
+        window._appAlert('Live fetch unavailable. Loaded built-in Week 1 roster. Deploy to GitHub Pages for live data.');
       } else {
-        window._appAlert('⚠ All fetches failed. CORS proxies may be busy. Your built-in Week 1 data is still active.');
+        window._appAlert('All fetches failed. Your built-in Week 1 data is still active.');
       }
     }
 
@@ -6941,92 +7260,97 @@ function App() {
   };
 
     const fetchContracts=useCallback(async()=>{
-    // Try same-origin first (GitHub Pages — zero CORS, instant, served from repo)
-    // Falls back to CORS proxies if not available yet
-    const CONTRACT_URL    = 'https://pnfl.biz/pnflstats/Contracts.xlsx';
-    const LOCAL_URL       = window.location.origin + '/Contracts.xlsx';
-    const CACHE_MAX_AGE_H = 6; // serve cache if fresher than 6 hours
+    const CACHE_MAX_AGE_H = 6;
 
-    // ── Cache-first: if we have fresh cached data, use it immediately ──
+    // ── Cache-first: serve fresh cache immediately ──
     const existing = loadContractCache();
     if (existing && existing.fetchedAt) {
       const ageH = (Date.now() - new Date(existing.fetchedAt).getTime()) / 3600000;
       if (ageH < CACHE_MAX_AGE_H) {
         setContractData(existing);
-        console.log('[Contracts] Loaded from cache (' + ageH.toFixed(1) + 'h old)');
+        console.log('[Contracts] Served from cache (' + ageH.toFixed(1) + 'h old)');
+        // Show the loading dialog briefly so user knows contracts loaded
+        setFetchingContracts(true);
+        setTimeout(function() {
+          playSound('contractOk');
+          window._appAlert('Contracts loaded from cache - ' + existing.playerCount + ' players (' + ageH.toFixed(1) + 'h old)');
+          setFetchingContracts(false);
+        }, 600);
         downloadLogoAssets().catch(function(){});
         return;
       }
     }
 
+    // ── Show spinner ──
     setFetchingContracts(true);
 
-    let arrayBuffer = null;
-    let lastError   = '';
+    var arrayBuffer = null;
+    var lastError   = '';
 
-    // ── Tier 0: Same-origin fetch from GitHub Pages repo (fastest, no CORS) ──
+    // ── Tier 1: Static asset from GitHub Pages (no CORS, always works) ──
     try {
-      console.log('[Contracts] Trying same-origin...');
-      const localRes = await fetch(LOCAL_URL, {signal: AbortSignal.timeout(15000)});
-      if (localRes.ok) {
-        const buf = await localRes.arrayBuffer();
-        if (buf.byteLength >= 1000) {
-          arrayBuffer = buf;
-          console.log('[Contracts] Same-origin OK — ' + buf.byteLength + ' bytes');
+      var manifest = window.StaticAssets ? await window.StaticAssets.manifest() : null;
+      if (manifest && manifest.files && manifest.files['Contracts.xlsx']) {
+        console.log('[Contracts] Loading from static asset...');
+        arrayBuffer = await window.StaticAssets.binary('Contracts.xlsx');
+        if (!arrayBuffer || arrayBuffer.byteLength < 1000) {
+          arrayBuffer = null;
+          throw new Error('Static asset too small');
         }
+        console.log('[Contracts] Static asset loaded:', arrayBuffer.byteLength, 'bytes');
       }
     } catch(e) {
-      console.log('[Contracts] Same-origin not available:', e.message);
+      lastError = 'Static: ' + e.message;
+      arrayBuffer = null;
+      console.warn('[Contracts] Static load failed:', e.message);
     }
 
-    // ── Tier 1: CORS proxies (fallback if not in repo yet) ──
+    // ── Tier 2: CORS proxies (fallback) ──
     if (!arrayBuffer) {
+      const CONTRACT_URL = 'https://pnfl.biz/pnflstats/Contracts.xlsx';
       const PROXIES = [
-        url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-        url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-        url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+        function(u) { return 'https://corsproxy.io/?' + encodeURIComponent(u); },
+        function(u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
+        function(u) { return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u); },
       ];
-      for (let i = 0; i < PROXIES.length; i++) {
+      for (var i = 0; i < PROXIES.length; i++) {
         try {
-          console.log('[Contracts] Trying proxy ' + (i + 1) + '...');
-          const res = await fetch(PROXIES[i](CONTRACT_URL), {signal: AbortSignal.timeout(30000)});
+          console.log('[Contracts] Trying proxy ' + (i+1) + '...');
+          var res = await fetch(PROXIES[i](CONTRACT_URL), {signal: AbortSignal.timeout(30000)});
           if (!res.ok) throw new Error('HTTP ' + res.status);
-          const buf = await res.arrayBuffer();
-          if (buf.byteLength < 1000) throw new Error('Too small (' + buf.byteLength + ' bytes)');
+          var buf = await res.arrayBuffer();
+          if (!buf || buf.byteLength < 1000) throw new Error('Too small (' + (buf?buf.byteLength:0) + ' bytes)');
           arrayBuffer = buf;
-          console.log('[Contracts] Proxy ' + (i + 1) + ' OK — ' + buf.byteLength + ' bytes');
+          console.log('[Contracts] Proxy ' + (i+1) + ' OK:', buf.byteLength, 'bytes');
           break;
         } catch(e) {
           lastError = e.message;
-          console.warn('[Contracts] Proxy ' + (i + 1) + ' failed:', e.message);
+          console.warn('[Contracts] Proxy ' + (i+1) + ' failed:', e.message);
         }
       }
     }
 
-    // ── All proxies failed ──
     if (!arrayBuffer) {
       setFetchingContracts(false);
       if (existing) {
-        // Still have stale cache — keep showing it, just warn
         setContractData(existing);
-        window._appAlert('⚠ Contract refresh failed — using cached data from ' + new Date(existing.fetchedAt).toLocaleDateString() + '. ' + lastError);
+        window._appAlert('Contract refresh failed - using cached data from ' + new Date(existing.fetchedAt).toLocaleDateString() + '. ' + lastError);
       } else {
-        window._appAlert('⚠ Contract fetch failed. ' + lastError + ' Try again in a moment.');
+        window._appAlert('Contract fetch failed. ' + lastError + ' Try again in a moment.');
       }
       return;
     }
 
-    // ── Parse the xlsx ──
     try {
       const parsed = await parseContractAsync(arrayBuffer);
       if (!parsed || parsed.playerCount === 0) throw new Error('No player contracts found in file');
       saveContractCache(parsed);
       playSound('contractOk');
       setContractData(parsed);
-      window._appAlert('✓ Contracts loaded — ' + parsed.playerCount + ' players across ' + parsed.teamCount + ' teams.');
+      window._appAlert('Contracts loaded - ' + parsed.playerCount + ' players across ' + parsed.teamCount + ' teams.');
       downloadLogoAssets().catch(function(){});
     } catch(e) {
-      window._appAlert('⚠ Contract parse failed: ' + e.message);
+      window._appAlert('Contract parse failed: ' + e.message);
     }
     setFetchingContracts(false);
   },[]);
