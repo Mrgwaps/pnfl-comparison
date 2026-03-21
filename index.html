@@ -1192,7 +1192,7 @@ window.StaticAssets = (function() {
         ];
         var rosterUrl = 'https://pnfl.biz/pnflstats/PNFL_roster.htm';
 
-        function tryProxy(i) {
+        var tryProxy = function(i) {
           if (i >= PROXIES.length) return Promise.reject(new Error('all proxies failed'));
           var url = PROXIES[i] + encodeURIComponent(rosterUrl);
           return fetch(url, {signal: AbortSignal.timeout(12000)})
@@ -1201,7 +1201,6 @@ window.StaticAssets = (function() {
               return r.text();
             })
             .then(function(text) {
-              // Extract week and season from the roster text
               var weekM   = text.match(/Week\s*(\d+)/i);
               var seasonM = text.match(/(\d{4})\s*[Ss]eason/i);
               var liveWeek   = weekM   ? parseInt(weekM[1], 10)   : manifestWeek;
@@ -1214,7 +1213,6 @@ window.StaticAssets = (function() {
                           ' live=' + liveSeason + 'W' + liveWeek +
                           (isStale ? ' STALE' : ' current'));
 
-              // Update in-memory manifest with live week so app uses correct week going forward
               if (isStale && _manifest) {
                 _manifest.week   = String(liveWeek);
                 _manifest.season = String(liveSeason);
@@ -1226,11 +1224,11 @@ window.StaticAssets = (function() {
                 liveWeek:       liveWeek,
                 liveSeason:     liveSeason,
                 isStale:        isStale,
-                rosterHtml:     text,   // reuse the fetched text
+                rosterHtml:     text,
               };
             })
             .catch(function() { return tryProxy(i + 1); });
-        }
+        };
 
         return tryProxy(0).catch(function() {
           return { manifestWeek: manifestWeek, liveWeek: manifestWeek,
@@ -6990,8 +6988,7 @@ function App() {
                   setSeasonData(parsed);
                   if (window.pnflDB) window.pnflDB._parseSeason(html);
                   console.log('[App] Live season stats updated');
-                })
-                .catch(function(){});
+                }).catch(function(){}),
             ];
 
             Promise.all(freshFetches).then(function() {
