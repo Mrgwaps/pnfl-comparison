@@ -1092,7 +1092,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.9.4'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '7.9.5'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -2264,7 +2264,16 @@ function buildPlaceholderRoster(teamName){
     },
 
     // Ensure a specific team is fetched (for on-demand in TeamLogo)
-    ensure: function(team) { fetchOne(team); },
+    // If already cached, fires logoReady immediately so the component updates
+    ensure: function(team) {
+      if (!team) return;
+      if (mem[team]) {
+        // Already have it — re-fire event so late-mounting components get it
+        notify(team);
+      } else {
+        fetchOne(team);
+      }
+    },
   };
 
   // Keep LOGO_CACHE in sync (legacy code reads window.LOGO_CACHE)
@@ -3002,15 +3011,17 @@ function TeamLogo({ teamName, size }) {
     if (!teamName) return;
     var live = true;
 
-    // Re-check cache (may have arrived between render and effect)
-    var hit = window.LogoService && window.LogoService.getSync(teamName);
-    if (hit) { if (hit !== uri) setUri(hit); }
-    else if (window.LogoService) {
-      // Request this team specifically
+    // Always ensure LogoService is fetching this team
+    // (deduplicates internally — safe to call multiple times)
+    if (window.LogoService) {
       window.LogoService.ensure(teamName);
+      // Check if already available (handles case where download finished
+      // between the synchronous useState init and this effect running)
+      var hit = window.LogoService.getSync(teamName);
+      if (hit && hit !== uri) setUri(hit);
     }
 
-    // Listen for this team's logo arriving
+    // Listen for this specific team's logo arriving
     function onReady(e) {
       if (live && e.detail && e.detail.team === teamName && e.detail.uri) {
         setUri(e.detail.uri);
@@ -5781,16 +5792,7 @@ function LeaguePowerRankings({ standingsData }) {
                                       background:'rgba(0,0,0,0.3)',flexShrink:0,
                                       display:'flex',alignItems:'center',justifyContent:'center'
                                     }}>
-                                      <img
-                                        src={ESPN_LOGOS[opp]}
-                                        alt={opp}
-                                        width={20} height={20}
-                                        style={{objectFit:'contain',width:'20px',height:'20px'}}
-                                        onError={e => {
-                                          e.target.style.display='none';
-                                          e.target.parentNode.innerHTML = `<span style="font-size:9px;color:${d.accent||'#aaa'};font-family:Orbitron;font-weight:700">${d.abbr||'?'}</span>`;
-                                        }}
-                                      />
+                                      <TeamLogo teamName={SHORT_TO_TEAM[opp]||opp} size="tiny"/>
                                     </div>
                                   );
                                 })}
@@ -6815,7 +6817,10 @@ function App() {
   };
 
     const fetchContracts=useCallback(async()=>{
+    // Try same-origin first (GitHub Pages — zero CORS, instant, served from repo)
+    // Falls back to CORS proxies if not available yet
     const CONTRACT_URL    = 'https://pnfl.biz/pnflstats/Contracts.xlsx';
+    const LOCAL_URL       = window.location.origin + '/Contracts.xlsx';
     const CACHE_MAX_AGE_H = 6; // serve cache if fresher than 6 hours
 
     // ── Cache-first: if we have fresh cached data, use it immediately ──
@@ -6832,29 +6837,45 @@ function App() {
 
     setFetchingContracts(true);
 
-    // ── Exactly the proxies + approach that worked in v6.9.2 ──
-    // IMPORTANT: always use arrayBuffer() directly — never JSON-unwrap for xlsx binary
-    const PROXIES = [
-      url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-      url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-      url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
-    ];
     let arrayBuffer = null;
     let lastError   = '';
 
-    for (let i = 0; i < PROXIES.length; i++) {
-      try {
-        console.log('[Contracts] Trying proxy ' + (i + 1) + '...');
-        const res = await fetch(PROXIES[i](CONTRACT_URL), {signal: AbortSignal.timeout(30000)});
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const buf = await res.arrayBuffer();
-        if (buf.byteLength < 1000) throw new Error('Too small (' + buf.byteLength + ' bytes)');
-        arrayBuffer = buf;
-        console.log('[Contracts] Proxy ' + (i + 1) + ' OK — ' + buf.byteLength + ' bytes');
-        break;
-      } catch(e) {
-        lastError = e.message;
-        console.warn('[Contracts] Proxy ' + (i + 1) + ' failed:', e.message);
+    // ── Tier 0: Same-origin fetch from GitHub Pages repo (fastest, no CORS) ──
+    try {
+      console.log('[Contracts] Trying same-origin...');
+      const localRes = await fetch(LOCAL_URL, {signal: AbortSignal.timeout(15000)});
+      if (localRes.ok) {
+        const buf = await localRes.arrayBuffer();
+        if (buf.byteLength >= 1000) {
+          arrayBuffer = buf;
+          console.log('[Contracts] Same-origin OK — ' + buf.byteLength + ' bytes');
+        }
+      }
+    } catch(e) {
+      console.log('[Contracts] Same-origin not available:', e.message);
+    }
+
+    // ── Tier 1: CORS proxies (fallback if not in repo yet) ──
+    if (!arrayBuffer) {
+      const PROXIES = [
+        url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+        url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+        url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+      ];
+      for (let i = 0; i < PROXIES.length; i++) {
+        try {
+          console.log('[Contracts] Trying proxy ' + (i + 1) + '...');
+          const res = await fetch(PROXIES[i](CONTRACT_URL), {signal: AbortSignal.timeout(30000)});
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          const buf = await res.arrayBuffer();
+          if (buf.byteLength < 1000) throw new Error('Too small (' + buf.byteLength + ' bytes)');
+          arrayBuffer = buf;
+          console.log('[Contracts] Proxy ' + (i + 1) + ' OK — ' + buf.byteLength + ' bytes');
+          break;
+        } catch(e) {
+          lastError = e.message;
+          console.warn('[Contracts] Proxy ' + (i + 1) + ' failed:', e.message);
+        }
       }
     }
 
