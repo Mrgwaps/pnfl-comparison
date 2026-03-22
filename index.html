@@ -1264,7 +1264,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '7.9.9'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '8.0'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -2384,7 +2384,53 @@ function buildPlaceholderRoster(teamName){
   }
 
   // ── Fetch one team's logo ──
+  // ABBR_MAP for static logo filenames
+  var ABBR_MAP = {
+    'Buffalo':'buf','New England':'ne','Miami':'mia','Jacksonville':'jax',
+    'Pittsburgh':'pit','Denver':'den','Las Vegas':'lv','Los Angeles':'lar',
+    'Cincinnati':'cin','Atlanta':'atl','Washington':'wsh','New York':'nyg',
+    'Philadelphia':'phi','San Francisco':'sf','Chicago':'ari','Minnesota':'min',
+    'Seattle':'sea','Green Bay':'gb'
+  };
+
   function fetchOne(team) {
+    if (mem[team] || loading[team]) return;
+    if (!URLS[team]) return;
+    loading[team] = true;
+
+    // Try static /logos/ file first (deployed asset, no CORS, instant)
+    var staticUrl = './logos/' + (ABBR_MAP[team] || '') + '.png';
+    if (ABBR_MAP[team]) {
+      fetch(staticUrl, {signal: AbortSignal.timeout(6000)})
+        .then(function(r) {
+          if (!r.ok) throw new Error('static 404');
+          return r.blob();
+        })
+        .then(function(blob) {
+          return new Promise(function(res, rej) {
+            var fr = new FileReader();
+            fr.onload  = function() { res(fr.result); };
+            fr.onerror = function() { rej(); };
+            fr.readAsDataURL(blob);
+          });
+        })
+        .then(function(uri) {
+          if (!uri || uri.slice(0,10) !== 'data:image') throw new Error('bad');
+          mem[team] = uri; loading[team] = false;
+          save(team, uri); notify(team);
+          console.log('[LogoService] static:', team);
+        })
+        .catch(function() {
+          // Static not available — fall through to ESPN CDN
+          loading[team] = false;
+          fetchFromCDN(team);
+        });
+      return;
+    }
+    fetchFromCDN(team);
+  }
+
+  function fetchFromCDN(team) {
     if (mem[team] || loading[team]) return;
     if (!URLS[team]) return;
     loading[team] = true;
@@ -2412,7 +2458,7 @@ function buildPlaceholderRoster(teamName){
       })
       .catch(function(e) {
         loading[team] = false;
-        console.warn('[LogoService] failed:', team, e.message);
+        console.warn('[LogoService] CDN failed:', team, e.message);
         // Retry once after 8s
         setTimeout(function() { fetchOne(team); }, 8000);
       });
@@ -2438,14 +2484,7 @@ function buildPlaceholderRoster(teamName){
     // Load all logos from static /logos/ path (GitHub Pages deployment)
     // Much faster than ESPN CDN, no rate limits
     loadFromStatic: function() {
-      var ABBR_MAP = {
-        'Buffalo':'buf','New England':'ne','Miami':'mia','Jacksonville':'jax',
-        'Pittsburgh':'pit','Denver':'den','Las Vegas':'lv','Los Angeles':'lar',
-        'Cincinnati':'cin','Atlanta':'atl','Washington':'wsh','New York':'nyg',
-        'Philadelphia':'phi','San Francisco':'sf','Chicago':'ari','Minnesota':'min',
-        'Seattle':'sea','Green Bay':'gb'
-      };
-      Object.keys(ABBR_MAP).forEach(function(team) {
+        Object.keys(ABBR_MAP).forEach(function(team) {
         if (mem[team]) return; // already cached
         var abbr = ABBR_MAP[team];
         var staticUrl = './logos/' + abbr + '.png';
@@ -2476,16 +2515,26 @@ function buildPlaceholderRoster(teamName){
       });
     },
 
-    // Ensure a specific team is fetched (for on-demand in TeamLogo)
-    // If already cached, fires logoReady immediately so the component updates
+    // Ensure a specific team logo is available.
+    // Priority: memory cache → localStorage → static /logos/ file → ESPN CDN
     ensure: function(team) {
       if (!team) return;
-      if (mem[team]) {
-        // Already have it — re-fire event so late-mounting components get it
-        notify(team);
-      } else {
-        fetchOne(team);
-      }
+      // Already in memory — fire event immediately
+      if (mem[team]) { notify(team); return; }
+      // Check localStorage directly in case mem wasn't seeded
+      try {
+        var stored = localStorage.getItem('pnfl_logos_v1');
+        if (stored) {
+          var map = JSON.parse(stored);
+          if (map[team] && map[team].startsWith('data:image')) {
+            mem[team] = map[team];
+            notify(team);
+            return;
+          }
+        }
+      } catch(e) {}
+      // Not cached anywhere — fetchOne handles static→ESPN priority
+      fetchOne(team);
     },
   };
 
@@ -2497,15 +2546,24 @@ function buildPlaceholderRoster(teamName){
     });
   } catch(e) { window.LOGO_CACHE = mem; }
 
-  // Boot: restore from storage, then immediately notify for already-cached logos
+  // Boot: restore from storage, then load static logos immediately
   load();
 
-  // After storage is loaded, fire events so any already-rendered components update
+  // Fire events for anything already in memory cache
   if (Object.keys(mem).length > 0) {
     setTimeout(function() {
       Object.keys(mem).forEach(function(t) { notify(t); });
     }, 50);
   }
+
+  // Immediately start loading from static /logos/ files (deployed assets)
+  // This runs at script parse time - before React mounts - so getSync() 
+  // returns data URIs on first component render for teams already loaded.
+  setTimeout(function() {
+    if (window.LogoService && window.LogoService.loadFromStatic) {
+      window.LogoService.loadFromStatic();
+    }
+  }, 0);
 })();
 
 </script>
@@ -3215,33 +3273,66 @@ function TeamLogo({ teamName, size }) {
   var SZ = {large:80, medium:60, small:36, tiny:22};
   var sz = SZ[size] || 60;
 
+  // Synchronous cache read — returns data URI if already loaded
+  function getBestUri(name) {
+    if (!name) return null;
+    // 1. In-memory (fastest — already base64)
+    if (window.LogoService && window.LogoService.getSync(name))
+      return window.LogoService.getSync(name);
+    // 2. localStorage direct read (survives page reload)
+    try {
+      var stored = localStorage.getItem('pnfl_logos_v1');
+      if (stored) {
+        var map = JSON.parse(stored);
+        if (map[name] && map[name].startsWith('data:image')) {
+          // Seed memory cache so next call is instant
+          if (window.LogoService) window.LOGO_CACHE[name] = map[name];
+          return map[name];
+        }
+      }
+    } catch(e) {}
+    return null;
+  }
+
   var [uri, setUri] = React.useState(function() {
-    // Synchronous read from LogoService cache on first render
-    return window.LogoService ? window.LogoService.getSync(teamName) : null;
+    return getBestUri(teamName);
   });
 
   React.useEffect(function() {
     if (!teamName) return;
     var live = true;
 
-    // Always ensure LogoService is fetching this team
-    // (deduplicates internally — safe to call multiple times)
+    // Immediately try cache again (may have loaded between render and effect)
+    var hit = getBestUri(teamName);
+    if (hit && hit !== uri) { setUri(hit); return; }
+
+    // Request LogoService to fetch this team (static /logos/ first, then ESPN CDN)
     if (window.LogoService) {
       window.LogoService.ensure(teamName);
-      // Check if already available (handles case where download finished
-      // between the synchronous useState init and this effect running)
-      var hit = window.LogoService.getSync(teamName);
-      if (hit && hit !== uri) setUri(hit);
     }
 
-    // Listen for this specific team's logo arriving
+    // Listen for this team's logo arriving
     function onReady(e) {
       if (live && e.detail && e.detail.team === teamName && e.detail.uri) {
         setUri(e.detail.uri);
       }
     }
     window.addEventListener('logoReady', onReady);
-    return function() { live = false; window.removeEventListener('logoReady', onReady); };
+
+    // Also poll localStorage briefly in case event was missed
+    var poll = setInterval(function() {
+      var found = getBestUri(teamName);
+      if (found) {
+        if (live) setUri(found);
+        clearInterval(poll);
+      }
+    }, 400);
+
+    return function() {
+      live = false;
+      window.removeEventListener('logoReady', onReady);
+      clearInterval(poll);
+    };
   }, [teamName]);
 
   if (!teamName) {
@@ -3251,38 +3342,23 @@ function TeamLogo({ teamName, size }) {
       fontSize:Math.round(sz*0.45)}}>🏈</div>;
   }
 
-  // Cached data URI — always works
-  if (uri) {
-    return <img src={uri} alt={teamName} width={sz} height={sz}
-      style={{flexShrink:0,width:sz,height:sz,objectFit:'contain',
-        borderRadius:0,background:'transparent',display:'block',
-        filter:'drop-shadow(0 2px 6px rgba(0,0,0,0.7))'}}/>;
-  }
-
-  // Not cached yet — show ESPN URL with fallback underneath
-  // When data URI arrives via logoReady event, re-renders with the cached branch above
-  var espnUrl = ESPN_LOGOS[teamName];
-  if (espnUrl) {
+  // Have a cached data URI — render directly, guaranteed to work
+  if (uri && uri.startsWith('data:')) {
     return (
-      <div style={{position:'relative',width:sz,height:sz,flexShrink:0,display:'inline-block'}}>
-        <TeamLogoFallback teamName={teamName} sz={sz}/>
-        <img src={espnUrl} alt={teamName} width={sz} height={sz}
-          onLoad={function(e){
-            e.target.style.opacity = '1';
-            var fb = e.target.previousSibling;
-            if (fb) fb.style.visibility = 'hidden';
-          }}
-          onError={function(e){ e.target.style.display='none'; }}
-          style={{position:'absolute',top:0,left:0,width:sz,height:sz,
-            objectFit:'contain',background:'transparent',display:'block',
-            opacity:0,transition:'opacity 0.2s',
-            filter:'drop-shadow(0 2px 6px rgba(0,0,0,0.7))'}}
-        />
-      </div>
+      <img src={uri} alt={teamName} width={sz} height={sz}
+        style={{flexShrink:0,width:sz,height:sz,objectFit:'contain',
+          borderRadius:0,background:'transparent',display:'block',
+          filter:'drop-shadow(0 2px 6px rgba(0,0,0,0.7))'}}/>
     );
   }
 
-  return <TeamLogoFallback teamName={teamName} sz={sz}/>;
+  // Still loading — show TeamLogoFallback (SVG with team colors) as placeholder
+  // The logoReady event + poll will swap it out once the download completes
+  return (
+    <div style={{position:'relative',width:sz,height:sz,flexShrink:0,display:'inline-flex',alignItems:'center',justifyContent:'center'}}>
+      <TeamLogoFallback teamName={teamName} sz={sz}/>
+    </div>
+  );
 }
 
 
