@@ -1265,7 +1265,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '8.9'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '9.0'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -6503,15 +6503,30 @@ function LegalModal({ page, onClose }) {
 }
 
 function ScoresTicker({ gameStatsData, seasonData }) {
-  var [mode, setMode]           = React.useState('scores'); // 'scores' | 'passing'
+  var MODES = ['scores','passing','rushing','receiving','tackles'];
+  var MODE_LABELS = {
+    scores:   ['SCORES',    ''],
+    passing:  ['PASSING',   'LEADERS'],
+    rushing:  ['RUSHING',   'LEADERS'],
+    receiving:['RECEIVING', 'LEADERS'],
+    tackles:  ['TACKLE',    'LEADERS'],
+  };
+
+  var [modeIdx, setModeIdx]       = React.useState(0);
   var [tickerData, setTickerData] = React.useState(function() {
-    if (gameStatsData && Array.isArray(gameStatsData.games) && gameStatsData.games.length > 0)
-      return gameStatsData;
+    if (gameStatsData && Array.isArray(gameStatsData.games) && gameStatsData.games.length > 0) return gameStatsData;
     if (window.pnflDB && Array.isArray(window.pnflDB.games) && window.pnflDB.games.length > 0)
-      return { games: window.pnflDB.games, week: window.pnflDB.week, season: window.pnflDB.season };
+      return { games:window.pnflDB.games, week:window.pnflDB.week, season:window.pnflDB.season };
     return null;
   });
+  var [passLeaders,     setPassLeaders]     = React.useState([]);
+  var [rushLeaders,     setRushLeaders]     = React.useState([]);
+  var [receivingLeaders,setReceivingLeaders]= React.useState([]);
+  var [tackleLeaders,   setTackleLeaders]   = React.useState([]);
 
+  var mode = MODES[modeIdx];
+
+  // Poll for scores data
   React.useEffect(function() {
     if (gameStatsData && Array.isArray(gameStatsData.games) && gameStatsData.games.length > 0) {
       setTickerData(gameStatsData); return;
@@ -6528,49 +6543,45 @@ function ScoresTicker({ gameStatsData, seasonData }) {
     return function() { clearInterval(poll); };
   }, [gameStatsData]);
 
-  // Passing leaders in state so they update reactively
-  var [passLeaders, setPassLeaders] = React.useState([]);
+  // Load all stat leaders
   React.useEffect(function() {
-    // Use the dedicated passing parser that handles both HTML and plain text
-    function tryBuild(html) {
-      if (html && window.parsePassingLeadersFromHtml) {
-        var result = window.parsePassingLeadersFromHtml(html);
-        if (result.length > 0) { setPassLeaders(result); return true; }
-      }
-      return false;
+    function loadFromHtml(html) {
+      if (!html || !window.parsePassingLeadersFromHtml) return false;
+      var pass = window.parsePassingLeadersFromHtml(html);
+      var rush = window.parseRushingLeadersFromHtml(html);
+      var recv = window.parseReceivingLeadersFromHtml(html);
+      var tack = window.parseTackleLeadersFromHtml(html);
+      if (pass.length > 0) { setPassLeaders(pass); window._pnflPassingLeaders = pass; }
+      if (rush.length > 0) { setRushLeaders(rush); window._pnflRushingLeaders = rush; }
+      if (recv.length > 0) { setReceivingLeaders(recv); window._pnflReceivingLeaders = recv; }
+      if (tack.length > 0) { setTackleLeaders(tack); window._pnflTackleLeaders = tack; }
+      return pass.length > 0;
     }
 
-    // 1. Try static deployed season.htm first (always available after deploy)
+    function syncFromGlobals() {
+      var ok = false;
+      if (window._pnflPassingLeaders   && window._pnflPassingLeaders.length > 0)   { setPassLeaders(window._pnflPassingLeaders);       ok = true; }
+      if (window._pnflRushingLeaders   && window._pnflRushingLeaders.length > 0)   { setRushLeaders(window._pnflRushingLeaders);       ok = true; }
+      if (window._pnflReceivingLeaders && window._pnflReceivingLeaders.length > 0) { setReceivingLeaders(window._pnflReceivingLeaders);ok = true; }
+      if (window._pnflTackleLeaders    && window._pnflTackleLeaders.length > 0)    { setTackleLeaders(window._pnflTackleLeaders);      ok = true; }
+      return ok;
+    }
+
+    // 1. Try globals already set by mount loader
+    if (syncFromGlobals()) return;
+
+    // 2. Fetch static season.htm directly
     if (window.StaticAssets) {
       window.StaticAssets.text('season.htm').then(function(html) {
-        if (!tryBuild(html)) {
-          // 2. Try pnflDB._raw.season (populated after fetchRosters)
-          if (window.pnflDB && window.pnflDB._raw && window.pnflDB._raw.season) {
-            tryBuild(window.pnflDB._raw.season);
-          }
-        }
-      }).catch(function() {
-        // 3. Fall back to pnflDB._raw.season directly
-        if (window.pnflDB && window.pnflDB._raw && window.pnflDB._raw.season) {
-          tryBuild(window.pnflDB._raw.season);
-        }
-      });
-    } else if (window.pnflDB && window.pnflDB._raw && window.pnflDB._raw.season) {
-      tryBuild(window.pnflDB._raw.season);
+        if (!loadFromHtml(html)) syncFromGlobals();
+      }).catch(function() { syncFromGlobals(); });
     }
 
-    // 4. Poll for pnflDB._raw.season to arrive (after fetchRosters completes)
+    // 3. Poll for globals to arrive (after fetchRosters)
     var attempts = 0;
     var poll = setInterval(function() {
       attempts++;
-      if (window.pnflDB && window.pnflDB._raw && window.pnflDB._raw.season) {
-        if (tryBuild(window.pnflDB._raw.season)) { clearInterval(poll); return; }
-      }
-      // Also check window._pnflPassingLeaders if set externally
-      if (window._pnflPassingLeaders && window._pnflPassingLeaders.length > 0) {
-        setPassLeaders(window._pnflPassingLeaders);
-        clearInterval(poll); return;
-      }
+      if (syncFromGlobals()) { clearInterval(poll); }
       if (attempts > 90) clearInterval(poll);
     }, 1000);
     return function() { clearInterval(poll); };
@@ -6578,14 +6589,14 @@ function ScoresTicker({ gameStatsData, seasonData }) {
 
   function handleBadgeClick() {
     playSound('click');
-    var next = mode === 'scores' ? 'passing' : 'scores';
-    setMode(next);
-    if (next === 'passing') {
-      try {
-        var snd = SOUNDS.top10;
-        snd.currentTime = 0;
-        snd.play().catch(function(){});
-      } catch(e) {}
+    var nextIdx = (modeIdx + 1) % MODES.length;
+    setModeIdx(nextIdx);
+    // Play SportsCenter sound when switching to any leaders mode, with slight delay
+    // so click sound finishes first and data is visible when sound plays
+    if (MODES[nextIdx] !== 'scores') {
+      setTimeout(function() {
+        try { var s = SOUNDS.top10; s.currentTime = 0; s.play().catch(function(){}); } catch(e) {}
+      }, 300);
     }
   }
 
@@ -6597,41 +6608,67 @@ function ScoresTicker({ gameStatsData, seasonData }) {
   }).filter(function(g){ return g.away && g.home; });
   if (!games.length) return null;
 
-  var scoreItems   = games.concat(games);
-  var passItems = passLeaders.concat(passLeaders);
+  var scoreItems    = games.concat(games);
+  var passItems     = passLeaders.concat(passLeaders);
+  var rushItems     = rushLeaders.concat(rushLeaders);
+  var recvItems     = receivingLeaders.concat(receivingLeaders);
+  var tackleItems   = tackleLeaders.concat(tackleLeaders);
+
+  var modeLabel = MODE_LABELS[mode];
+
+  // Helper: get full team name from code
+  function teamName(code) {
+    if (!code) return '';
+    return (window._TEAM_CODE_MAP && (window._TEAM_CODE_MAP[code] || window._TEAM_CODE_MAP[code.toUpperCase()])) || '';
+  }
+
+  // Shared styles
+  var RANK_STYLE = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.65rem',fontWeight:'900',color:'#cc0000',minWidth:'16px',textAlign:'right',flexShrink:0};
+  var NAME_STYLE = {fontFamily:'Arial,sans-serif',fontSize:'0.7rem',fontWeight:'700',color:'#ffffff',whiteSpace:'nowrap'};
+  var LBL_STYLE  = {fontFamily:'Arial,sans-serif',fontSize:'0.58rem',color:'#888'};
+  var VAL_STYLE  = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#fff'};
+  var TD_STYLE   = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#4aff8a',fontWeight:'900'};
+  var INT_STYLE  = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#ff6b6b',fontWeight:'900'};
+  var SEP        = <span style={{color:'#333',fontSize:'0.55rem',margin:'0 2px'}}>|</span>;
+  var ITEM_WRAP  = {display:'inline-flex',alignItems:'center',gap:'5px',padding:'0 14px 0 8px',borderRight:'1px solid #333',height:'38px',flexShrink:0};
+
+  function Stat({label,val,style}) {
+    return <span style={{display:'inline-flex',alignItems:'center',gap:'2px'}}>
+      <span style={LBL_STYLE}>{label}</span>
+      <span style={style||VAL_STYLE}>{val}</span>
+    </span>;
+  }
+
+  function NoData({label}) {
+    return <div style={{display:'flex',alignItems:'center',padding:'0 20px',
+      color:'#555',fontFamily:'Arial,sans-serif',fontSize:'0.7rem',whiteSpace:'nowrap'}}>
+      {label} — fetch rosters or deploy to load season stats
+    </div>;
+  }
 
   return (
     <div className="espn-ticker-wrap">
 
-      {/* Clickable badge — toggles between SCORES and PASSING LEADERS */}
-      <div
-        className="espn-ticker-badge"
-        onClick={handleBadgeClick}
-        title={mode === 'scores' ? 'Click for Passing Leaders' : 'Click for Scores'}
-        style={{cursor:'pointer',userSelect:'none',transition:'background 0.2s'}}
-      >
+      {/* Clickable badge */}
+      <div className="espn-ticker-badge" onClick={handleBadgeClick}
+        title="Click to cycle: Scores → Passing → Rushing → Receiving → Tackles"
+        style={{cursor:'pointer',userSelect:'none',transition:'opacity 0.15s'}}>
         <svg width="42" height="16" viewBox="0 0 42 16" style={{display:'block'}}>
           <rect width="42" height="16" rx="2" fill="#cc0000"/>
-          <text x="21" y="12" textAnchor="middle"
-            fontFamily="Arial Black,Arial,sans-serif"
-            fontSize="11" fontWeight="900"
-            fill="white" letterSpacing="0.5">ESPN</text>
+          <text x="21" y="12" textAnchor="middle" fontFamily="Arial Black,Arial,sans-serif"
+            fontSize="11" fontWeight="900" fill="white" letterSpacing="0.5">ESPN</text>
         </svg>
-        <span style={{
-          fontFamily:'Arial,sans-serif',fontSize:'0.42rem',fontWeight:'700',
-          color:'rgba(255,255,255,0.75)',letterSpacing:'1px',
-          textTransform:'uppercase',marginTop:'1px',textAlign:'center',lineHeight:1.2,
-        }}>
-          {mode === 'scores' ? 'SCORES' : (
-            <span>PASSING<br/>LEADERS</span>
-          )}
+        <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.40rem',fontWeight:'700',
+          color:'rgba(255,255,255,0.8)',letterSpacing:'0.8px',textTransform:'uppercase',
+          marginTop:'1px',textAlign:'center',lineHeight:1.25,display:'block'}}>
+          {modeLabel[0]}{modeLabel[1] ? <span><br/>{modeLabel[1]}</span> : null}
         </span>
       </div>
 
       {/* Scrolling area */}
       <div className="espn-ticker-scroll-area">
 
-        {/* SCORES mode */}
+        {/* SCORES */}
         {mode === 'scores' && (
           <div className="espn-ticker-inner">
             {scoreItems.map(function(g, i) {
@@ -6644,13 +6681,13 @@ function ScoresTicker({ gameStatsData, seasonData }) {
                 <span key={i} style={{display:'inline-flex',alignItems:'center',padding:'0 18px 0 12px',borderRight:'1px solid #333',height:'38px',gap:'0'}}>
                   <span style={{display:'inline-flex',alignItems:'center',gap:'5px',marginRight:'6px'}}>
                     <span style={{flexShrink:0,display:'inline-flex',alignItems:'center'}}><TeamLogo teamName={g.away} size="tiny"/></span>
-                    <span style={awWin ? NW : NL}>{g.away}</span>
-                    <span style={{...SW, color: awWin ? '#ffffff' : '#888888'}}>{g.awayScore}</span>
+                    <span style={awWin?NW:NL}>{g.away}</span>
+                    <span style={{...SW,color:awWin?'#ffffff':'#888888'}}>{g.awayScore}</span>
                   </span>
                   <span style={{color:'#cc0000',fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.52rem',margin:'0 5px',fontWeight:'900',letterSpacing:'0.5px',opacity:0.85}}>AT</span>
                   <span style={{display:'inline-flex',alignItems:'center',gap:'5px',marginLeft:'6px'}}>
-                    <span style={{...SW, color: hwWin ? '#ffffff' : '#888888'}}>{g.homeScore}</span>
-                    <span style={hwWin ? NW : NL}>{g.home}</span>
+                    <span style={{...SW,color:hwWin?'#ffffff':'#888888'}}>{g.homeScore}</span>
+                    <span style={hwWin?NW:NL}>{g.home}</span>
                     <span style={{flexShrink:0,display:'inline-flex',alignItems:'center'}}><TeamLogo teamName={g.home} size="tiny"/></span>
                   </span>
                   <span style={{marginLeft:'8px',background:'rgba(255,255,255,0.08)',borderRadius:'3px',padding:'2px 5px',fontFamily:'Arial,sans-serif',fontSize:'0.52rem',fontWeight:'700',color:'#888',letterSpacing:'0.5px',textTransform:'uppercase',flexShrink:0}}>FINAL</span>
@@ -6660,54 +6697,93 @@ function ScoresTicker({ gameStatsData, seasonData }) {
           </div>
         )}
 
-        {/* PASSING LEADERS mode */}
-        {mode === 'passing' && passItems.length > 0 && (
-          <div className="espn-ticker-inner">
-            {passItems.map(function(p, i) {
-              var rank = (i % passLeaders.length) + 1;
-              var teamFull = p.team ? (window._TEAM_CODE_MAP && (window._TEAM_CODE_MAP[p.team] || window._TEAM_CODE_MAP[p.team.toUpperCase()] || '')) || '' : '';
-              return (
-                <span key={i} style={{
-                  display:'inline-flex',alignItems:'center',gap:'6px',
-                  padding:'0 16px 0 10px',borderRight:'1px solid #333',
-                  height:'38px',flexShrink:0,
-                }}>
-                  {/* Rank */}
-                  <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',fontWeight:'900',color:'#cc0000',minWidth:'18px',textAlign:'right'}}>{rank}</span>
-                  {/* Team logo */}
-                  <span style={{flexShrink:0,display:'inline-flex',alignItems:'center'}}>
-                    <TeamLogo teamName={teamFull} size="tiny"/>
+        {/* PASSING LEADERS */}
+        {mode === 'passing' && (
+          passItems.length > 0
+          ? <div className="espn-ticker-inner">
+              {passItems.map(function(p,i) {
+                var rank = (i % passLeaders.length) + 1;
+                return (
+                  <span key={i} style={ITEM_WRAP}>
+                    <span style={RANK_STYLE}>#{rank}</span>
+                    <TeamLogo teamName={teamName(p.team)} size="tiny"/>
+                    <span style={NAME_STYLE}>{p.name}</span>
+                    {SEP}<Stat label="ATT" val={p.att}/>
+                    {SEP}<Stat label="COM" val={p.com}/>
+                    {SEP}<Stat label="PCT" val={p.pct}/>
+                    {SEP}<Stat label="TD"  val={p.td}  style={TD_STYLE}/>
+                    {SEP}<Stat label="INT" val={p.int} style={INT_STYLE}/>
                   </span>
-                  {/* Player name */}
-                  <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.72rem',fontWeight:'700',color:'#ffffff',whiteSpace:'nowrap'}}>{p.name||''}</span>
-                  {/* Stats */}
-                  <span style={{display:'inline-flex',alignItems:'center',gap:'4px',marginLeft:'2px'}}>
-                    <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.6rem',color:'#999'}}>ATT</span>
-                    <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#fff'}}>{p.att||0}</span>
-                    <span style={{color:'#333',fontSize:'0.6rem'}}>|</span>
-                    <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.6rem',color:'#999'}}>COM</span>
-                    <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#fff'}}>{p.com||0}</span>
-                    <span style={{color:'#333',fontSize:'0.6rem'}}>|</span>
-                    <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.6rem',color:'#999'}}>PCT</span>
-                    <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#fff'}}>{p.pct||0}</span>
-                    <span style={{color:'#333',fontSize:'0.6rem'}}>|</span>
-                    <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.6rem',color:'#4aff8a'}}>TD</span>
-                    <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#4aff8a',fontWeight:'900'}}>{p.td||0}</span>
-                    <span style={{color:'#333',fontSize:'0.6rem'}}>|</span>
-                    <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.6rem',color:'#ff6b6b'}}>INT</span>
-                    <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#ff6b6b',fontWeight:'900'}}>{p.int||0}</span>
-                  </span>
-                </span>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          : <NoData label="Passing Leaders"/>
         )}
 
-        {/* No passing data fallback */}
-        {mode === 'passing' && passItems.length === 0 && (
-          <div style={{display:'flex',alignItems:'center',padding:'0 20px',color:'#555',fontFamily:'Arial,sans-serif',fontSize:'0.7rem'}}>
-            Passing leaders unavailable — fetch rosters to load season stats
-          </div>
+        {/* RUSHING LEADERS */}
+        {mode === 'rushing' && (
+          rushItems.length > 0
+          ? <div className="espn-ticker-inner">
+              {rushItems.map(function(p,i) {
+                var rank = (i % rushLeaders.length) + 1;
+                return (
+                  <span key={i} style={ITEM_WRAP}>
+                    <span style={RANK_STYLE}>#{rank}</span>
+                    <TeamLogo teamName={teamName(p.team)} size="tiny"/>
+                    <span style={NAME_STYLE}>{p.name}</span>
+                    {SEP}<Stat label="ATT" val={p.att}/>
+                    {SEP}<Stat label="YDS" val={p.yds}/>
+                    {SEP}<Stat label="AVG" val={p.avg}/>
+                    {SEP}<Stat label="LG"  val={p.lg}/>
+                    {SEP}<Stat label="TD"  val={p.td} style={TD_STYLE}/>
+                  </span>
+                );
+              })}
+            </div>
+          : <NoData label="Rushing Leaders"/>
+        )}
+
+        {/* RECEIVING LEADERS */}
+        {mode === 'receiving' && (
+          recvItems.length > 0
+          ? <div className="espn-ticker-inner">
+              {recvItems.map(function(p,i) {
+                var rank = (i % receivingLeaders.length) + 1;
+                return (
+                  <span key={i} style={ITEM_WRAP}>
+                    <span style={RANK_STYLE}>#{rank}</span>
+                    <TeamLogo teamName={teamName(p.team)} size="tiny"/>
+                    <span style={NAME_STYLE}>{p.name}</span>
+                    {SEP}<Stat label="REC" val={p.rec}/>
+                    {SEP}<Stat label="YDS" val={p.yds}/>
+                    {SEP}<Stat label="AVG" val={p.avg}/>
+                    {SEP}<Stat label="LG"  val={p.lg}/>
+                    {SEP}<Stat label="TD"  val={p.td} style={TD_STYLE}/>
+                  </span>
+                );
+              })}
+            </div>
+          : <NoData label="Receiving Leaders"/>
+        )}
+
+        {/* TACKLE LEADERS */}
+        {mode === 'tackles' && (
+          tackleItems.length > 0
+          ? <div className="espn-ticker-inner">
+              {tackleItems.map(function(p,i) {
+                var rank = (i % tackleLeaders.length) + 1;
+                return (
+                  <span key={i} style={ITEM_WRAP}>
+                    <span style={RANK_STYLE}>#{rank}</span>
+                    <TeamLogo teamName={teamName(p.team)} size="tiny"/>
+                    <span style={NAME_STYLE}>{p.name}</span>
+                    {SEP}<Stat label="POS" val={p.pos}/>
+                    {SEP}<Stat label="TKL" val={p.tackles}/>
+                  </span>
+                );
+              })}
+            </div>
+          : <NoData label="Tackle Leaders"/>
         )}
 
         <div className="espn-ticker-fade-r"/>
@@ -7153,8 +7229,14 @@ function App() {
               setSeasonData(parsed);
               if (window.pnflDB) window.pnflDB._parseSeason(html);
               if (window.parsePassingLeadersFromHtml) {
-                window._pnflPassingLeaders = window.parsePassingLeadersFromHtml(html);
-                console.log('[App] Passing leaders ready:', window._pnflPassingLeaders.length);
+                window._pnflPassingLeaders   = window.parsePassingLeadersFromHtml(html);
+                window._pnflRushingLeaders   = window.parseRushingLeadersFromHtml(html);
+                window._pnflReceivingLeaders = window.parseReceivingLeadersFromHtml(html);
+                window._pnflTackleLeaders    = window.parseTackleLeadersFromHtml(html);
+                console.log('[App] All stat leaders parsed — passing:', window._pnflPassingLeaders.length,
+                  'rushing:', window._pnflRushingLeaders.length,
+                  'receiving:', window._pnflReceivingLeaders.length,
+                  'tackles:', window._pnflTackleLeaders.length);
               }
             }).catch(function(){})
           );
@@ -7228,8 +7310,10 @@ function App() {
                   setSeasonData(parsed);
                   if (window.pnflDB) window.pnflDB._parseSeason(html);
                   if (window.parsePassingLeadersFromHtml) {
-                    window._pnflPassingLeaders = window.parsePassingLeadersFromHtml(html);
-                    console.log('[App] Passing leaders parsed:', window._pnflPassingLeaders.length);
+                    window._pnflPassingLeaders   = window.parsePassingLeadersFromHtml(html);
+                    window._pnflRushingLeaders   = window.parseRushingLeadersFromHtml(html);
+                    window._pnflReceivingLeaders = window.parseReceivingLeadersFromHtml(html);
+                    window._pnflTackleLeaders    = window.parseTackleLeadersFromHtml(html);
                   }
                   console.log('[App] Live season stats updated');
                 }).catch(function(){}),
@@ -7447,8 +7531,11 @@ function App() {
         // Also feed into pnflDB for AI context
         if (window.pnflDB) { window.pnflDB._parseSeason(seasonHtml); }
         if (window.parsePassingLeadersFromHtml) {
-          window._pnflPassingLeaders = window.parsePassingLeadersFromHtml(seasonHtml);
-          console.log('[PNFL] Passing leaders from fetchRosters:', window._pnflPassingLeaders.length);
+          window._pnflPassingLeaders   = window.parsePassingLeadersFromHtml(seasonHtml);
+          window._pnflRushingLeaders   = window.parseRushingLeadersFromHtml(seasonHtml);
+          window._pnflReceivingLeaders = window.parseReceivingLeadersFromHtml(seasonHtml);
+          window._pnflTackleLeaders    = window.parseTackleLeadersFromHtml(seasonHtml);
+          console.log('[PNFL] All stat leaders from fetchRosters');
         }
         console.log('[PNFL] Season stats loaded');
       } catch(e) { console.warn('Season parse failed:', e.message); }
@@ -8196,11 +8283,103 @@ window.parsePassingLeadersFromHtml = function(html) {
 window._TEAM_CODE_MAP = {
   'BUF':'Buffalo','NE':'New England','MIA':'Miami','JAX':'Jacksonville',
   'PIT':'Pittsburgh','DEN':'Denver','LVR':'Las Vegas','LV':'Las Vegas',
-  'LAR':'Los Angeles','LA':'Los Angeles','CIN':'Cincinnati','ATL':'Atlanta',
+  'LAR':'Los Angeles','LAC':'Los Angeles','LA':'Los Angeles',
+  'CIN':'Cincinnati','ATL':'Atlanta',
   'NYG':'New York','NY':'New York','PHI':'Philadelphia','WAS':'Washington',
   'GB':'Green Bay','CHI':'Chicago','MIN':'Minnesota','SF':'San Francisco',
-  'SEA':'Seattle',
+  'SEA':'Seattle','DEN':'Denver','BUF':'Buffalo',
 };
+
+// Generic stat leader parser - parses any Individual section from season.htm
+// Returns array sorted by primary numeric stat (first numeric col)
+window.parseStatLeadersFromHtml = function(html, sectionName, cols) {
+  if (!html) return [];
+  var leaders = [];
+
+  // Convert HTML to plain text using DOMParser
+  var text = html;
+  if (html.includes('<')) {
+    try {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      text = doc.body ? (doc.body.innerText || doc.body.textContent || html) : html;
+    } catch(e) {}
+  }
+
+  var lines = text.split('\n');
+  var inSection = false;
+
+  // Regexes for each format:
+  // Passing/Rushing/Receiving: "1 Name, First    TEAM  YR  POS  num num..."
+  //   or without POS:          "1 Name, First    TEAM  YR  num  num..."
+  // Tackles:                   "1 Name, First    TEAM  YR  POS  num"
+
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    if (line.includes(sectionName)) { inSection = true; continue; }
+    if (inSection && (
+      line.includes('Individual Passing') || line.includes('Individual Rushing') ||
+      line.includes('Individual Receiving') || line.includes('Individual Tackles') ||
+      line.includes('Individual Sacks') || line.includes('Individual Interceptions') ||
+      line.includes('Team Passing') || line.includes('Back to top')
+    ) && !line.includes(sectionName)) { inSection = false; }
+    if (!inSection) continue;
+
+    // Skip header lines
+    if (line.match(/^\s*Name\s/) || line.match(/^\s*Minimum/)) continue;
+
+    // Match ranked player rows - flexible for all formats
+    // "1 Etienne, Travis    MIA   8  HB   71  340  4.8  16   3"
+    // "1 Longerbeam, Robert NYG   R  CB   25"
+    var m = line.match(/^\s*(\d{1,2})\s+([A-Za-z ,.']+?)\s{2,}([A-Z]{2,3})\s+(\d+|R)\s+(\S+)\s+(.+)$/);
+    if (!m) {
+      // Try without position field
+      m = line.match(/^\s*(\d{1,2})\s+([A-Za-z ,.']+?)\s{2,}([A-Z]{2,3})\s+(\d+|R)\s+(.+)$/);
+      if (!m) continue;
+      // Rebuild as if pos is empty
+      m = [m[0], m[1], m[2], m[3], m[4], '', m[5]];
+    }
+
+    var rank  = parseInt(m[1]);
+    var name  = m[2].replace(/,\s*/,' ').trim(); // "Etienne, Travis" -> "Etienne Travis"
+    var team  = m[3].trim();
+    var pos   = m[5] ? m[5].trim() : '';
+    var rest  = m[6] ? m[6].trim() : (m[5] ? m[5].trim() : '');
+
+    // Parse remaining numbers
+    var nums = rest.split(/\s+/).filter(function(n){ return n !== ''; });
+
+    var entry = { rank:rank, name:name, team:team, pos:pos };
+    cols.forEach(function(col, idx) {
+      var raw = nums[idx];
+      if (raw !== undefined) {
+        var n = parseFloat(raw.replace(/,/g,''));
+        entry[col] = isNaN(n) ? raw : n;
+      }
+    });
+    leaders.push(entry);
+  }
+
+  // Deduplicate by name, keep highest-ranked
+  var seen = {};
+  leaders = leaders.filter(function(p) {
+    if (seen[p.name]) return false;
+    seen[p.name] = true; return true;
+  });
+  leaders.sort(function(a,b) { return a.rank - b.rank; });
+  console.log('[StatParser] ' + sectionName + ':', leaders.length, 'entries');
+  return leaders.slice(0, 18);
+};
+
+// Convenience wrappers
+window.parseRushingLeadersFromHtml  = function(html) { return window.parseStatLeadersFromHtml(html, 'Individual Rushing',   ['att','yds','avg','lg','td']); };
+window.parseReceivingLeadersFromHtml= function(html) { return window.parseStatLeadersFromHtml(html, 'Individual Receiving',  ['rec','yds','avg','lg','td']); };
+window.parseTackleLeadersFromHtml   = function(html) { return window.parseStatLeadersFromHtml(html, 'Individual Tackles',    ['tackles']); };
+
+// Storage globals
+window._pnflRushingLeaders   = [];
+window._pnflReceivingLeaders = [];
+window._pnflTackleLeaders    = [];
+
 </script>
 
 
