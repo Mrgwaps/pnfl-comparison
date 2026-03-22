@@ -1264,7 +1264,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '8.4'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '8.5'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -3635,11 +3635,33 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
     <div style={{
       background:'linear-gradient(135deg, rgba(10,22,40,0.97) 0%, rgba(13,40,24,0.97) 100%)',
       border:`2px solid ${isLive ? '#ffd700' : isHardcoded ? '#4a9eff' : '#2d5a2d'}`,
-      borderRadius:'12px', padding:'16px 24px',
+      borderRadius:'12px', padding:'16px 90px 16px 24px',
       marginBottom:'0px', display:'flex', flexWrap:'wrap',
       alignItems:'center', justifyContent:'space-between', gap:'16px',
       boxShadow:`0 0 20px ${isLive ? 'rgba(255,215,0,0.15)' : 'rgba(74,158,255,0.12)'}`,
+      position:'relative',
     }}>
+      {/* Guide Button — absolute right, vertically centered in card */}
+      <div style={{position:'absolute',top:'12px',right:'14px',zIndex:10,
+        display:'flex',flexDirection:'column',alignItems:'center'}}>
+        <button
+          onClick={function(){playSound('click');haptic('light');window._showGuide&&window._showGuide();}}
+          title="FBpro98 User Guide"
+          className="haptic-btn"
+          style={{padding:0,background:'none',border:'none',cursor:'pointer',display:'block'}}>
+          <img
+            src={window._fbpro98Logo||''}
+            alt="Guide"
+            style={{width:'62px',height:'48px',objectFit:'cover',borderRadius:'9px',display:'block',
+              boxShadow:'0 4px 14px rgba(0,0,0,0.75)',border:'2px solid rgba(255,215,0,0.55)',
+              transition:'all 0.15s ease',filter:'brightness(1.05)'}}
+            onMouseEnter={function(e){e.target.style.transform='scale(1.06)';e.target.style.boxShadow='0 8px 24px rgba(0,0,0,0.85),0 0 12px rgba(255,215,0,0.2)';}}
+            onMouseLeave={function(e){e.target.style.transform='';e.target.style.boxShadow='0 4px 14px rgba(0,0,0,0.75)';}}
+          />
+        </button>
+        <div style={{textAlign:'center',fontSize:'0.46rem',color:'#5a8a4a',fontFamily:'Orbitron',
+          marginTop:'3px',letterSpacing:'1.5px',textTransform:'uppercase'}}>Guide</div>
+      </div>
       
 
       <div style={{display:'flex',gap:'32px',flexWrap:'wrap',alignItems:'center'}}>
@@ -3770,32 +3792,6 @@ function RosterBanner({ rosterMeta, onFetch, fetching, onClearCache, onFetchCont
 @keyframes spin2{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
     
         {/* FBpro98 Guide Button — right side of action bar */}
-        <div style={{marginLeft:'auto',display:'flex',flexDirection:'column',alignItems:'center',flexShrink:0}}>
-          <button
-            onClick={function(){playSound('click');haptic('light');window._showGuide&&window._showGuide();}}
-            title="FBpro98 User Guide — click for feature help"
-            className="haptic-btn"
-            style={{padding:0,background:'none',border:'none',cursor:'pointer',display:'block',position:'relative'}}>
-            <img
-              src={window._fbpro98Logo||''}
-              alt="Guide"
-              style={{width:'64px',height:'50px',objectFit:'cover',borderRadius:'9px',display:'block',
-                boxShadow:'0 6px 18px rgba(0,0,0,0.75),0 3px 6px rgba(0,0,0,0.5)',
-                border:'2px solid rgba(255,215,0,0.55)',
-                transition:'all 0.15s ease',filter:'brightness(1.05)'}}
-              onMouseEnter={function(e){
-                e.target.style.transform='translateY(-3px) scale(1.05)';
-                e.target.style.boxShadow='0 12px 28px rgba(0,0,0,0.85),0 0 14px rgba(255,215,0,0.2)';
-              }}
-              onMouseLeave={function(e){
-                e.target.style.transform='';
-                e.target.style.boxShadow='0 6px 18px rgba(0,0,0,0.75),0 3px 6px rgba(0,0,0,0.5)';
-              }}
-            />
-          </button>
-          <div style={{textAlign:'center',fontSize:'0.48rem',color:'#5a8a4a',fontFamily:'Orbitron',
-            marginTop:'4px',letterSpacing:'1.5px',textTransform:'uppercase'}}>Guide</div>
-        </div>
       </div>
     </>
   );
