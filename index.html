@@ -1264,7 +1264,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '8.0'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '8.1'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -1477,7 +1477,7 @@ function parsePNFLRosterHTML(html, result) {
     const txt = el.textContent.trim();
     const m = txt.match(/Team Roster[:\s]+(.+?)(?:\s*$)/im);
     if (m) {
-      const tName = m[1].trim().replace(/\s+/g,' ');
+      const tName = m[1].trim().replace(/<[^>]+>/g,'').replace(/\s+/g,' ').trim();
       const mapped = TEAM_NAME_MAP[tName];
       if (mapped !== undefined) pendingTeam = mapped;
       else {
@@ -1502,15 +1502,16 @@ function parsePNFLRosterHTML(html, result) {
       // Direct "Team Roster: Miami" pattern
       const m = txt.match(/Team Roster[:\s]+([A-Za-z ]+?)(?:\s{2,}|\n|$)/im);
       if (m) {
-        const tName = m[1].trim();
+        const tName = m[1].trim().replace(/<[^>]+>/g,'').trim();
         teamFound = TEAM_NAME_MAP[tName] !== undefined ? TEAM_NAME_MAP[tName] : null;
         if (teamFound === undefined) teamFound = null;
         break;
       }
       // Any known team name in short text
-      if (txt.length < 60) {
+      const cleanTxt = txt.replace(/<[^>]+>/g,'').trim();
+      if (cleanTxt.length < 80) {
         for (const [k,v] of Object.entries(TEAM_NAME_MAP)) {
-          if (k && v && txt.includes(k)) { teamFound = v; break; }
+          if (k && v && cleanTxt.includes(k)) { teamFound = v; break; }
         }
       }
     }
@@ -1611,11 +1612,18 @@ function parsePNFLRosterPlainText(rawText, result) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    const teamMatch = line.match(/Team Roster:\s*(.+)/i);
+    const teamMatch = line.match(/Team Roster[:\s]+(.+)/i);
     if (teamMatch) {
-      const tName = teamMatch[1].trim();
-      const mapped = teamNameMap[tName];
-      currentTeam = (mapped !== undefined) ? mapped : tName;
+      // Strip any HTML tags that leaked in (e.g. "New York</h3></b></b>")
+      const tNameRaw = teamMatch[1].trim().replace(/<[^>]+>/g,'').trim();
+      // Try exact match first, then partial match against known names
+      var mapped = teamNameMap[tNameRaw];
+      if (mapped === undefined) {
+        for (const k of Object.keys(teamNameMap)) {
+          if (k && tNameRaw.includes(k)) { mapped = teamNameMap[k]; break; }
+        }
+      }
+      currentTeam = (mapped !== undefined) ? mapped : tNameRaw;
       if (currentTeam && !result.teams[currentTeam]) result.teams[currentTeam] = {};
       lastPlayer = null; captureNext = false;
       continue;
@@ -6462,7 +6470,15 @@ function LegalModal({ page, onClose }) {
 }
 
 function ScoresTicker({ gameStatsData }) {
-  if (!gameStatsData || !Array.isArray(gameStatsData.games) || gameStatsData.games.length === 0) return null;
+  // Also check pnflDB.games as a fallback source
+  var effectiveData = gameStatsData;
+  if ((!effectiveData || !Array.isArray(effectiveData.games) || effectiveData.games.length === 0) &&
+      window.pnflDB && Array.isArray(window.pnflDB.games) && window.pnflDB.games.length > 0) {
+    effectiveData = { games: window.pnflDB.games, week: window.pnflDB.week, season: window.pnflDB.season };
+  }
+  if (!effectiveData || !Array.isArray(effectiveData.games) || effectiveData.games.length === 0) return null;
+  // Reassign so rest of component uses effectiveData
+  gameStatsData = effectiveData;
 
   var games = gameStatsData.games.map(function(g) {
     if (g.team1 !== undefined) return { away:g.team1, awayScore:g.score1, home:g.team2, homeScore:g.score2 };
