@@ -1264,7 +1264,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '8.1'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '8.2'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -1950,8 +1950,8 @@ function parseGameStats(html) {
   const sm = text.match(/(\d{4})\s*season/i);
   if (sm) result.season = sm[1];
 
-  // Parse score lines: "TeamA XX - XX TeamB"
-  const scorePattern = /([A-Za-z ]+?)\s+(\d+)\s*[-–]\s*(\d+)\s+([A-Za-z ]+)/g;
+  // Pattern 1: "TeamA XX - XX TeamB" (inline)
+  const scorePattern = /([A-Za-z ]{3,25}?)\s+(\d+)\s*[-–]\s*(\d+)\s+([A-Za-z ]{3,25})/g;
   let m;
   while ((m = scorePattern.exec(text)) !== null) {
     const team1 = m[1].trim(), score1 = parseInt(m[2]);
@@ -1959,6 +1959,34 @@ function parseGameStats(html) {
     if (score1 >= 0 && score2 >= 0 && team1.length > 2 && team2.length > 2) {
       result.games.push({ team1, score1, team2, score2, winner: score1 > score2 ? team1 : team2 });
     }
+  }
+
+  // Pattern 2: "TeamA at TeamB\n  SCORE1  SCORE2" (PNFL game stats page format)
+  if (result.games.length === 0) {
+    const atPattern = /^([A-Za-z ]{3,25})\s+at\s+([A-Za-z ]{3,25})$/gm;
+    let am;
+    while ((am = atPattern.exec(text)) !== null) {
+      const away = am[1].trim(), home = am[2].trim();
+      // Score is on the next non-empty line
+      const afterMatch = text.slice(am.index + am[0].length);
+      const scoreLine = afterMatch.match(/^\s*[\r\n]+\s*(\d+)\s+(\d+)/);
+      if (scoreLine) {
+        const awayScore = parseInt(scoreLine[1]), homeScore = parseInt(scoreLine[2]);
+        result.games.push({
+          team1: away, score1: awayScore,
+          team2: home, score2: homeScore,
+          winner: awayScore > homeScore ? away : home,
+        });
+      }
+    }
+  }
+
+  // Pattern 3: pull from pnflDB if already parsed (most reliable)
+  if (result.games.length === 0 && window.pnflDB && Array.isArray(window.pnflDB.games) && window.pnflDB.games.length > 0) {
+    window.pnflDB.games.forEach(function(g) {
+      result.games.push({ team1: g.away, score1: g.awayScore, team2: g.home, score2: g.homeScore,
+                          winner: g.awayScore > g.homeScore ? g.away : g.home });
+    });
   }
 
   // Also extract from tables
@@ -6470,15 +6498,39 @@ function LegalModal({ page, onClose }) {
 }
 
 function ScoresTicker({ gameStatsData }) {
-  // Also check pnflDB.games as a fallback source
-  var effectiveData = gameStatsData;
-  if ((!effectiveData || !Array.isArray(effectiveData.games) || effectiveData.games.length === 0) &&
-      window.pnflDB && Array.isArray(window.pnflDB.games) && window.pnflDB.games.length > 0) {
-    effectiveData = { games: window.pnflDB.games, week: window.pnflDB.week, season: window.pnflDB.season };
-  }
-  if (!effectiveData || !Array.isArray(effectiveData.games) || effectiveData.games.length === 0) return null;
-  // Reassign so rest of component uses effectiveData
-  gameStatsData = effectiveData;
+  // Internal state so ticker can update when pnflDB gets game data
+  var [tickerData, setTickerData] = React.useState(function() {
+    // Init: prefer passed prop, then pnflDB, then null
+    if (gameStatsData && Array.isArray(gameStatsData.games) && gameStatsData.games.length > 0)
+      return gameStatsData;
+    if (window.pnflDB && Array.isArray(window.pnflDB.games) && window.pnflDB.games.length > 0)
+      return { games: window.pnflDB.games, week: window.pnflDB.week, season: window.pnflDB.season };
+    return null;
+  });
+
+  // Update when prop changes or pnflDB gets populated
+  React.useEffect(function() {
+    // Prefer explicit gameStatsData prop if it has games
+    if (gameStatsData && Array.isArray(gameStatsData.games) && gameStatsData.games.length > 0) {
+      setTickerData(gameStatsData);
+      return;
+    }
+    // Poll pnflDB.games until data arrives (fires after fetchRosters completes)
+    var attempts = 0;
+    var poll = setInterval(function() {
+      attempts++;
+      if (window.pnflDB && Array.isArray(window.pnflDB.games) && window.pnflDB.games.length > 0) {
+        setTickerData({ games: window.pnflDB.games, week: window.pnflDB.week, season: window.pnflDB.season });
+        clearInterval(poll);
+      }
+      if (attempts > 60) clearInterval(poll); // stop after 60s
+    }, 1000);
+    return function() { clearInterval(poll); };
+  }, [gameStatsData]);
+
+  if (!tickerData || !Array.isArray(tickerData.games) || tickerData.games.length === 0) return null;
+  // Use tickerData for rest of component
+  gameStatsData = tickerData;
 
   var games = gameStatsData.games.map(function(g) {
     if (g.team1 !== undefined) return { away:g.team1, awayScore:g.score1, home:g.team2, homeScore:g.score2 };
@@ -7261,7 +7313,18 @@ function App() {
           window.PNFL_WEEKS.saveSnapshot(wk, parsed);
           setCurrentWeekKey(wk);
         }
-        if (window.pnflDB) { window.pnflDB.fetch(parsed.season||'2048', parsed.week||'3').catch(e=>console.warn('[pnflDB]',e.message)); }
+        if (window.pnflDB) {
+          window.pnflDB.fetch(parsed.season||'2048', parsed.week||'3').then(function() {
+            // After pnflDB fetch completes, sync game stats to React state for ticker
+            if (window.pnflDB.games && window.pnflDB.games.length > 0) {
+              var gs = { games:window.pnflDB.games, week:window.pnflDB.week,
+                         season:window.pnflDB.season, fetchedAt:new Date().toISOString() };
+              saveGameStatsCache(gs);
+              setGameStatsData(gs);
+              console.log('[App] pnflDB game stats synced to ticker:', gs.games.length, 'games');
+            }
+          }).catch(function(e){ console.warn('[pnflDB]',e.message); });
+        }
       } catch(e) { console.warn('Roster parse failed:', e.message); }
     }
 
