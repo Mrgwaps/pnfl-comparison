@@ -547,11 +547,12 @@ window.pnflAI.restore();
 <script>
 // ── PNFL Sound Engine ──
 const SOUNDS = {
-  aiConnect:  new Audio("./transform_ai.mp3"),       // AI connected
-  click:      new Audio("./Click_sound_1.mp3"),       // button clicks
-  fetchDone:  new Audio("./Fetch_rosters.mp3"),       // fetch rosters complete
-  compareDone:new Audio("./Comparison_complete.mp3"), // compare teams complete
-  contractOk: new Audio("./Contract_loaded.mp3"),     // contract file loaded
+  aiConnect:   new Audio("./transform_ai.mp3"),        // AI connected
+  click:       new Audio("./Click_sound_1.mp3"),        // button clicks
+  fetchDone:   new Audio("./Fetch_rosters.mp3"),        // fetch rosters complete
+  compareDone: new Audio("./Comparison_complete.mp3"),  // compare teams complete
+  contractOk:  new Audio("./Contract_loaded.mp3"),      // contract file loaded
+  top10:       new Audio("./sportscenter_top10.mp3"),   // passing leaders reveal
 };
 Object.values(SOUNDS).forEach(a => { a.preload='auto'; a.volume=0.7; });
 SOUNDS.click.volume = 0.4;
@@ -1264,7 +1265,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '8.5'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '8.6'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -6490,10 +6491,9 @@ function LegalModal({ page, onClose }) {
   );
 }
 
-function ScoresTicker({ gameStatsData }) {
-  // Internal state so ticker can update when pnflDB gets game data
+function ScoresTicker({ gameStatsData, seasonData }) {
+  var [mode, setMode]           = React.useState('scores'); // 'scores' | 'passing'
   var [tickerData, setTickerData] = React.useState(function() {
-    // Init: prefer passed prop, then pnflDB, then null
     if (gameStatsData && Array.isArray(gameStatsData.games) && gameStatsData.games.length > 0)
       return gameStatsData;
     if (window.pnflDB && Array.isArray(window.pnflDB.games) && window.pnflDB.games.length > 0)
@@ -6501,45 +6501,80 @@ function ScoresTicker({ gameStatsData }) {
     return null;
   });
 
-  // Update when prop changes or pnflDB gets populated
   React.useEffect(function() {
-    // Prefer explicit gameStatsData prop if it has games
     if (gameStatsData && Array.isArray(gameStatsData.games) && gameStatsData.games.length > 0) {
-      setTickerData(gameStatsData);
-      return;
+      setTickerData(gameStatsData); return;
     }
-    // Poll pnflDB.games until data arrives (fires after fetchRosters completes)
     var attempts = 0;
     var poll = setInterval(function() {
       attempts++;
       if (window.pnflDB && Array.isArray(window.pnflDB.games) && window.pnflDB.games.length > 0) {
-        setTickerData({ games: window.pnflDB.games, week: window.pnflDB.week, season: window.pnflDB.season });
+        setTickerData({ games:window.pnflDB.games, week:window.pnflDB.week, season:window.pnflDB.season });
         clearInterval(poll);
       }
-      if (attempts > 60) clearInterval(poll); // stop after 60s
+      if (attempts > 60) clearInterval(poll);
     }, 1000);
     return function() { clearInterval(poll); };
   }, [gameStatsData]);
 
-  if (!tickerData || !Array.isArray(tickerData.games) || tickerData.games.length === 0) return null;
-  // Use tickerData for rest of component
-  gameStatsData = tickerData;
+  // Build passing leaders from pnflDB.playerSeason or seasonData
+  function getPassingLeaders() {
+    var leaders = [];
+    var src = (window.pnflDB && Object.keys(window.pnflDB.playerSeason||{}).length > 0)
+      ? window.pnflDB.playerSeason : null;
+    if (src) {
+      Object.values(src).forEach(function(p) {
+        if (p.pass && p.pass.att >= 50) leaders.push(p.pass);
+      });
+    }
+    leaders.sort(function(a,b) { return (b.rtg||0) - (a.rtg||0); });
+    return leaders.slice(0, 18);
+  }
 
-  var games = gameStatsData.games.map(function(g) {
+  function handleBadgeClick() {
+    playSound('click');
+    var next = mode === 'scores' ? 'passing' : 'scores';
+    setMode(next);
+    if (next === 'passing') {
+      try {
+        var snd = SOUNDS.top10;
+        snd.currentTime = 0;
+        snd.play().catch(function(){});
+      } catch(e) {}
+    }
+  }
+
+  if (!tickerData || !Array.isArray(tickerData.games) || tickerData.games.length === 0) return null;
+
+  var games = tickerData.games.map(function(g) {
     if (g.team1 !== undefined) return { away:g.team1, awayScore:g.score1, home:g.team2, homeScore:g.score2 };
     return { away:g.away, awayScore:g.awayScore, home:g.home, homeScore:g.homeScore };
   }).filter(function(g){ return g.away && g.home; });
   if (!games.length) return null;
 
-  // Triple items for seamless infinite loop (animation moves -50%, so 2x items needed)
-  var items = games.concat(games);
+  var scoreItems   = games.concat(games);
+  var passLeaders  = getPassingLeaders();
+  var passItems    = passLeaders.concat(passLeaders);
+
+  // Team abbreviation map for display
+  var TEAM_ABBR = {
+    'Buffalo':'BUF','New England':'NE','Miami':'MIA','Jacksonville':'JAX',
+    'Pittsburgh':'PIT','Denver':'DEN','Las Vegas':'LVR','Los Angeles':'LAR',
+    'Cincinnati':'CIN','Atlanta':'ATL','Washington':'WAS','New York':'NYG',
+    'Philadelphia':'PHI','San Francisco':'SF','Chicago':'CHI',
+    'Minnesota':'MIN','Seattle':'SEA','Green Bay':'GB',
+  };
 
   return (
     <div className="espn-ticker-wrap">
 
-      {/* ESPN-red badge */}
-      <div className="espn-ticker-badge">
-        {/* ESPN logo lettering */}
+      {/* Clickable badge — toggles between SCORES and PASSING LEADERS */}
+      <div
+        className="espn-ticker-badge"
+        onClick={handleBadgeClick}
+        title={mode === 'scores' ? 'Click for Passing Leaders' : 'Click for Scores'}
+        style={{cursor:'pointer',userSelect:'none',transition:'background 0.2s'}}
+      >
         <svg width="42" height="16" viewBox="0 0 42 16" style={{display:'block'}}>
           <rect width="42" height="16" rx="2" fill="#cc0000"/>
           <text x="21" y="12" textAnchor="middle"
@@ -6549,76 +6584,105 @@ function ScoresTicker({ gameStatsData }) {
         </svg>
         <span style={{
           fontFamily:'Arial,sans-serif',fontSize:'0.42rem',fontWeight:'700',
-          color:'rgba(255,255,255,0.75)',letterSpacing:'1.5px',
-          textTransform:'uppercase',marginTop:'1px',
-        }}>SCORES</span>
+          color:'rgba(255,255,255,0.75)',letterSpacing:'1px',
+          textTransform:'uppercase',marginTop:'1px',textAlign:'center',lineHeight:1.2,
+        }}>
+          {mode === 'scores' ? 'SCORES' : (
+            <span>PASSING<br/>LEADERS</span>
+          )}
+        </span>
       </div>
 
-      {/* Scrolling scores area */}
+      {/* Scrolling area */}
       <div className="espn-ticker-scroll-area">
-        <div className="espn-ticker-inner">
-          {items.map(function(g, i) {
-            var awWin  = typeof g.awayScore === 'number' && typeof g.homeScore === 'number' && g.awayScore > g.homeScore;
-            var hwWin  = typeof g.awayScore === 'number' && typeof g.homeScore === 'number' && g.homeScore > g.awayScore;
-            var SCORE_W = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.82rem',fontWeight:'900',lineHeight:1,minWidth:'20px',textAlign:'center'};
-            var NAME_W  = {fontFamily:'Arial,sans-serif',fontSize:'0.7rem',fontWeight:'700',letterSpacing:'0.3px',lineHeight:1};
-            var NAME_L  = {fontFamily:'Arial,sans-serif',fontSize:'0.7rem',fontWeight:'400',letterSpacing:'0.3px',lineHeight:1,opacity:0.6};
-            return (
-              <span key={i} style={{
-                display:'inline-flex',alignItems:'center',
-                padding:'0 18px 0 12px',
-                borderRight:'1px solid #333',
-                height:'38px',gap:'0',
-              }}>
 
-                {/* Away */}
-                <span style={{display:'inline-flex',alignItems:'center',gap:'5px',marginRight:'6px'}}>
-                  <span style={{flexShrink:0,display:'inline-flex',alignItems:'center'}}>
-                    <TeamLogo teamName={g.away} size="tiny"/>
+        {/* SCORES mode */}
+        {mode === 'scores' && (
+          <div className="espn-ticker-inner">
+            {scoreItems.map(function(g, i) {
+              var awWin = typeof g.awayScore==='number' && typeof g.homeScore==='number' && g.awayScore > g.homeScore;
+              var hwWin = typeof g.awayScore==='number' && typeof g.homeScore==='number' && g.homeScore > g.awayScore;
+              var SW = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.82rem',fontWeight:'900',lineHeight:1,minWidth:'20px',textAlign:'center'};
+              var NW = {fontFamily:'Arial,sans-serif',fontSize:'0.7rem',fontWeight:'700',letterSpacing:'0.3px',lineHeight:1};
+              var NL = {fontFamily:'Arial,sans-serif',fontSize:'0.7rem',fontWeight:'400',letterSpacing:'0.3px',lineHeight:1,opacity:0.6};
+              return (
+                <span key={i} style={{display:'inline-flex',alignItems:'center',padding:'0 18px 0 12px',borderRight:'1px solid #333',height:'38px',gap:'0'}}>
+                  <span style={{display:'inline-flex',alignItems:'center',gap:'5px',marginRight:'6px'}}>
+                    <span style={{flexShrink:0,display:'inline-flex',alignItems:'center'}}><TeamLogo teamName={g.away} size="tiny"/></span>
+                    <span style={awWin ? NW : NL}>{g.away}</span>
+                    <span style={{...SW, color: awWin ? '#ffffff' : '#888888'}}>{g.awayScore}</span>
                   </span>
-                  <span style={awWin ? NAME_W : NAME_L}
-                    >{g.away}</span>
-                  <span style={{...SCORE_W, color: awWin ? '#ffffff' : '#888888'}}
-                    >{g.awayScore}</span>
+                  <span style={{color:'#cc0000',fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.52rem',margin:'0 5px',fontWeight:'900',letterSpacing:'0.5px',opacity:0.85}}>AT</span>
+                  <span style={{display:'inline-flex',alignItems:'center',gap:'5px',marginLeft:'6px'}}>
+                    <span style={{...SW, color: hwWin ? '#ffffff' : '#888888'}}>{g.homeScore}</span>
+                    <span style={hwWin ? NW : NL}>{g.home}</span>
+                    <span style={{flexShrink:0,display:'inline-flex',alignItems:'center'}}><TeamLogo teamName={g.home} size="tiny"/></span>
+                  </span>
+                  <span style={{marginLeft:'8px',background:'rgba(255,255,255,0.08)',borderRadius:'3px',padding:'2px 5px',fontFamily:'Arial,sans-serif',fontSize:'0.52rem',fontWeight:'700',color:'#888',letterSpacing:'0.5px',textTransform:'uppercase',flexShrink:0}}>FINAL</span>
                 </span>
+              );
+            })}
+          </div>
+        )}
 
-                {/* AT / VS label */}
-                <span style={{
-                  color:'#cc0000',fontFamily:'Arial Black,Arial,sans-serif',
-                  fontSize:'0.52rem',margin:'0 5px',fontWeight:'900',
-                  letterSpacing:'0.5px',opacity:0.85,
-                }}>AT</span>
-
-                {/* Home */}
-                <span style={{display:'inline-flex',alignItems:'center',gap:'5px',marginLeft:'6px'}}>
-                  <span style={{...SCORE_W, color: hwWin ? '#ffffff' : '#888888'}}
-                    >{g.homeScore}</span>
-                  <span style={hwWin ? NAME_W : NAME_L}
-                    >{g.home}</span>
+        {/* PASSING LEADERS mode */}
+        {mode === 'passing' && passItems.length > 0 && (
+          <div className="espn-ticker-inner">
+            {passItems.map(function(p, i) {
+              var rank = (i % passLeaders.length) + 1;
+              var teamFull = p.team ? (Object.keys(TEAM_ABBR).find(function(k){ return TEAM_ABBR[k]===p.team||k.toUpperCase().includes(p.team)||p.team.toUpperCase().includes(TEAM_ABBR[k]); }) || '') : '';
+              var teamDisplay = p.team || '';
+              return (
+                <span key={i} style={{
+                  display:'inline-flex',alignItems:'center',gap:'6px',
+                  padding:'0 16px 0 10px',borderRight:'1px solid #333',
+                  height:'38px',flexShrink:0,
+                }}>
+                  {/* Rank */}
+                  <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',fontWeight:'900',color:'#cc0000',minWidth:'18px',textAlign:'right'}}>{rank}</span>
+                  {/* Team logo */}
                   <span style={{flexShrink:0,display:'inline-flex',alignItems:'center'}}>
-                    <TeamLogo teamName={g.home} size="tiny"/>
+                    <TeamLogo teamName={teamFull} size="tiny"/>
+                  </span>
+                  {/* Player name */}
+                  <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.72rem',fontWeight:'700',color:'#ffffff',whiteSpace:'nowrap'}}>{p.name||''}</span>
+                  {/* Stats */}
+                  <span style={{display:'inline-flex',alignItems:'center',gap:'4px',marginLeft:'2px'}}>
+                    <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.6rem',color:'#999'}}>ATT</span>
+                    <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#fff'}}>{p.att||0}</span>
+                    <span style={{color:'#333',fontSize:'0.6rem'}}>|</span>
+                    <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.6rem',color:'#999'}}>COM</span>
+                    <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#fff'}}>{p.com||0}</span>
+                    <span style={{color:'#333',fontSize:'0.6rem'}}>|</span>
+                    <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.6rem',color:'#999'}}>PCT</span>
+                    <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#fff'}}>{p.pct||0}</span>
+                    <span style={{color:'#333',fontSize:'0.6rem'}}>|</span>
+                    <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.6rem',color:'#4aff8a'}}>TD</span>
+                    <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#4aff8a',fontWeight:'900'}}>{p.td||0}</span>
+                    <span style={{color:'#333',fontSize:'0.6rem'}}>|</span>
+                    <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.6rem',color:'#ff6b6b'}}>INT</span>
+                    <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#ff6b6b',fontWeight:'900'}}>{p.int||0}</span>
                   </span>
                 </span>
+              );
+            })}
+          </div>
+        )}
 
-                {/* Status badge — FINAL */}
-                <span style={{
-                  marginLeft:'8px',background:'rgba(255,255,255,0.08)',
-                  borderRadius:'3px',padding:'2px 5px',
-                  fontFamily:'Arial,sans-serif',fontSize:'0.52rem',fontWeight:'700',
-                  color:'#888',letterSpacing:'0.5px',textTransform:'uppercase',
-                  flexShrink:0,
-                }}>FINAL</span>
+        {/* No passing data fallback */}
+        {mode === 'passing' && passItems.length === 0 && (
+          <div style={{display:'flex',alignItems:'center',padding:'0 20px',color:'#555',fontFamily:'Arial,sans-serif',fontSize:'0.7rem'}}>
+            Passing leaders unavailable — fetch rosters to load season stats
+          </div>
+        )}
 
-              </span>
-            );
-          })}
-        </div>
         <div className="espn-ticker-fade-r"/>
       </div>
 
     </div>
   );
 }
+
 
 
 // ── User Guide Modal ──
@@ -7592,7 +7656,7 @@ function App() {
         </div>
       </header>
 
-      <ScoresTicker gameStatsData={gameStatsData}/>
+      <ScoresTicker gameStatsData={gameStatsData} seasonData={seasonData}/>
 
       <RosterBanner rosterMeta={rosterMeta} onFetch={fetchRosters} fetching={fetching} onClearCache={clearCache} onFetchContracts={fetchContracts} fetchingContracts={fetchingContracts} contractData={contractData} selectedWeek={currentWeekKey} onWeekChange={(wk)=>{setCurrentWeekKey(wk);if(wk==='live'){fetchRosters('live');}else{const snap=window.PNFL_WEEKS?.getRosterForWeek(wk);if(snap){setRosterData(snap);if(window.pnflDB){window.pnflDB.fetch(snap.season,snap.week).catch(e=>console.warn(e));}}else{fetchRosters(wk);}}}}/>
 
