@@ -1265,7 +1265,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '8.8'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '8.9'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -6528,55 +6528,50 @@ function ScoresTicker({ gameStatsData, seasonData }) {
     return function() { clearInterval(poll); };
   }, [gameStatsData]);
 
-  // Reverse map: 2-3 letter code -> full team name (for TeamLogo)
-  var ABBR_TO_TEAM = {
-    'BUF':'Buffalo','NE':'New England','MIA':'Miami','JAX':'Jacksonville',
-    'PIT':'Pittsburgh','DEN':'Denver','LVR':'Las Vegas','LV':'Las Vegas',
-    'LAR':'Los Angeles','LA':'Los Angeles','CIN':'Cincinnati','ATL':'Atlanta',
-    'NYG':'New York','NY':'New York','PHI':'Philadelphia','WAS':'Washington',
-    'GB':'Green Bay','CHI':'Chicago','MIN':'Minnesota','SF':'San Francisco',
-    'SEA':'Seattle',
-  };
-
   // Passing leaders in state so they update reactively
   var [passLeaders, setPassLeaders] = React.useState([]);
   React.useEffect(function() {
-    function build() {
-      // If pnflDB has raw season text but hasn't parsed it yet, parse now
-      if (window.pnflDB && window.pnflDB._raw && window.pnflDB._raw.season &&
-          (!window.pnflDB.playerSeason || Object.keys(window.pnflDB.playerSeason).length === 0)) {
-        window.pnflDB._parseSeason(window.pnflDB._raw.season);
+    // Use the dedicated passing parser that handles both HTML and plain text
+    function tryBuild(html) {
+      if (html && window.parsePassingLeadersFromHtml) {
+        var result = window.parsePassingLeadersFromHtml(html);
+        if (result.length > 0) { setPassLeaders(result); return true; }
       }
-      // Also try fetching from static asset and parsing if still empty
-      var src = window.pnflDB && window.pnflDB.playerSeason;
-      if (!src || Object.keys(src).length === 0) return [];
-      var leaders = [];
-      Object.values(src).forEach(function(p) {
-        if (p.pass && p.pass.att && p.pass.att >= 50) leaders.push(p.pass);
-      });
-      leaders.sort(function(a,b) { return (b.rtg||0) - (a.rtg||0); });
-      return leaders.slice(0, 18);
+      return false;
     }
-    // Try immediately
-    var initial = build();
-    if (initial.length > 0) { setPassLeaders(initial); return; }
-    // Trigger static asset load if available
+
+    // 1. Try static deployed season.htm first (always available after deploy)
     if (window.StaticAssets) {
       window.StaticAssets.text('season.htm').then(function(html) {
-        if (window.pnflDB) {
-          window.pnflDB._parseSeason(html);
-          var result = build();
-          if (result.length > 0) setPassLeaders(result);
+        if (!tryBuild(html)) {
+          // 2. Try pnflDB._raw.season (populated after fetchRosters)
+          if (window.pnflDB && window.pnflDB._raw && window.pnflDB._raw.season) {
+            tryBuild(window.pnflDB._raw.season);
+          }
         }
-      }).catch(function(){});
+      }).catch(function() {
+        // 3. Fall back to pnflDB._raw.season directly
+        if (window.pnflDB && window.pnflDB._raw && window.pnflDB._raw.season) {
+          tryBuild(window.pnflDB._raw.season);
+        }
+      });
+    } else if (window.pnflDB && window.pnflDB._raw && window.pnflDB._raw.season) {
+      tryBuild(window.pnflDB._raw.season);
     }
-    // Poll until pnflDB is populated (covers fetchRosters path)
+
+    // 4. Poll for pnflDB._raw.season to arrive (after fetchRosters completes)
     var attempts = 0;
     var poll = setInterval(function() {
       attempts++;
-      var result = build();
-      if (result.length > 0) { setPassLeaders(result); clearInterval(poll); }
-      if (attempts > 60) clearInterval(poll);
+      if (window.pnflDB && window.pnflDB._raw && window.pnflDB._raw.season) {
+        if (tryBuild(window.pnflDB._raw.season)) { clearInterval(poll); return; }
+      }
+      // Also check window._pnflPassingLeaders if set externally
+      if (window._pnflPassingLeaders && window._pnflPassingLeaders.length > 0) {
+        setPassLeaders(window._pnflPassingLeaders);
+        clearInterval(poll); return;
+      }
+      if (attempts > 90) clearInterval(poll);
     }, 1000);
     return function() { clearInterval(poll); };
   }, []);
@@ -6670,7 +6665,7 @@ function ScoresTicker({ gameStatsData, seasonData }) {
           <div className="espn-ticker-inner">
             {passItems.map(function(p, i) {
               var rank = (i % passLeaders.length) + 1;
-              var teamFull = p.team ? (ABBR_TO_TEAM[p.team] || ABBR_TO_TEAM[p.team.toUpperCase()] || '') : '';
+              var teamFull = p.team ? (window._TEAM_CODE_MAP && (window._TEAM_CODE_MAP[p.team] || window._TEAM_CODE_MAP[p.team.toUpperCase()] || '')) || '' : '';
               return (
                 <span key={i} style={{
                   display:'inline-flex',alignItems:'center',gap:'6px',
@@ -7157,6 +7152,10 @@ function App() {
               saveSeasonCache(parsed);
               setSeasonData(parsed);
               if (window.pnflDB) window.pnflDB._parseSeason(html);
+              if (window.parsePassingLeadersFromHtml) {
+                window._pnflPassingLeaders = window.parsePassingLeadersFromHtml(html);
+                console.log('[App] Passing leaders ready:', window._pnflPassingLeaders.length);
+              }
             }).catch(function(){})
           );
         }
@@ -7228,6 +7227,10 @@ function App() {
                   saveSeasonCache(parsed);
                   setSeasonData(parsed);
                   if (window.pnflDB) window.pnflDB._parseSeason(html);
+                  if (window.parsePassingLeadersFromHtml) {
+                    window._pnflPassingLeaders = window.parsePassingLeadersFromHtml(html);
+                    console.log('[App] Passing leaders parsed:', window._pnflPassingLeaders.length);
+                  }
                   console.log('[App] Live season stats updated');
                 }).catch(function(){}),
             ];
@@ -7443,6 +7446,10 @@ function App() {
         setSeasonData(parsed);
         // Also feed into pnflDB for AI context
         if (window.pnflDB) { window.pnflDB._parseSeason(seasonHtml); }
+        if (window.parsePassingLeadersFromHtml) {
+          window._pnflPassingLeaders = window.parsePassingLeadersFromHtml(seasonHtml);
+          console.log('[PNFL] Passing leaders from fetchRosters:', window._pnflPassingLeaders.length);
+        }
         console.log('[PNFL] Season stats loaded');
       } catch(e) { console.warn('Season parse failed:', e.message); }
     }
@@ -8074,3 +8081,126 @@ root.render(<App />);
 
 </body>
 </html>
+
+<script>
+// ── Passing Leaders Parser ──
+// Parses PNFL_season.htm HTML to extract Individual Passing stats
+// Stores in window._pnflPassingLeaders array sorted by rating
+window.parsePassingLeadersFromHtml = function(html) {
+  if (!html) return [];
+  var leaders = [];
+
+  // Method 1: DOMParser table extraction (most reliable)
+  try {
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    // Find the Individual Passing section heading
+    var headings = Array.from(doc.querySelectorAll('h2,h3,h4,td,th,p,div,caption'));
+    var passTable = null;
+    for (var i = 0; i < headings.length; i++) {
+      if (headings[i].textContent && headings[i].textContent.includes('Individual Passing')) {
+        // The table should be nearby - check next siblings and parent
+        var node = headings[i];
+        for (var j = 0; j < 5; j++) {
+          node = node.nextElementSibling || node.parentElement;
+          if (!node) break;
+          var tbl = node.tagName === 'TABLE' ? node : node.querySelector('table');
+          if (tbl) { passTable = tbl; break; }
+        }
+        if (passTable) break;
+        // Also check: the heading might be inside a table cell
+        var tbl2 = headings[i].closest('table');
+        if (tbl2) {
+          // Look for the next table after this one
+          var allTables = Array.from(doc.querySelectorAll('table'));
+          var idx2 = allTables.indexOf(tbl2);
+          if (idx2 >= 0 && allTables[idx2+1]) { passTable = allTables[idx2+1]; break; }
+          // Or this table itself might contain the data
+          passTable = tbl2; break;
+        }
+      }
+    }
+
+    if (passTable) {
+      var rows = Array.from(passTable.querySelectorAll('tr'));
+      rows.forEach(function(row) {
+        var cells = Array.from(row.querySelectorAll('td,th')).map(function(td) {
+          return td.textContent.trim();
+        });
+        if (cells.length < 8) return;
+        // Row format: rank, name, team, yr, att, com, pct, yds, avg, lg, td, int, rtg
+        var rank = parseInt(cells[0]);
+        if (isNaN(rank) || rank < 1 || rank > 99) return;
+        var name = cells[1] ? cells[1].trim() : '';
+        var team = cells[2] ? cells[2].trim() : '';
+        if (!name || !team || name.length < 3) return;
+        // Find numeric columns - att is after yr
+        var att  = parseFloat(cells[4]) || 0;
+        var com  = parseFloat(cells[5]) || 0;
+        var pct  = parseFloat(cells[6]) || 0;
+        var yds  = parseFloat((cells[7]||'').replace(/,/g,'')) || 0;
+        var td   = parseFloat(cells[10]) || parseFloat(cells[9]) || 0;
+        var int_ = parseFloat(cells[11]) || parseFloat(cells[10]) || 0;
+        var rtg  = parseFloat(cells[12]) || parseFloat(cells[11]) || 0;
+        if (att < 10) return; // skip header rows
+        leaders.push({ rank:rank, name:name, team:team, att:att, com:com, pct:pct, yds:yds, td:td, int:int_, rtg:rtg });
+      });
+    }
+  } catch(e) { console.warn('[PassingParser] DOM method failed:', e.message); }
+
+  // Method 2: Plain text regex fallback if DOM gave nothing
+  if (leaders.length === 0) {
+    try {
+      var text = html;
+      if (html.includes('<')) {
+        var doc2 = new DOMParser().parseFromString(html, 'text/html');
+        text = doc2.body ? (doc2.body.innerText || doc2.body.textContent) : html;
+      }
+      var inSection = false;
+      text.split('\n').forEach(function(line) {
+        if (line.includes('Individual Passing')) { inSection = true; return; }
+        if (inSection && (line.includes('Individual Rushing') || line.includes('Back to top'))) inSection = false;
+        if (!inSection) return;
+        // Match: "1 Levis, Will    NE   4  130   84  64.6  917  7.1  41   8   1 102.6  5-37"
+        // OR:    "3 Mayfield, BakerMIA 15  126   79  62.7..."  (name runs into team)
+        var m = line.match(/^\s*(\d+)\s+([A-Za-z ,.']+?)\s*([A-Z]{2,3})\s+(\d+)\s+([\d,]+)\s+([\d,]+)\s+([\d.]+)\s+([\d,]+)\s+([\d.]+)\s+(\d+)\s+([\d,]+)\s+([\d,]+)\s+([\d.]+)/);
+        if (!m) return;
+        var rank = parseInt(m[1]);
+        var name = m[2].trim();
+        var team = m[3].trim();
+        var att  = parseFloat(m[5].replace(/,/g,''));
+        var com  = parseFloat(m[6].replace(/,/g,''));
+        var pct  = parseFloat(m[7]);
+        var yds  = parseFloat(m[8].replace(/,/g,''));
+        var td   = parseFloat(m[11]);
+        var int_ = parseFloat(m[12]);
+        var rtg  = parseFloat(m[13]);
+        if (att < 10) return;
+        leaders.push({ rank:rank, name:name, team:team, att:att, com:com, pct:pct, yds:yds, td:td, int:int_, rtg:rtg });
+      });
+    } catch(e2) { console.warn('[PassingParser] text method failed:', e2.message); }
+  }
+
+  // Sort by rating, deduplicate by name
+  var seen = {};
+  leaders = leaders.filter(function(p) {
+    if (seen[p.name]) return false;
+    seen[p.name] = true;
+    return true;
+  });
+  leaders.sort(function(a,b) { return (b.rtg||0) - (a.rtg||0); });
+  console.log('[PassingParser] parsed', leaders.length, 'leaders');
+  return leaders;
+};
+
+// Team code -> full name map for TeamLogo
+window._TEAM_CODE_MAP = {
+  'BUF':'Buffalo','NE':'New England','MIA':'Miami','JAX':'Jacksonville',
+  'PIT':'Pittsburgh','DEN':'Denver','LVR':'Las Vegas','LV':'Las Vegas',
+  'LAR':'Los Angeles','LA':'Los Angeles','CIN':'Cincinnati','ATL':'Atlanta',
+  'NYG':'New York','NY':'New York','PHI':'Philadelphia','WAS':'Washington',
+  'GB':'Green Bay','CHI':'Chicago','MIN':'Minnesota','SF':'San Francisco',
+  'SEA':'Seattle',
+};
+</script>
+
+
