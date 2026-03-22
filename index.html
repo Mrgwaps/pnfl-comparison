@@ -1265,7 +1265,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '8.7'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '8.8'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -2877,7 +2877,18 @@ window.pnflDB = {
     }
   },
 
+  _textFromHtml: function(html) {
+    if (!html || !html.includes('<')) return html || '';
+    try {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      return doc.body ? (doc.body.innerText || doc.body.textContent || '') : html;
+    } catch(e) { return html; }
+  },
   _parseSeason: function(text) {
+    // Auto-strip HTML if needed
+    if (text && text.includes('<html') || (text && text.includes('<table'))) {
+      text = window.pnflDB._textFromHtml(text);
+    }
     const db = window.pnflDB;
     const lines = text.split('\n');
     let section = '', teamSection = '';
@@ -6531,6 +6542,12 @@ function ScoresTicker({ gameStatsData, seasonData }) {
   var [passLeaders, setPassLeaders] = React.useState([]);
   React.useEffect(function() {
     function build() {
+      // If pnflDB has raw season text but hasn't parsed it yet, parse now
+      if (window.pnflDB && window.pnflDB._raw && window.pnflDB._raw.season &&
+          (!window.pnflDB.playerSeason || Object.keys(window.pnflDB.playerSeason).length === 0)) {
+        window.pnflDB._parseSeason(window.pnflDB._raw.season);
+      }
+      // Also try fetching from static asset and parsing if still empty
       var src = window.pnflDB && window.pnflDB.playerSeason;
       if (!src || Object.keys(src).length === 0) return [];
       var leaders = [];
@@ -6543,7 +6560,17 @@ function ScoresTicker({ gameStatsData, seasonData }) {
     // Try immediately
     var initial = build();
     if (initial.length > 0) { setPassLeaders(initial); return; }
-    // Poll until pnflDB is populated
+    // Trigger static asset load if available
+    if (window.StaticAssets) {
+      window.StaticAssets.text('season.htm').then(function(html) {
+        if (window.pnflDB) {
+          window.pnflDB._parseSeason(html);
+          var result = build();
+          if (result.length > 0) setPassLeaders(result);
+        }
+      }).catch(function(){});
+    }
+    // Poll until pnflDB is populated (covers fetchRosters path)
     var attempts = 0;
     var poll = setInterval(function() {
       attempts++;
