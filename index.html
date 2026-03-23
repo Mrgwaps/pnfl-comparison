@@ -972,6 +972,34 @@ textarea:focus { border-color: #4a9eff; }
   0%   { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }
+@keyframes tickerIntroSlideIn {
+  0%   { transform: translateX(100%); opacity: 0; }
+  15%  { transform: translateX(0);    opacity: 1; }
+  75%  { transform: translateX(0);    opacity: 1; }
+  100% { transform: translateX(-120%); opacity: 0; }
+}
+@keyframes tickerLabelBlink {
+  0%,100% { opacity: 1; }
+  45%     { opacity: 0.15; }
+}
+.espn-ticker-intro {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1a1a1a;
+  z-index: 5;
+  pointer-events: none;
+  animation: tickerIntroSlideIn 3.2s cubic-bezier(0.4,0,0.2,1) forwards;
+}
+.espn-ticker-intro-label {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  animation: tickerLabelBlink 0.7s ease-in-out 3;
+  animation-delay: 0.4s;
+}
 /* keep old class for any legacy ref */
 .scores-ticker-inner {
   display: flex; align-items: center;
@@ -1265,7 +1293,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '9.0'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '9.1'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -6503,30 +6531,35 @@ function LegalModal({ page, onClose }) {
 }
 
 function ScoresTicker({ gameStatsData, seasonData }) {
-  var MODES = ['scores','passing','rushing','receiving','tackles'];
-  var MODE_LABELS = {
-    scores:   ['SCORES',    ''],
-    passing:  ['PASSING',   'LEADERS'],
-    rushing:  ['RUSHING',   'LEADERS'],
-    receiving:['RECEIVING', 'LEADERS'],
-    tackles:  ['TACKLE',    'LEADERS'],
+
+  // ── Modes ──────────────────────────────────────────────────────────────────
+  // Scores shows continuously. Leader modes auto-advance after 2 full scrolls.
+  // Order: scores → passing → rushing → receiving → tackles → scores → ...
+  var LEADER_MODES = ['passing','rushing','receiving','tackles'];
+  var MODE_META = {
+    scores:    { badge:['SCORES',''],              label:'',                  icon:'🏈' },
+    passing:   { badge:['PASSING','LEADERS'],      label:'Passing Leaders',   icon:'🎯' },
+    rushing:   { badge:['RUSHING','LEADERS'],      label:'Rushing Leaders',   icon:'🏃' },
+    receiving: { badge:['RECEIVING','LEADERS'],    label:'Receiving Leaders', icon:'🤝' },
+    tackles:   { badge:['TACKLE','LEADERS'],       label:'Tackle Leaders',    icon:'🛡' },
   };
 
-  var [modeIdx, setModeIdx]       = React.useState(0);
-  var [tickerData, setTickerData] = React.useState(function() {
+  var [mode,        setMode]        = React.useState('scores');
+  var [showIntro,   setShowIntro]   = React.useState(false);
+  var [introKey,    setIntroKey]    = React.useState(0);
+  var [leaderIdx,   setLeaderIdx]   = React.useState(0); // which leader mode we're on
+  var [tickerData,  setTickerData]  = React.useState(function() {
     if (gameStatsData && Array.isArray(gameStatsData.games) && gameStatsData.games.length > 0) return gameStatsData;
     if (window.pnflDB && Array.isArray(window.pnflDB.games) && window.pnflDB.games.length > 0)
       return { games:window.pnflDB.games, week:window.pnflDB.week, season:window.pnflDB.season };
     return null;
   });
-  var [passLeaders,     setPassLeaders]     = React.useState([]);
-  var [rushLeaders,     setRushLeaders]     = React.useState([]);
-  var [receivingLeaders,setReceivingLeaders]= React.useState([]);
-  var [tackleLeaders,   setTackleLeaders]   = React.useState([]);
+  var [passLeaders,      setPassLeaders]      = React.useState([]);
+  var [rushLeaders,      setRushLeaders]      = React.useState([]);
+  var [receivingLeaders, setReceivingLeaders] = React.useState([]);
+  var [tackleLeaders,    setTackleLeaders]    = React.useState([]);
 
-  var mode = MODES[modeIdx];
-
-  // Poll for scores data
+  // ── Scores data ────────────────────────────────────────────────────────────
   React.useEffect(function() {
     if (gameStatsData && Array.isArray(gameStatsData.games) && gameStatsData.games.length > 0) {
       setTickerData(gameStatsData); return;
@@ -6543,247 +6576,294 @@ function ScoresTicker({ gameStatsData, seasonData }) {
     return function() { clearInterval(poll); };
   }, [gameStatsData]);
 
-  // Load all stat leaders
+  // ── Stat leaders data ──────────────────────────────────────────────────────
   React.useEffect(function() {
-    function loadFromHtml(html) {
+    function syncGlobals() {
+      var ok = false;
+      if (window._pnflPassingLeaders   && window._pnflPassingLeaders.length)   { setPassLeaders(window._pnflPassingLeaders);       ok=true; }
+      if (window._pnflRushingLeaders   && window._pnflRushingLeaders.length)   { setRushLeaders(window._pnflRushingLeaders);       ok=true; }
+      if (window._pnflReceivingLeaders && window._pnflReceivingLeaders.length) { setReceivingLeaders(window._pnflReceivingLeaders);ok=true; }
+      if (window._pnflTackleLeaders    && window._pnflTackleLeaders.length)    { setTackleLeaders(window._pnflTackleLeaders);      ok=true; }
+      return ok;
+    }
+    function parseHtml(html) {
       if (!html || !window.parsePassingLeadersFromHtml) return false;
       var pass = window.parsePassingLeadersFromHtml(html);
       var rush = window.parseRushingLeadersFromHtml(html);
       var recv = window.parseReceivingLeadersFromHtml(html);
       var tack = window.parseTackleLeadersFromHtml(html);
-      if (pass.length > 0) { setPassLeaders(pass); window._pnflPassingLeaders = pass; }
-      if (rush.length > 0) { setRushLeaders(rush); window._pnflRushingLeaders = rush; }
-      if (recv.length > 0) { setReceivingLeaders(recv); window._pnflReceivingLeaders = recv; }
-      if (tack.length > 0) { setTackleLeaders(tack); window._pnflTackleLeaders = tack; }
+      if (pass.length) { setPassLeaders(pass);       window._pnflPassingLeaders=pass; }
+      if (rush.length) { setRushLeaders(rush);       window._pnflRushingLeaders=rush; }
+      if (recv.length) { setReceivingLeaders(recv);  window._pnflReceivingLeaders=recv; }
+      if (tack.length) { setTackleLeaders(tack);     window._pnflTackleLeaders=tack; }
       return pass.length > 0;
     }
-
-    function syncFromGlobals() {
-      var ok = false;
-      if (window._pnflPassingLeaders   && window._pnflPassingLeaders.length > 0)   { setPassLeaders(window._pnflPassingLeaders);       ok = true; }
-      if (window._pnflRushingLeaders   && window._pnflRushingLeaders.length > 0)   { setRushLeaders(window._pnflRushingLeaders);       ok = true; }
-      if (window._pnflReceivingLeaders && window._pnflReceivingLeaders.length > 0) { setReceivingLeaders(window._pnflReceivingLeaders);ok = true; }
-      if (window._pnflTackleLeaders    && window._pnflTackleLeaders.length > 0)    { setTackleLeaders(window._pnflTackleLeaders);      ok = true; }
-      return ok;
-    }
-
-    // 1. Try globals already set by mount loader
-    if (syncFromGlobals()) return;
-
-    // 2. Fetch static season.htm directly
+    if (syncGlobals()) return;
     if (window.StaticAssets) {
       window.StaticAssets.text('season.htm').then(function(html) {
-        if (!loadFromHtml(html)) syncFromGlobals();
-      }).catch(function() { syncFromGlobals(); });
+        if (!parseHtml(html)) syncGlobals();
+      }).catch(function(){ syncGlobals(); });
     }
-
-    // 3. Poll for globals to arrive (after fetchRosters)
-    var attempts = 0;
-    var poll = setInterval(function() {
-      attempts++;
-      if (syncFromGlobals()) { clearInterval(poll); }
-      if (attempts > 90) clearInterval(poll);
-    }, 1000);
-    return function() { clearInterval(poll); };
+    var a=0, poll=setInterval(function(){
+      a++; if(syncGlobals()){ clearInterval(poll); } if(a>90) clearInterval(poll);
+    },1000);
+    return function(){ clearInterval(poll); };
   }, []);
 
-  function handleBadgeClick() {
+  // ── Auto-advance: after mode switches to a leader, show intro then scroll
+  //    twice (scroll duration × 2) then advance to next leader or back to scores ──
+  var autoTimerRef = React.useRef(null);
+
+  var clearAutoTimer = function() {
+    if (autoTimerRef.current) { clearTimeout(autoTimerRef.current); autoTimerRef.current=null; }
+  }
+
+  var launchLeaderMode = function(lIdx) {
+    clearAutoTimer();
+    var nextMode = LEADER_MODES[lIdx % LEADER_MODES.length];
+    // Show intro overlay for 3.2s (matches CSS animation), then start scroll
+    setMode(nextMode);
+    setLeaderIdx(lIdx % LEADER_MODES.length);
+    setShowIntro(true);
+    setIntroKey(function(k){ return k+1; });
+    // Hide intro after animation completes (3.2s)
+    autoTimerRef.current = setTimeout(function() {
+      setShowIntro(false);
+      // Each group scrolls for 48s × 2 passes = 96s, then advance
+      autoTimerRef.current = setTimeout(function() {
+        var nextIdx = (lIdx + 1) % LEADER_MODES.length;
+        if (nextIdx === 0) {
+          // All leaders shown — back to scores for 30s
+          clearAutoTimer();
+          setMode('scores');
+          autoTimerRef.current = setTimeout(function() {
+            launchLeaderMode(0);
+          }, 30000);
+        } else {
+          launchLeaderMode(lIdx + 1);
+        }
+      }, 96000);
+    }, 3200);
+  }
+
+  // ── Manual badge click — cycles instantly, resets auto timer ──
+  var handleBadgeClick = function() {
+    clearAutoTimer();
     playSound('click');
-    var nextIdx = (modeIdx + 1) % MODES.length;
-    setModeIdx(nextIdx);
-    // Play SportsCenter sound when switching to any leaders mode, with slight delay
-    // so click sound finishes first and data is visible when sound plays
-    if (MODES[nextIdx] !== 'scores') {
-      setTimeout(function() {
-        try { var s = SOUNDS.top10; s.currentTime = 0; s.play().catch(function(){}); } catch(e) {}
-      }, 300);
+    if (mode === 'scores') {
+      // Start leader cycle from passing
+      setTimeout(function(){
+        try { var s=SOUNDS.top10; s.currentTime=0; s.play().catch(function(){}); } catch(e){}
+      }, 280);
+      launchLeaderMode(0);
+    } else {
+      var cur = LEADER_MODES.indexOf(mode);
+      var next = (cur + 1) % (LEADER_MODES.length + 1); // +1 to include scores
+      if (next === LEADER_MODES.length) {
+        // Back to scores
+        setMode('scores');
+        setShowIntro(false);
+      } else {
+        setTimeout(function(){
+          try { var s=SOUNDS.top10; s.currentTime=0; s.play().catch(function(){}); } catch(e){}
+        }, 280);
+        launchLeaderMode(next);
+      }
     }
   }
+
+  // Cleanup on unmount
+  React.useEffect(function(){ return clearAutoTimer; }, []);
 
   if (!tickerData || !Array.isArray(tickerData.games) || tickerData.games.length === 0) return null;
 
   var games = tickerData.games.map(function(g) {
-    if (g.team1 !== undefined) return { away:g.team1, awayScore:g.score1, home:g.team2, homeScore:g.score2 };
-    return { away:g.away, awayScore:g.awayScore, home:g.home, homeScore:g.homeScore };
+    if (g.team1!==undefined) return {away:g.team1,awayScore:g.score1,home:g.team2,homeScore:g.score2};
+    return {away:g.away,awayScore:g.awayScore,home:g.home,homeScore:g.homeScore};
   }).filter(function(g){ return g.away && g.home; });
   if (!games.length) return null;
 
-  var scoreItems    = games.concat(games);
-  var passItems     = passLeaders.concat(passLeaders);
-  var rushItems     = rushLeaders.concat(rushLeaders);
-  var recvItems     = receivingLeaders.concat(receivingLeaders);
-  var tackleItems   = tackleLeaders.concat(tackleLeaders);
-
-  var modeLabel = MODE_LABELS[mode];
-
-  // Helper: get full team name from code
-  function teamName(code) {
-    if (!code) return '';
-    return (window._TEAM_CODE_MAP && (window._TEAM_CODE_MAP[code] || window._TEAM_CODE_MAP[code.toUpperCase()])) || '';
-  }
+  // Double items for seamless infinite loop (CSS moves -50%)
+  var scoreItems = games.concat(games);
+  // Triple leader items so 2 full passes are clearly visible before loop point
+  var passItems  = passLeaders.concat(passLeaders).concat(passLeaders);
+  var rushItems  = rushLeaders.concat(rushLeaders).concat(rushLeaders);
+  var recvItems  = receivingLeaders.concat(receivingLeaders).concat(receivingLeaders);
+  var tackItems  = tackleLeaders.concat(tackleLeaders).concat(tackleLeaders);
 
   // Shared styles
-  var RANK_STYLE = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.65rem',fontWeight:'900',color:'#cc0000',minWidth:'16px',textAlign:'right',flexShrink:0};
-  var NAME_STYLE = {fontFamily:'Arial,sans-serif',fontSize:'0.7rem',fontWeight:'700',color:'#ffffff',whiteSpace:'nowrap'};
-  var LBL_STYLE  = {fontFamily:'Arial,sans-serif',fontSize:'0.58rem',color:'#888'};
-  var VAL_STYLE  = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#fff'};
-  var TD_STYLE   = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#4aff8a',fontWeight:'900'};
-  var INT_STYLE  = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#ff6b6b',fontWeight:'900'};
-  var SEP        = <span style={{color:'#333',fontSize:'0.55rem',margin:'0 2px'}}>|</span>;
-  var ITEM_WRAP  = {display:'inline-flex',alignItems:'center',gap:'5px',padding:'0 14px 0 8px',borderRight:'1px solid #333',height:'38px',flexShrink:0};
+  var RANK_S = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.65rem',fontWeight:'900',color:'#cc0000',minWidth:'16px',textAlign:'right',flexShrink:0};
+  var NAME_S = {fontFamily:'Arial,sans-serif',fontSize:'0.7rem',fontWeight:'700',color:'#fff',whiteSpace:'nowrap'};
+  var LBL_S  = {fontFamily:'Arial,sans-serif',fontSize:'0.55rem',color:'#777',letterSpacing:'0.3px'};
+  var VAL_S  = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#fff'};
+  var TD_S   = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#4aff8a',fontWeight:'900'};
+  var INT_S  = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.68rem',color:'#ff6b6b',fontWeight:'900'};
+  var WRAP_S = {display:'inline-flex',alignItems:'center',gap:'5px',padding:'0 16px 0 10px',borderRight:'1px solid #2a2a2a',height:'38px',flexShrink:0};
+  var SEP_S  = {color:'#2a2a2a',fontSize:'0.55rem',margin:'0 1px'};
 
-  function Stat({label,val,style}) {
-    return <span style={{display:'inline-flex',alignItems:'center',gap:'2px'}}>
-      <span style={LBL_STYLE}>{label}</span>
-      <span style={style||VAL_STYLE}>{val}</span>
+  var Stat = function(props) {
+    var lbl=props.lbl, val=props.val, sty=props.sty;
+    return <span style={{display:'inline-flex',alignItems:'center',gap:'2px',flexShrink:0}}>
+      <span style={LBL_S}>{lbl}</span>
+      <span style={sty||VAL_S}>{val!=null?val:'—'}</span>
     </span>;
-  }
+  };
 
-  function NoData({label}) {
-    return <div style={{display:'flex',alignItems:'center',padding:'0 20px',
-      color:'#555',fontFamily:'Arial,sans-serif',fontSize:'0.7rem',whiteSpace:'nowrap'}}>
-      {label} — fetch rosters or deploy to load season stats
-    </div>;
-  }
+  var tname = function(code) {
+    if (!code) return '';
+    return (window._TEAM_CODE_MAP&&(window._TEAM_CODE_MAP[code]||window._TEAM_CODE_MAP[code.toUpperCase()]))||'';
+  };
+
+  var meta = MODE_META[mode] || MODE_META.scores;
+  var badgeLines = meta.badge;
+
+  // Scroll duration for leader modes — 48s per pass, reset when mode changes
+  var scrollDuration = mode==='scores' ? '55s' : '48s';
 
   return (
     <div className="espn-ticker-wrap">
 
       {/* Clickable badge */}
       <div className="espn-ticker-badge" onClick={handleBadgeClick}
-        title="Click to cycle: Scores → Passing → Rushing → Receiving → Tackles"
-        style={{cursor:'pointer',userSelect:'none',transition:'opacity 0.15s'}}>
+        title="Click to cycle stats · auto-advances every 2 passes"
+        style={{cursor:'pointer',userSelect:'none'}}>
         <svg width="42" height="16" viewBox="0 0 42 16" style={{display:'block'}}>
           <rect width="42" height="16" rx="2" fill="#cc0000"/>
           <text x="21" y="12" textAnchor="middle" fontFamily="Arial Black,Arial,sans-serif"
             fontSize="11" fontWeight="900" fill="white" letterSpacing="0.5">ESPN</text>
         </svg>
         <span style={{fontFamily:'Arial,sans-serif',fontSize:'0.40rem',fontWeight:'700',
-          color:'rgba(255,255,255,0.8)',letterSpacing:'0.8px',textTransform:'uppercase',
-          marginTop:'1px',textAlign:'center',lineHeight:1.25,display:'block'}}>
-          {modeLabel[0]}{modeLabel[1] ? <span><br/>{modeLabel[1]}</span> : null}
+          color:'rgba(255,255,255,0.85)',letterSpacing:'0.8px',textTransform:'uppercase',
+          marginTop:'2px',textAlign:'center',lineHeight:1.3,display:'block'}}>
+          {badgeLines[0]}
+          {badgeLines[1] ? <span><br/>{badgeLines[1]}</span> : null}
         </span>
       </div>
 
-      {/* Scrolling area */}
+      {/* Scroll area */}
       <div className="espn-ticker-scroll-area">
 
+        {/* Intro overlay — slides in, blinks label, slides out */}
+        {showIntro && (
+          <div key={'intro-'+introKey} className="espn-ticker-intro">
+            <div className="espn-ticker-intro-label">
+              <span style={{fontSize:'1.1rem',lineHeight:1}}>{meta.icon}</span>
+              <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.85rem',
+                fontWeight:'900',color:'#ffffff',letterSpacing:'2px',textTransform:'uppercase',
+                textShadow:'0 0 20px rgba(255,200,0,0.6)'}}>
+                {meta.label}
+              </span>
+              <span style={{fontSize:'1.1rem',lineHeight:1}}>{meta.icon}</span>
+            </div>
+          </div>
+        )}
+
         {/* SCORES */}
-        {mode === 'scores' && (
-          <div className="espn-ticker-inner">
-            {scoreItems.map(function(g, i) {
-              var awWin = typeof g.awayScore==='number' && typeof g.homeScore==='number' && g.awayScore > g.homeScore;
-              var hwWin = typeof g.awayScore==='number' && typeof g.homeScore==='number' && g.homeScore > g.awayScore;
-              var SW = {fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.82rem',fontWeight:'900',lineHeight:1,minWidth:'20px',textAlign:'center'};
-              var NW = {fontFamily:'Arial,sans-serif',fontSize:'0.7rem',fontWeight:'700',letterSpacing:'0.3px',lineHeight:1};
-              var NL = {fontFamily:'Arial,sans-serif',fontSize:'0.7rem',fontWeight:'400',letterSpacing:'0.3px',lineHeight:1,opacity:0.6};
-              return (
-                <span key={i} style={{display:'inline-flex',alignItems:'center',padding:'0 18px 0 12px',borderRight:'1px solid #333',height:'38px',gap:'0'}}>
-                  <span style={{display:'inline-flex',alignItems:'center',gap:'5px',marginRight:'6px'}}>
-                    <span style={{flexShrink:0,display:'inline-flex',alignItems:'center'}}><TeamLogo teamName={g.away} size="tiny"/></span>
-                    <span style={awWin?NW:NL}>{g.away}</span>
-                    <span style={{...SW,color:awWin?'#ffffff':'#888888'}}>{g.awayScore}</span>
-                  </span>
-                  <span style={{color:'#cc0000',fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.52rem',margin:'0 5px',fontWeight:'900',letterSpacing:'0.5px',opacity:0.85}}>AT</span>
-                  <span style={{display:'inline-flex',alignItems:'center',gap:'5px',marginLeft:'6px'}}>
-                    <span style={{...SW,color:hwWin?'#ffffff':'#888888'}}>{g.homeScore}</span>
-                    <span style={hwWin?NW:NL}>{g.home}</span>
-                    <span style={{flexShrink:0,display:'inline-flex',alignItems:'center'}}><TeamLogo teamName={g.home} size="tiny"/></span>
-                  </span>
-                  <span style={{marginLeft:'8px',background:'rgba(255,255,255,0.08)',borderRadius:'3px',padding:'2px 5px',fontFamily:'Arial,sans-serif',fontSize:'0.52rem',fontWeight:'700',color:'#888',letterSpacing:'0.5px',textTransform:'uppercase',flexShrink:0}}>FINAL</span>
+        {mode==='scores' && (
+          <div className="espn-ticker-inner" style={{animationDuration:'55s'}}>
+            {scoreItems.map(function(g,i){
+              var awW=typeof g.awayScore==='number'&&typeof g.homeScore==='number'&&g.awayScore>g.homeScore;
+              var hwW=typeof g.awayScore==='number'&&typeof g.homeScore==='number'&&g.homeScore>g.awayScore;
+              var SW={fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.82rem',fontWeight:'900',lineHeight:1,minWidth:'20px',textAlign:'center'};
+              var NW={fontFamily:'Arial,sans-serif',fontSize:'0.7rem',fontWeight:'700',lineHeight:1};
+              var NL={fontFamily:'Arial,sans-serif',fontSize:'0.7rem',fontWeight:'400',lineHeight:1,opacity:0.55};
+              return <span key={i} style={{display:'inline-flex',alignItems:'center',padding:'0 18px 0 12px',borderRight:'1px solid #2a2a2a',height:'38px'}}>
+                <span style={{display:'inline-flex',alignItems:'center',gap:'5px',marginRight:'6px'}}>
+                  <TeamLogo teamName={g.away} size="tiny"/>
+                  <span style={awW?NW:NL}>{g.away}</span>
+                  <span style={{...SW,color:awW?'#fff':'#777'}}>{g.awayScore}</span>
                 </span>
-              );
+                <span style={{color:'#cc0000',fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.52rem',margin:'0 5px',fontWeight:'900',opacity:0.9}}>AT</span>
+                <span style={{display:'inline-flex',alignItems:'center',gap:'5px',marginLeft:'6px'}}>
+                  <span style={{...SW,color:hwW?'#fff':'#777'}}>{g.homeScore}</span>
+                  <span style={hwW?NW:NL}>{g.home}</span>
+                  <TeamLogo teamName={g.home} size="tiny"/>
+                </span>
+                <span style={{marginLeft:'8px',background:'rgba(255,255,255,0.07)',borderRadius:'3px',padding:'2px 5px',fontFamily:'Arial,sans-serif',fontSize:'0.52rem',fontWeight:'700',color:'#666',letterSpacing:'0.5px',flexShrink:0}}>FINAL</span>
+              </span>;
             })}
           </div>
         )}
 
-        {/* PASSING LEADERS */}
-        {mode === 'passing' && (
+        {/* PASSING */}
+        {mode==='passing' && !showIntro && (
           passItems.length > 0
-          ? <div className="espn-ticker-inner">
-              {passItems.map(function(p,i) {
-                var rank = (i % passLeaders.length) + 1;
-                return (
-                  <span key={i} style={ITEM_WRAP}>
-                    <span style={RANK_STYLE}>#{rank}</span>
-                    <TeamLogo teamName={teamName(p.team)} size="tiny"/>
-                    <span style={NAME_STYLE}>{p.name}</span>
-                    {SEP}<Stat label="ATT" val={p.att}/>
-                    {SEP}<Stat label="COM" val={p.com}/>
-                    {SEP}<Stat label="PCT" val={p.pct}/>
-                    {SEP}<Stat label="TD"  val={p.td}  style={TD_STYLE}/>
-                    {SEP}<Stat label="INT" val={p.int} style={INT_STYLE}/>
-                  </span>
-                );
+          ? <div key="pass-scroll" className="espn-ticker-inner" style={{animationDuration:'48s',animationIterationCount:'1',animationFillMode:'forwards'}}>
+              {passItems.map(function(p,i){
+                var rank=(i%passLeaders.length)+1;
+                return <span key={i} style={WRAP_S}>
+                  <span style={RANK_S}>#{rank}</span>
+                  <TeamLogo teamName={tname(p.team)} size="tiny"/>
+                  <span style={NAME_S}>{p.name}</span>
+                  <span style={SEP_S}>|</span><Stat lbl="ATT" val={p.att}/>
+                  <span style={SEP_S}>|</span><Stat lbl="COM" val={p.com}/>
+                  <span style={SEP_S}>|</span><Stat lbl="PCT" val={p.pct}/>
+                  <span style={SEP_S}>|</span><Stat lbl="TD"  val={p.td}  sty={TD_S}/>
+                  <span style={SEP_S}>|</span><Stat lbl="INT" val={p.int} sty={INT_S}/>
+                </span>;
               })}
             </div>
-          : <NoData label="Passing Leaders"/>
+          : <div style={{display:'flex',alignItems:'center',padding:'0 20px',color:'#444',fontFamily:'Arial,sans-serif',fontSize:'0.7rem'}}>Passing Leaders — fetch rosters to load</div>
         )}
 
-        {/* RUSHING LEADERS */}
-        {mode === 'rushing' && (
+        {/* RUSHING */}
+        {mode==='rushing' && !showIntro && (
           rushItems.length > 0
-          ? <div className="espn-ticker-inner">
-              {rushItems.map(function(p,i) {
-                var rank = (i % rushLeaders.length) + 1;
-                return (
-                  <span key={i} style={ITEM_WRAP}>
-                    <span style={RANK_STYLE}>#{rank}</span>
-                    <TeamLogo teamName={teamName(p.team)} size="tiny"/>
-                    <span style={NAME_STYLE}>{p.name}</span>
-                    {SEP}<Stat label="ATT" val={p.att}/>
-                    {SEP}<Stat label="YDS" val={p.yds}/>
-                    {SEP}<Stat label="AVG" val={p.avg}/>
-                    {SEP}<Stat label="LG"  val={p.lg}/>
-                    {SEP}<Stat label="TD"  val={p.td} style={TD_STYLE}/>
-                  </span>
-                );
+          ? <div key="rush-scroll" className="espn-ticker-inner" style={{animationDuration:'48s',animationIterationCount:'1',animationFillMode:'forwards'}}>
+              {rushItems.map(function(p,i){
+                var rank=(i%rushLeaders.length)+1;
+                return <span key={i} style={WRAP_S}>
+                  <span style={RANK_S}>#{rank}</span>
+                  <TeamLogo teamName={tname(p.team)} size="tiny"/>
+                  <span style={NAME_S}>{p.name}</span>
+                  <span style={SEP_S}>|</span><Stat lbl="ATT" val={p.att}/>
+                  <span style={SEP_S}>|</span><Stat lbl="YDS" val={p.yds}/>
+                  <span style={SEP_S}>|</span><Stat lbl="AVG" val={p.avg}/>
+                  <span style={SEP_S}>|</span><Stat lbl="LG"  val={p.lg}/>
+                  <span style={SEP_S}>|</span><Stat lbl="TD"  val={p.td} sty={TD_S}/>
+                </span>;
               })}
             </div>
-          : <NoData label="Rushing Leaders"/>
+          : <div style={{display:'flex',alignItems:'center',padding:'0 20px',color:'#444',fontFamily:'Arial,sans-serif',fontSize:'0.7rem'}}>Rushing Leaders — fetch rosters to load</div>
         )}
 
-        {/* RECEIVING LEADERS */}
-        {mode === 'receiving' && (
+        {/* RECEIVING */}
+        {mode==='receiving' && !showIntro && (
           recvItems.length > 0
-          ? <div className="espn-ticker-inner">
-              {recvItems.map(function(p,i) {
-                var rank = (i % receivingLeaders.length) + 1;
-                return (
-                  <span key={i} style={ITEM_WRAP}>
-                    <span style={RANK_STYLE}>#{rank}</span>
-                    <TeamLogo teamName={teamName(p.team)} size="tiny"/>
-                    <span style={NAME_STYLE}>{p.name}</span>
-                    {SEP}<Stat label="REC" val={p.rec}/>
-                    {SEP}<Stat label="YDS" val={p.yds}/>
-                    {SEP}<Stat label="AVG" val={p.avg}/>
-                    {SEP}<Stat label="LG"  val={p.lg}/>
-                    {SEP}<Stat label="TD"  val={p.td} style={TD_STYLE}/>
-                  </span>
-                );
+          ? <div key="recv-scroll" className="espn-ticker-inner" style={{animationDuration:'48s',animationIterationCount:'1',animationFillMode:'forwards'}}>
+              {recvItems.map(function(p,i){
+                var rank=(i%receivingLeaders.length)+1;
+                return <span key={i} style={WRAP_S}>
+                  <span style={RANK_S}>#{rank}</span>
+                  <TeamLogo teamName={tname(p.team)} size="tiny"/>
+                  <span style={NAME_S}>{p.name}</span>
+                  <span style={SEP_S}>|</span><Stat lbl="REC" val={p.rec}/>
+                  <span style={SEP_S}>|</span><Stat lbl="YDS" val={p.yds}/>
+                  <span style={SEP_S}>|</span><Stat lbl="AVG" val={p.avg}/>
+                  <span style={SEP_S}>|</span><Stat lbl="LG"  val={p.lg}/>
+                  <span style={SEP_S}>|</span><Stat lbl="TD"  val={p.td} sty={TD_S}/>
+                </span>;
               })}
             </div>
-          : <NoData label="Receiving Leaders"/>
+          : <div style={{display:'flex',alignItems:'center',padding:'0 20px',color:'#444',fontFamily:'Arial,sans-serif',fontSize:'0.7rem'}}>Receiving Leaders — fetch rosters to load</div>
         )}
 
-        {/* TACKLE LEADERS */}
-        {mode === 'tackles' && (
-          tackleItems.length > 0
-          ? <div className="espn-ticker-inner">
-              {tackleItems.map(function(p,i) {
-                var rank = (i % tackleLeaders.length) + 1;
-                return (
-                  <span key={i} style={ITEM_WRAP}>
-                    <span style={RANK_STYLE}>#{rank}</span>
-                    <TeamLogo teamName={teamName(p.team)} size="tiny"/>
-                    <span style={NAME_STYLE}>{p.name}</span>
-                    {SEP}<Stat label="POS" val={p.pos}/>
-                    {SEP}<Stat label="TKL" val={p.tackles}/>
-                  </span>
-                );
+        {/* TACKLES */}
+        {mode==='tackles' && !showIntro && (
+          tackItems.length > 0
+          ? <div key="tack-scroll" className="espn-ticker-inner" style={{animationDuration:'48s',animationIterationCount:'1',animationFillMode:'forwards'}}>
+              {tackItems.map(function(p,i){
+                var rank=(i%tackleLeaders.length)+1;
+                return <span key={i} style={WRAP_S}>
+                  <span style={RANK_S}>#{rank}</span>
+                  <TeamLogo teamName={tname(p.team)} size="tiny"/>
+                  <span style={NAME_S}>{p.name}</span>
+                  <span style={SEP_S}>|</span><Stat lbl="POS" val={p.pos}/>
+                  <span style={SEP_S}>|</span><Stat lbl="TKL" val={p.tackles}/>
+                </span>;
               })}
             </div>
-          : <NoData label="Tackle Leaders"/>
+          : <div style={{display:'flex',alignItems:'center',padding:'0 20px',color:'#444',fontFamily:'Arial,sans-serif',fontSize:'0.7rem'}}>Tackle Leaders — fetch rosters to load</div>
         )}
 
         <div className="espn-ticker-fade-r"/>
