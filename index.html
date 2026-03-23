@@ -982,14 +982,10 @@ textarea:focus { border-color: #4a9eff; }
   0%,100% { opacity: 1; }
   45%     { opacity: 0.12; }
 }
-/* Leader data enters from right edge, then transitions to infinite scroll */
-@keyframes tickerLeaderEntry {
-  0%   { transform: translateX(100%); }
-  100% { transform: translateX(0);    }
-}
-@keyframes espnLeaderScroll {
-  0%   { transform: translateX(0);   }
-  100% { transform: translateX(-50%);}
+/* Leader scroll content: held off-screen right during intro, then scrolls in */
+@keyframes espnLeaderEntry {
+  0%   { transform: translateX(110vw); }
+  100% { transform: translateX(0);     }
 }
 .espn-ticker-intro {
   position: absolute;
@@ -1000,7 +996,7 @@ textarea:focus { border-color: #4a9eff; }
   background: #1a1a1a;
   z-index: 5;
   pointer-events: none;
-  animation: tickerIntroSlideIn 3.4s cubic-bezier(0.4,0,0.2,1) forwards;
+  animation: tickerIntroSlideIn 3.6s cubic-bezier(0.4,0,0.2,1) forwards;
 }
 .espn-ticker-intro-label {
   display: flex;
@@ -6778,7 +6774,7 @@ function ScoresTicker({ gameStatsData, seasonData }) {
           launchLeaderMode(lIdx + 1);
         }
       }, 144000);
-    }, 3200);
+    }, 3600);
   }
 
   // ── Manual badge click — cycles instantly, resets auto timer ──
@@ -6922,7 +6918,7 @@ function ScoresTicker({ gameStatsData, seasonData }) {
         {/* PASSING */}
         {mode==='passing' && (
           passItems.length > 0
-          ? <div key={"pass"+introKey} className="espn-ticker-inner" style={{animation:showIntro?'tickerLeaderEntry 0.8s 3.2s ease-out both,espnLeaderScroll 72s 4.0s linear infinite':'tickerLeaderEntry 0.8s 0s ease-out both,espnLeaderScroll 72s 0.8s linear infinite'}}>
+          ? <div key={"pass"+introKey} className="espn-ticker-inner" style={{animation:showIntro?'espnLeaderEntry 0.6s 3.6s ease-out backwards,espnTickerScroll 72s 4.2s linear infinite':'espnLeaderEntry 0.6s 0s ease-out backwards,espnTickerScroll 72s 0.6s linear infinite'}}>
               {passItems.map(function(p,i){
                 var rank=(i%passLeaders.length)+1;
                 return <span key={i} style={WRAP_S}>
@@ -6943,7 +6939,7 @@ function ScoresTicker({ gameStatsData, seasonData }) {
         {/* RUSHING */}
         {mode==='rushing' && (
           rushItems.length > 0
-          ? <div key={"rush"+introKey} className="espn-ticker-inner" style={{animation:showIntro?'tickerLeaderEntry 0.8s 3.2s ease-out both,espnLeaderScroll 72s 4.0s linear infinite':'tickerLeaderEntry 0.8s 0s ease-out both,espnLeaderScroll 72s 0.8s linear infinite'}}>
+          ? <div key={"rush"+introKey} className="espn-ticker-inner" style={{animation:showIntro?'espnLeaderEntry 0.6s 3.6s ease-out backwards,espnTickerScroll 72s 4.2s linear infinite':'espnLeaderEntry 0.6s 0s ease-out backwards,espnTickerScroll 72s 0.6s linear infinite'}}>
               {rushItems.map(function(p,i){
                 var rank=(i%rushLeaders.length)+1;
                 return <span key={i} style={WRAP_S}>
@@ -6964,7 +6960,7 @@ function ScoresTicker({ gameStatsData, seasonData }) {
         {/* RECEIVING */}
         {mode==='receiving' && (
           recvItems.length > 0
-          ? <div key={"recv"+introKey} className="espn-ticker-inner" style={{animation:showIntro?'tickerLeaderEntry 0.8s 3.2s ease-out both,espnLeaderScroll 72s 4.0s linear infinite':'tickerLeaderEntry 0.8s 0s ease-out both,espnLeaderScroll 72s 0.8s linear infinite'}}>
+          ? <div key={"recv"+introKey} className="espn-ticker-inner" style={{animation:showIntro?'espnLeaderEntry 0.6s 3.6s ease-out backwards,espnTickerScroll 72s 4.2s linear infinite':'espnLeaderEntry 0.6s 0s ease-out backwards,espnTickerScroll 72s 0.6s linear infinite'}}>
               {recvItems.map(function(p,i){
                 var rank=(i%receivingLeaders.length)+1;
                 return <span key={i} style={WRAP_S}>
@@ -6985,7 +6981,7 @@ function ScoresTicker({ gameStatsData, seasonData }) {
         {/* TACKLES */}
         {mode==='tackles' && (
           tackItems.length > 0
-          ? <div key={"tack"+introKey} className="espn-ticker-inner" style={{animation:showIntro?'tickerLeaderEntry 0.8s 3.2s ease-out both,espnLeaderScroll 72s 4.0s linear infinite':'tickerLeaderEntry 0.8s 0s ease-out both,espnLeaderScroll 72s 0.8s linear infinite'}}>
+          ? <div key={"tack"+introKey} className="espn-ticker-inner" style={{animation:showIntro?'espnLeaderEntry 0.6s 3.6s ease-out backwards,espnTickerScroll 72s 4.2s linear infinite':'espnLeaderEntry 0.6s 0s ease-out backwards,espnTickerScroll 72s 0.6s linear infinite'}}>
               {tackItems.map(function(p,i){
                 var rank=(i%tackleLeaders.length)+1;
                 return <span key={i} style={WRAP_S}>
