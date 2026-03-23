@@ -982,7 +982,15 @@ textarea:focus { border-color: #4a9eff; }
   0%,100% { opacity: 1; }
   45%     { opacity: 0.12; }
 }
-/* content reveal handled by intro overlay sliding away */
+/* Leader data enters from right edge, then transitions to infinite scroll */
+@keyframes tickerLeaderEntry {
+  0%   { transform: translateX(100%); }
+  100% { transform: translateX(0);    }
+}
+@keyframes espnLeaderScroll {
+  0%   { transform: translateX(0);   }
+  100% { transform: translateX(-50%);}
+}
 .espn-ticker-intro {
   position: absolute;
   inset: 0;
@@ -1295,7 +1303,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '9.3'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '9.5'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -6538,12 +6546,136 @@ function ScoresTicker({ gameStatsData, seasonData }) {
   // Scores shows continuously. Leader modes auto-advance after 2 full scrolls.
   // Order: scores → passing → rushing → receiving → tackles → scores → ...
   var LEADER_MODES = ['passing','rushing','receiving','tackles'];
+  // ── Player pose SVG icons ──────────────────────────────────────────────────
+  // Each returns a 36x36 SVG: steel-blue body, white accent, black outline
+  var IC_SIZE = 36;
+  var IC_BODY = '#5ab4e0';   // steel blue
+  var IC_HLGT = '#ffffff';   // white highlight
+  var IC_SKIN = '#e8c99a';   // skin tone
+  var IC_HELM = '#2d6fa8';   // darker blue helmet
+  var IC_SHAD = 'rgba(0,0,0,0.18)';
+
+  // Passing pose: QB in throw stance, arm extended back, weight on back foot
+  var IconPassing = function() {
+    return (
+      <svg width={IC_SIZE} height={IC_SIZE} viewBox="0 0 36 36" style={{display:'block',flexShrink:0}}>
+        {/* helmet */}
+        <ellipse cx="22" cy="7" rx="5.5" ry="5" fill={IC_HELM} stroke={IC_HLGT} strokeWidth="0.5"/>
+        <path d="M17.5 8 Q16 11 17 13" stroke={IC_SKIN} strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+        <circle cx="22" cy="6.5" r="2" fill={IC_SKIN}/>
+        {/* facemask bar */}
+        <path d="M17 7.5 Q18 8.5 19 8" stroke={IC_HLGT} strokeWidth="0.9" fill="none"/>
+        {/* body — torso leaning forward */}
+        <path d="M20 12 Q24 13 25 18 Q23 22 20 24" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+        {/* throwing arm — extended back */}
+        <path d="M20 13 Q14 10 10 8" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+        <circle cx="9.5" cy="7.5" r="2" fill={IC_SKIN}/>
+        {/* football in throwing hand */}
+        <ellipse cx="8" cy="6" rx="2.5" ry="1.5" fill="#8B4513" transform="rotate(-20 8 6)"/>
+        <path d="M7 5.5 L9 6.5" stroke={IC_HLGT} strokeWidth="0.6"/>
+        {/* front arm */}
+        <path d="M22 14 Q26 15 27 17" stroke={IC_BODY} strokeWidth="2" fill="none" strokeLinecap="round"/>
+        {/* legs — planted stance */}
+        <path d="M20 24 Q17 28 15 33" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+        <path d="M22 24 Q25 27 26 32" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+        {/* jersey number hint */}
+        <text x="21" y="21" fontSize="4" fill={IC_HLGT} textAnchor="middle" fontWeight="bold">QB</text>
+      </svg>
+    );
+  };
+
+  // Rushing pose: RB leaning forward, ball tucked, driving knees high
+  var IconRushing = function() {
+    return (
+      <svg width={IC_SIZE} height={IC_SIZE} viewBox="0 0 36 36" style={{display:'block',flexShrink:0}}>
+        {/* helmet angled forward */}
+        <ellipse cx="14" cy="7" rx="5" ry="4.8" fill={IC_HELM} stroke={IC_HLGT} strokeWidth="0.5" transform="rotate(-10 14 7)"/>
+        <circle cx="14" cy="6.5" r="2" fill={IC_SKIN}/>
+        <path d="M9.5 7 Q10.5 8.5 11 9" stroke={IC_HLGT} strokeWidth="0.8" fill="none"/>
+        {/* torso leaning aggressively forward */}
+        <path d="M15 11 Q20 13 22 17 Q20 21 17 23" stroke={IC_BODY} strokeWidth="2.8" fill="none" strokeLinecap="round"/>
+        {/* ball-carrying arm — tucked tight */}
+        <path d="M17 14 Q15 17 14 19" stroke={IC_BODY} strokeWidth="2.2" fill="none" strokeLinecap="round"/>
+        <ellipse cx="13" cy="20.5" rx="3" ry="2" fill="#8B4513" transform="rotate(-30 13 20)"/>
+        <path d="M11.5 19.5 L14.5 21" stroke={IC_HLGT} strokeWidth="0.6"/>
+        {/* free arm pumping */}
+        <path d="M19 13 Q24 11 26 9" stroke={IC_BODY} strokeWidth="2.2" fill="none" strokeLinecap="round"/>
+        <circle cx="26.5" cy="8.5" r="1.8" fill={IC_SKIN}/>
+        {/* legs — high-knee drive */}
+        <path d="M18 23 Q14 27 11 30" stroke={IC_BODY} strokeWidth="2.8" fill="none" strokeLinecap="round"/>
+        <path d="M11 30 Q10 32 12 33" stroke={IC_BODY} strokeWidth="2.2" fill="none" strokeLinecap="round"/>
+        {/* raised knee */}
+        <path d="M19 23 Q22 24 23 21" stroke={IC_BODY} strokeWidth="2.8" fill="none" strokeLinecap="round"/>
+        <path d="M23 21 Q27 23 27 26" stroke={IC_BODY} strokeWidth="2.2" fill="none" strokeLinecap="round"/>
+        <text x="19" y="19" fontSize="3.5" fill={IC_HLGT} textAnchor="middle" fontWeight="bold">RB</text>
+      </svg>
+    );
+  };
+
+  // Receiving pose: WR hands outstretched above head making a catch
+  var IconReceiving = function() {
+    return (
+      <svg width={IC_SIZE} height={IC_SIZE} viewBox="0 0 36 36" style={{display:'block',flexShrink:0}}>
+        {/* helmet — looking up */}
+        <ellipse cx="18" cy="6.5" rx="5" ry="4.8" fill={IC_HELM} stroke={IC_HLGT} strokeWidth="0.5"/>
+        <circle cx="18" cy="6" r="2" fill={IC_SKIN}/>
+        <path d="M13.5 7 Q14.5 8.5 15 9" stroke={IC_HLGT} strokeWidth="0.8" fill="none"/>
+        {/* torso upright reaching up */}
+        <path d="M18 11 Q18 16 18 21" stroke={IC_BODY} strokeWidth="2.8" fill="none" strokeLinecap="round"/>
+        {/* both arms extended HIGH and WIDE forming a catch triangle */}
+        <path d="M18 12 Q12 8 8 5" stroke={IC_BODY} strokeWidth="2.3" fill="none" strokeLinecap="round"/>
+        <path d="M18 12 Q24 8 28 5" stroke={IC_BODY} strokeWidth="2.3" fill="none" strokeLinecap="round"/>
+        {/* hands spread */}
+        <circle cx="7.5" cy="4.5" r="2" fill={IC_SKIN}/>
+        <circle cx="28.5" cy="4.5" r="2" fill={IC_SKIN}/>
+        {/* football at catch point between hands */}
+        <ellipse cx="18" cy="3.5" rx="3.5" ry="2" fill="#8B4513"/>
+        <path d="M15.5 3.5 L20.5 3.5" stroke={IC_HLGT} strokeWidth="0.7"/>
+        <path d="M18 1.5 L18 5.5" stroke={IC_HLGT} strokeWidth="0.7"/>
+        {/* legs planted, slight squat */}
+        <path d="M17 21 Q14 26 12 32" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+        <path d="M19 21 Q22 26 24 32" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+        <text x="18" y="19" fontSize="3.5" fill={IC_HLGT} textAnchor="middle" fontWeight="bold">WR</text>
+      </svg>
+    );
+  };
+
+  // Tackle pose: two players — defender wrapping up ball carrier
+  var IconTackle = function() {
+    return (
+      <svg width={IC_SIZE} height={IC_SIZE} viewBox="0 0 36 36" style={{display:'block',flexShrink:0}}>
+        {/* Ball carrier — dark jersey, being hit */}
+        <ellipse cx="24" cy="8" rx="4.2" ry="4" fill="#2d6fa8" stroke={IC_HLGT} strokeWidth="0.4" transform="rotate(15 24 8)"/>
+        <circle cx="24" cy="7.5" r="1.8" fill={IC_SKIN}/>
+        <path d="M23 12 Q26 15 25 20" stroke="#2d6fa8" strokeWidth="2.5" fill="none" strokeLinecap="round" transform="rotate(10 24 15)"/>
+        <path d="M23 13 Q28 12 30 10" stroke="#2d6fa8" strokeWidth="2" fill="none" strokeLinecap="round"/>
+        <path d="M25 20 Q27 25 26 30" stroke="#2d6fa8" strokeWidth="2.2" fill="none" strokeLinecap="round"/>
+        <path d="M25 20 Q22 24 23 29" stroke="#2d6fa8" strokeWidth="2.2" fill="none" strokeLinecap="round"/>
+        {/* Tackler — light blue jersey, driving in low */}
+        <ellipse cx="11" cy="13" rx="4.5" ry="4" fill={IC_HELM} stroke={IC_HLGT} strokeWidth="0.4" transform="rotate(-20 11 13)"/>
+        <circle cx="11.5" cy="12" r="1.8" fill={IC_SKIN}/>
+        {/* tackler body driving forward and low */}
+        <path d="M13 17 Q17 18 21 20" stroke={IC_BODY} strokeWidth="2.8" fill="none" strokeLinecap="round"/>
+        {/* arms wrapping around carrier */}
+        <path d="M15 17 Q20 22 23 22" stroke={IC_BODY} strokeWidth="2.3" fill="none" strokeLinecap="round"/>
+        <path d="M16 19 Q21 25 24 24" stroke={IC_BODY} strokeWidth="2.3" fill="none" strokeLinecap="round"/>
+        {/* tackler legs driving */}
+        <path d="M12 17 Q8 21 6 26" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+        <path d="M13 18 Q10 23 9 28" stroke={IC_BODY} strokeWidth="2.2" fill="none" strokeLinecap="round"/>
+        {/* impact lines */}
+        <path d="M18 14 L20 12" stroke="#ffd700" strokeWidth="1.2" strokeLinecap="round"/>
+        <path d="M19 16 L22 15" stroke="#ffd700" strokeWidth="1.2" strokeLinecap="round"/>
+        <path d="M17 18 L19 19.5" stroke="#ffd700" strokeWidth="1.0" strokeLinecap="round"/>
+      </svg>
+    );
+  };
+
   var MODE_META = {
-    scores:    { badge:['SCORES',''],              label:'',                  icon:'🏈' },
-    passing:   { badge:['PASSING','LEADERS'],      label:'Passing Leaders',   icon:'🎯' },
-    rushing:   { badge:['RUSHING','LEADERS'],      label:'Rushing Leaders',   icon:'🏃' },
-    receiving: { badge:['RECEIVING','LEADERS'],    label:'Receiving Leaders', icon:'🤝' },
-    tackles:   { badge:['TACKLE','LEADERS'],       label:'Tackle Leaders',    icon:'🛡' },
+    scores:    { badge:['SCORES',''],           label:'',                  IconComp: null },
+    passing:   { badge:['PASSING','LEADERS'],   label:'Passing Leaders',   IconComp: IconPassing },
+    rushing:   { badge:['RUSHING','LEADERS'],   label:'Rushing Leaders',   IconComp: IconRushing },
+    receiving: { badge:['RECEIVING','LEADERS'], label:'Receiving Leaders', IconComp: IconReceiving },
+    tackles:   { badge:['TACKLE','LEADERS'],    label:'Tackle Leaders',    IconComp: IconTackle },
   };
 
   var [mode,        setMode]        = React.useState('scores');
@@ -6749,13 +6881,13 @@ function ScoresTicker({ gameStatsData, seasonData }) {
         {showIntro && (
           <div key={'intro-'+introKey} className="espn-ticker-intro">
             <div className="espn-ticker-intro-label">
-              <span style={{fontSize:'1.1rem',lineHeight:1}}>{meta.icon}</span>
-              <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.85rem',
-                fontWeight:'900',color:'#ffffff',letterSpacing:'2px',textTransform:'uppercase',
-                textShadow:'0 0 20px rgba(255,200,0,0.6)'}}>
+              {meta.IconComp && <meta.IconComp/>}
+              <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.88rem',
+                fontWeight:'900',color:'#ffffff',letterSpacing:'2.5px',textTransform:'uppercase',
+                textShadow:'0 0 24px rgba(90,180,224,0.7),0 0 8px rgba(255,255,255,0.3)'}}>
                 {meta.label}
               </span>
-              <span style={{fontSize:'1.1rem',lineHeight:1}}>{meta.icon}</span>
+              {meta.IconComp && <meta.IconComp/>}
             </div>
           </div>
         )}
@@ -6790,7 +6922,7 @@ function ScoresTicker({ gameStatsData, seasonData }) {
         {/* PASSING */}
         {mode==='passing' && (
           passItems.length > 0
-          ? <div key={"pass"+introKey} className="espn-ticker-inner" style={{animationDuration:'72s',animationDelay:showIntro?'3.2s':'0s'}}>
+          ? <div key={"pass"+introKey} className="espn-ticker-inner" style={{animation:showIntro?'tickerLeaderEntry 0.8s 3.2s ease-out both,espnLeaderScroll 72s 4.0s linear infinite':'tickerLeaderEntry 0.8s 0s ease-out both,espnLeaderScroll 72s 0.8s linear infinite'}}>
               {passItems.map(function(p,i){
                 var rank=(i%passLeaders.length)+1;
                 return <span key={i} style={WRAP_S}>
@@ -6811,7 +6943,7 @@ function ScoresTicker({ gameStatsData, seasonData }) {
         {/* RUSHING */}
         {mode==='rushing' && (
           rushItems.length > 0
-          ? <div key={"rush"+introKey} className="espn-ticker-inner" style={{animationDuration:'72s',animationDelay:showIntro?'3.2s':'0s'}}>
+          ? <div key={"rush"+introKey} className="espn-ticker-inner" style={{animation:showIntro?'tickerLeaderEntry 0.8s 3.2s ease-out both,espnLeaderScroll 72s 4.0s linear infinite':'tickerLeaderEntry 0.8s 0s ease-out both,espnLeaderScroll 72s 0.8s linear infinite'}}>
               {rushItems.map(function(p,i){
                 var rank=(i%rushLeaders.length)+1;
                 return <span key={i} style={WRAP_S}>
@@ -6832,7 +6964,7 @@ function ScoresTicker({ gameStatsData, seasonData }) {
         {/* RECEIVING */}
         {mode==='receiving' && (
           recvItems.length > 0
-          ? <div key={"recv"+introKey} className="espn-ticker-inner" style={{animationDuration:'72s',animationDelay:showIntro?'3.2s':'0s'}}>
+          ? <div key={"recv"+introKey} className="espn-ticker-inner" style={{animation:showIntro?'tickerLeaderEntry 0.8s 3.2s ease-out both,espnLeaderScroll 72s 4.0s linear infinite':'tickerLeaderEntry 0.8s 0s ease-out both,espnLeaderScroll 72s 0.8s linear infinite'}}>
               {recvItems.map(function(p,i){
                 var rank=(i%receivingLeaders.length)+1;
                 return <span key={i} style={WRAP_S}>
@@ -6853,7 +6985,7 @@ function ScoresTicker({ gameStatsData, seasonData }) {
         {/* TACKLES */}
         {mode==='tackles' && (
           tackItems.length > 0
-          ? <div key={"tack"+introKey} className="espn-ticker-inner" style={{animationDuration:'72s',animationDelay:showIntro?'3.2s':'0s'}}>
+          ? <div key={"tack"+introKey} className="espn-ticker-inner" style={{animation:showIntro?'tickerLeaderEntry 0.8s 3.2s ease-out both,espnLeaderScroll 72s 4.0s linear infinite':'tickerLeaderEntry 0.8s 0s ease-out both,espnLeaderScroll 72s 0.8s linear infinite'}}>
               {tackItems.map(function(p,i){
                 var rank=(i%tackleLeaders.length)+1;
                 return <span key={i} style={WRAP_S}>
