@@ -261,8 +261,8 @@ window.pnflAI = {
   _error:      null,
   _apiKey:     '',
   _proxyUrl:   '',
-  _model:      'llama3.2:1b',
-  _modelLabel: 'Llama 3.2 1B',
+  _model:      'minimax-m2',
+  _modelLabel: 'MiniMax M2',
   _mode:       'ollama',  // 'ollama' | 'hf'
   _ollamaUrl:  'http://localhost:11434',
 
@@ -1299,7 +1299,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '9.5'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '9.6'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -3450,7 +3450,7 @@ function AIConnectModal({ onClose, onConnected }) {
   const [mode, setMode]           = useState(() => sessionStorage.getItem('pnfl_ai_mode') || 'ollama');
   const [keyInput, setKeyInput]   = useState(() => sessionStorage.getItem('pnfl_ai_key') || '');
   const [proxyInput, setProxyInput] = useState(() => sessionStorage.getItem('pnfl_proxy_url') || '');
-  const [ollamaModel, setOllamaModel] = useState(() => sessionStorage.getItem('pnfl_ollama_model') || 'llama3.2:1b');
+  const [ollamaModel, setOllamaModel] = useState(() => sessionStorage.getItem('pnfl_ollama_model') || 'minimax-m2');
   const [ollamaUrl, setOllamaUrl] = useState(() => sessionStorage.getItem('pnfl_ollama_url') || 'http://localhost:11434');
   const [status, setStatus]       = useState('idle');
   const [errorMsg, setErrorMsg]   = useState('');
@@ -3481,7 +3481,7 @@ function AIConnectModal({ onClose, onConnected }) {
     setStatus('idle'); setKeyInput(''); onConnected?.();
   };
 
-  const OLLAMA_MODELS = ['llama3.2:1b','llama3.2:3b','qwen2.5:1.5b','qwen2.5:7b','phi3.5','mistral'];
+  const OLLAMA_MODELS = ['minimax-m2','llama3.2:1b','llama3.2:3b','qwen2.5:1.5b','qwen2.5:7b','phi3.5','mistral'];
   const inputStyle = {width:'100%',padding:'8px 12px',borderRadius:'7px',background:'rgba(10,15,30,0.9)',border:'1px solid rgba(160,100,255,0.25)',color:'#e0d0ff',fontFamily:'Roboto Condensed',fontSize:'0.85rem',outline:'none',boxSizing:'border-box'};
 
   return (
@@ -3577,10 +3577,10 @@ function AIConnectModal({ onClose, onConnected }) {
                       </select>
                     : <input list="ollama-models" value={ollamaModel} onChange={e=>setOllamaModel(e.target.value)}
                         style={{width:'100%',padding:'7px 11px',borderRadius:'7px',background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.2)',color:'#d0b0ff',fontFamily:'Roboto Condensed',fontSize:'0.85rem',outline:'none',boxSizing:'border-box'}}
-                        placeholder="llama3.2:1b"/>
+                        placeholder="minimax-m2"/>
                   }
                   <datalist id="ollama-models">
-                    {['llama3.2:1b','llama3.2:3b','qwen2.5:1.5b','qwen2.5:7b','phi3.5','mistral','deepseek-r1:1.5b','gemma3:1b'].map(m=><option key={m} value={m}/>)}
+                    {['minimax-m2','minimax-m2','llama3.2:1b','llama3.2:3b','qwen2.5:1.5b','qwen2.5:7b','phi3.5','mistral','deepseek-r1:1.5b','gemma3:1b'].map(m=><option key={m} value={m}/>)}
                   </datalist>
                 </div>
               </div>
@@ -7101,7 +7101,7 @@ function UserGuideModal({ onClose }) {
         <div style={{fontSize:'0.68rem',color:'#604080',fontFamily:'Orbitron',marginBottom:'4px',letterSpacing:'0.5px'}}>URL</div>
         <div style={{background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.2)',borderRadius:'6px',padding:'6px 10px',color:'#8060a0',fontFamily:'Roboto Condensed',fontSize:'0.78rem',marginBottom:'8px'}}>http://localhost:11434</div>
         <div style={{display:'flex',gap:'8px',marginBottom:'8px'}}>
-          <div style={{flex:1,background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.2)',borderRadius:'6px',padding:'6px 10px',color:'#8060a0',fontFamily:'Roboto Condensed',fontSize:'0.78rem'}}>llama3.2:1b</div>
+          <div style={{flex:1,background:'rgba(10,5,25,0.9)',border:'1px solid rgba(160,100,255,0.2)',borderRadius:'6px',padding:'6px 10px',color:'#8060a0',fontFamily:'Roboto Condensed',fontSize:'0.78rem'}}>minimax-m2</div>
           <div style={{background:'rgba(160,100,255,0.1)',border:'1px solid rgba(160,100,255,0.2)',borderRadius:'6px',padding:'6px 10px',color:'#c090ff',fontFamily:'Orbitron',fontSize:'0.6rem',cursor:'pointer'}}>↺ Scan</div>
         </div>
         <div style={{background:'linear-gradient(135deg,#3a1880,#6030c0)',borderRadius:'6px',padding:'8px',textAlign:'center',color:'#fff',fontFamily:'Orbitron',fontSize:'0.72rem',fontWeight:'700'}}>Connect</div>
@@ -7255,7 +7255,7 @@ function UserGuideModal({ onClose }) {
         <Section title="Option A — Local Ollama (Recommended)" color="#4aff4a">
           <P><strong style={{color:'#4aff4a'}}>Ollama</strong> runs AI models locally on your computer. Completely free, no API keys, fully private — your data never leaves your machine.</P>
           <Step num="1">Download and install Ollama from <strong style={{color:'#4a9eff'}}>ollama.com</strong> — available for Windows, Mac, and Linux</Step>
-          <Step num="2">Open a terminal and run: <code style={{background:'rgba(0,0,0,0.4)',padding:'2px 8px',borderRadius:'4px',color:'#4aff8a',fontFamily:'monospace'}}>ollama pull llama3.2:1b</code> to download a free model</Step>
+          <Step num="2">Open a terminal and run: <code style={{background:'rgba(0,0,0,0.4)',padding:'2px 8px',borderRadius:'4px',color:'#4aff8a',fontFamily:'monospace'}}>ollama pull minimax-m2</code> (recommended) or <code>ollama pull llama3.2:1b</code> to download a model</Step>
           <Step num="3">Ollama starts automatically on <strong style={{color:'#a0d2a0'}}>http://localhost:11434</strong></Step>
           <Step num="4">In this tool, click the <strong style={{color:'#c090ff'}}>AI Analyst toggle</strong> in the action bar to open the connect modal</Step>
           <Step num="5">Select <strong style={{color:'#c090ff'}}>⚡ Local (Ollama)</strong>, leave the URL as localhost:11434, click <strong style={{color:'#c090ff'}}>↺ Scan</strong> to detect your installed models, then click <strong style={{color:'#c090ff'}}>Connect</strong></Step>
@@ -7263,7 +7263,8 @@ function UserGuideModal({ onClose }) {
           <Note>On Mac/Linux the error message shows the export command for your OS. You can also allow all origins permanently with <code style={{background:'rgba(0,0,0,0.3)',padding:'2px 6px',borderRadius:'4px',color:'#a0f090',fontFamily:'monospace'}}>OLLAMA_ORIGINS=*</code> — useful if you access the tool from multiple URLs.</Note>
         </Section>
         <Section title="Free Ollama Models" color="#4aff4a">
-          <ModelCard name="llama3.2:1b" size="~800MB" desc="Meta's compact model. Fast responses, good for analysis. Best starting point." free={true}/>
+          <ModelCard name="minimax-m2" size="~varies" desc="MiniMax M2 — high-quality reasoning model, recommended default for PNFL AI analysis"/>
+   <ModelCard name="llama3.2:1b" size="~800MB" desc="Meta's compact model. Fast responses, good for analysis. Best starting point." free={true}/>
           <ModelCard name="llama3.2:3b" size="~2GB" desc="More detailed analysis, slower on weaker hardware." free={true}/>
           <ModelCard name="qwen2.5:1.5b" size="~1GB" desc="Alibaba's efficient model. Excellent for structured analysis." free={true}/>
           <ModelCard name="deepseek-r1:1.5b" size="~1GB" desc="Strong reasoning model. Good for trade analysis." free={true}/>
