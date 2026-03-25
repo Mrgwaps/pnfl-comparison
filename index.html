@@ -1308,7 +1308,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '9.9'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '10.0'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -2924,6 +2924,32 @@ window.pnflDB = {
     if (!html || !html.includes('<')) return html || '';
     try {
       var doc = new DOMParser().parseFromString(html, 'text/html');
+      // For game stats pages: extract table rows as tab-separated lines
+      // This preserves column structure better than innerText
+      var lines = [];
+      var tables = doc.querySelectorAll('table');
+      if (tables.length > 0) {
+        // Pre-table content (game header, scores)
+        var preText = '';
+        doc.querySelectorAll('h1,h2,h3,h4,p,div:not(table div),pre').forEach(function(el) {
+          var t = el.textContent.trim();
+          if (t) lines.push(t);
+        });
+        // Table content: each tr becomes a line, tds separated by spaces
+        tables.forEach(function(tbl) {
+          var rows = tbl.querySelectorAll('tr');
+          rows.forEach(function(row) {
+            var cells = Array.from(row.querySelectorAll('td,th'))
+              .map(function(td) { return td.textContent.trim(); })
+              .filter(function(t) { return t !== ''; });
+            if (cells.length > 0) lines.push(cells.join('  '));
+          });
+        });
+        return lines.join('\n');
+      }
+      // Fallback: use pre-formatted text if available
+      var pre = doc.querySelector('pre,tt,code');
+      if (pre) return pre.textContent || '';
       return doc.body ? (doc.body.innerText || doc.body.textContent || '') : html;
     } catch(e) { return html; }
   },
@@ -3011,145 +3037,97 @@ window.pnflDB = {
 
   _parseGameStats: function(text) {
     const db = window.pnflDB;
-    // Strip HTML
     if (text && (text.includes('<html') || text.includes('<table') || text.includes('<td'))) {
       text = window.pnflDB._textFromHtml(text);
     }
     const lines = text.split('\n');
     db.games = [];
-    db.playerGame = {}; // reset
-    let curGame = null;
-    let awayTeam = '', homeTeam = '';
+    db.playerGame = {};
+    let awayTeam='', homeTeam='', section=null;
 
-    // Parse a single-line stat row: "Smith  4  74  18.5  51  0"
-    // Returns {lastName, nums[]} or null
-    function parseRow(s) {
-      s = s.trim();
-      if (!s) return null;
-      const m = s.match(/^([A-Za-z][A-Za-z '.-]{0,20}?)\s{2,}([\d. /-]+)$/);
-      if (!m) return null;
-      const lastName = m[1].trim().split(/\s+/).pop(); // use last word as key
-      const nums = m[2].trim().split(/\s+/).filter(Boolean);
-      return {lastName, fullName: m[1].trim(), nums};
+    function isName(s) {
+      return s && /^[A-Z][a-z]{1,18}(II|III|Jr)?$/.test(s) &&
+             !/^(Att|Com|Yds|Rec|Car|Avg|Pct|Num|Ret|GAv|NAv|Lg|TD|IN|FC|TB|Bk|None|Total|Defense|Passing|Rushing|Receiving)$/.test(s);
     }
 
-    // Store player stat with team+opponent context
-    function storePlayer(lastName, fullName, team, opponent, type, nums) {
-      // Use "lastName_TEAM" as key to avoid collisions
-      const key = lastName + '_' + team.substring(0,3).toUpperCase();
-      if (!db.playerGame[key]) db.playerGame[key] = {lastName, fullName, team, opponent};
+    function store(nameRaw, team, opp, type, nums) {
+      if (!nameRaw||!team||nums.length<2) return;
+      const lastName = nameRaw.split(/\s+/).pop();
+      const key = lastName+'_'+team.substring(0,3).toUpperCase();
+      if (!db.playerGame[key]) db.playerGame[key]={lastName,fullName:nameRaw,team,opponent:opp};
       const p = db.playerGame[key];
-      // Also store by plain lastName for fuzzy lookup (last writer wins if same name different team)
-      if (!db.playerGame[lastName]) db.playerGame[lastName] = p;
-      else db.playerGame[lastName + '_2'] = p; // keep both
-
-      if (type==='pass' && nums.length>=7) {
-        p.pass = {att:+nums[0], com:+nums[1], yds:+nums[2], pct:+nums[3], lg:+nums[4], td:+nums[5], int:+nums[6]};
-      } else if (type==='rush' && nums.length>=5) {
-        p.rush = {car:+nums[0], yds:+nums[1], avg:+nums[2], lg:+nums[3], td:+nums[4]};
-      } else if (type==='rec' && nums.length>=5) {
-        p.rec = {rec:+nums[0], yds:+nums[1], avg:+nums[2], lg:+nums[3], td:+nums[4]};
-      } else if (type==='def' && nums.length>=2) {
-        p.def = {tackles:+nums[0], sacks:+nums[1]};
-      }
+      if (!db.playerGame[lastName]) db.playerGame[lastName]=p;
+      const n=nums;
+      if (type==='pass'&&n.length>=7) p.pass={att:+n[0],com:+n[1],yds:+n[2],pct:+n[3],lg:+n[4],td:+n[5],int:+n[6]};
+      else if(type==='rush'&&n.length>=5) p.rush={car:+n[0],yds:+n[1],avg:+n[2],lg:+n[3],td:+n[4]};
+      else if(type==='rec'&&n.length>=5)  p.rec ={rec:+n[0],yds:+n[1],avg:+n[2],lg:+n[3],td:+n[4]};
+      else if(type==='def'&&n.length>=2)  p.def ={tackles:+n[0],sacks:+n[1]};
     }
 
-    // Parse a block of rows for one team, given starting line index
-    // Returns rows parsed
-    function parseBlock(startIdx, team, opponent, type) {
-      for (let i=startIdx; i<Math.min(startIdx+30, lines.length); i++) {
-        const l = lines[i];
-        const trimmed = l.trim();
-        if (!trimmed) continue;
-        // Stop at next section header or separator
-        if (trimmed.match(/^(Passing|Rushing|Receiving|Defense|Intercepts|Punt|KO|Fumble|Safeties|Punts|Converts|Field|Back|---|CHI|SEA|BUF|NE |MIA|JAX|PIT|DEN|LVR|LAR|CIN|ATL|NYG|PHI|WAS|GB |MIN|SF )/)) break;
-        if (trimmed.match(/^[A-Z][a-z]+ Total/)) continue; // skip team totals
-        if (trimmed.match(/^None\./)) continue;
-        const row = parseRow(trimmed);
-        if (row) storePlayer(row.lastName, row.fullName, team, opponent, type, row.nums);
-      }
+    const COLS={pass:7,rush:5,rec:5,def:2};
+
+    function parseSide(toks, cols) {
+      let ni=0;
+      for(let i=0;i<toks.length;i++){if(/^-?[\d.]+$/.test(toks[i])){ni=i;break;}ni=i+1;}
+      if(ni===0||ni>=toks.length) return null;
+      return {name:toks.slice(0,ni).join(' '), nums:toks.slice(ni,ni+cols)};
     }
 
-    // Main parse loop — detect game headers and stat sections
-    let i = 0;
-    let section = null; // 'pass','rush','rec','def'
-    let sideLeft = true; // true=parsing left(away) column
+    for(let i=0;i<lines.length;i++){
+      const l=lines[i].trim();
+      if(!l) continue;
 
-    while (i < lines.length) {
-      const l = lines[i].trim();
-
-      // Game header: "Miami at Las Vegas" or "Chicago at Seattle"
-      const gameM = l.match(/^([A-Za-z ]+?)\s+at\s+([A-Za-z ]+?)$/);
-      if (gameM && !l.includes('efficiency') && !l.includes('downs')) {
-        awayTeam = gameM[1].trim();
-        homeTeam = gameM[2].trim();
-        // Score on next non-empty line
-        let scoreStr = '';
-        for (let j=i+1; j<Math.min(i+5,lines.length); j++) {
-          scoreStr = lines[j].trim();
-          if (scoreStr.match(/\d/)) break;
+      // Game header
+      const gm=l.match(/^([A-Za-z ]+?)\s+at\s+([A-Za-z ]+?)$/);
+      if(gm&&!l.includes('Avg')&&!l.includes('efficiency')){
+        awayTeam=gm[1].trim(); homeTeam=gm[2].trim();
+        for(let j=i+1;j<Math.min(i+6,lines.length);j++){
+          const sm=lines[j].match(/(\d+)\s+(\d+)/);
+          if(sm){db.games.push({away:awayTeam,home:homeTeam,awayScore:+sm[1],homeScore:+sm[2],potg:null});break;}
         }
-        const scores = scoreStr.match(/(\d+)\s+(\d+)/);
-        curGame = {
-          away: awayTeam, home: homeTeam,
-          awayScore: scores ? +scores[1] : 0,
-          homeScore: scores ? +scores[2] : 0,
-          potg: null
-        };
-        db.games.push(curGame);
-        section = null;
-        i++; continue;
+        section=null; continue;
       }
 
-      // Player of game
-      const potgM = l.match(/Player of the game:\s+([A-Za-z .'-]+),\s+([A-Z]+),\s+([A-Za-z ]+)/);
-      if (potgM && curGame) { curGame.potg = {name:potgM[1],pos:potgM[2],team:potgM[3]}; }
+      // Special lines
+      const potg=l.match(/Player of the game:\s+([A-Za-z .'-]+),\s+([A-Z]+),\s+([A-Za-z ]+)/);
+      if(potg&&db.games.length) db.games[db.games.length-1].potg={name:potg[1],pos:potg[2],team:potg[3]};
+      const potw=l.match(/Player of the week:\s+([A-Za-z .'-]+),\s+([A-Z]+),\s+([A-Za-z ]+)/);
+      if(potw) db.potw={name:potw[1],pos:potw[2],team:potw[3]};
 
-      // Player of week
-      const potwM = l.match(/Player of the week:\s+([A-Za-z .'-]+),\s+([A-Z]+),\s+([A-Za-z ]+)/);
-      if (potwM) db.potw = {name:potwM[1],pos:potwM[2],team:potwM[3]};
+      // Section headers
+      if(/^Passing\s+Att/i.test(l))   {section='pass';continue;}
+      if(/^Rushing\s+Car/i.test(l))   {section='rush';continue;}
+      if(/^Receiving\s+Rec/i.test(l)) {section='rec'; continue;}
+      if(/^Defense\s+Tac/i.test(l))   {section='def'; continue;}
+      if(/^(Intercepts|Punt|KO Returns|Fumbles|Safeties|Punts|Converts|Field Goals)/i.test(l)){section=null;continue;}
+      if(/Individual Statistics/i.test(l)){section=null;continue;}
 
-      // Section header with two-column layout:
-      // "Passing   Att Com Yds  % Lg TD IN    Passing   Att Com Yds..."
-      // The header appears once for both teams. After it, rows are one player per line.
-      // Each row has either one player (one team) or two separated by big whitespace.
+      if(!section||!awayTeam) continue;
+      const cols=COLS[section];
+      const toks=l.split(/\s+/).filter(Boolean);
+      if(toks.length<3) continue;
+      if(/Total$/i.test(l)||/^None\.?$/i.test(l)) continue;
 
-      if (l.match(/^Passing\s+Att/))  { section='pass'; i++; continue; }
-      if (l.match(/^Rushing\s+Car/))  { section='rush'; i++; continue; }
-      if (l.match(/^Receiving\s+Rec/)) { section='rec'; i++; continue; }
-      if (l.match(/^Defense\s+Tac/))  { section='def';  i++; continue; }
-      if (l.match(/^Intercepts\s+Int/)) { section='def'; i++; continue; }
-      // Reset section on blank-ish separators between sections
-      if (l.match(/^(Punt Returns|KO Returns|Fumbles|Safeties|Punts|Converts|Field Goals)/)) { section=null; }
-
-      // Parse stat rows when in a section
-      if (section && curGame && l.length > 3) {
-        // The two-column format: each line may have AWAY stats on left, HOME stats on right
-        // They're separated by a large gap (multiple spaces between the two teams' data)
-        // Strategy: split on 4+ spaces to find potential two-column entries
-        const cols = l.split(/\s{4,}/);
-
-        if (cols.length >= 2) {
-          // Left column = away team, right column = home team
-          const leftRow = parseRow(cols[0]);
-          const rightRow = parseRow(cols[cols.length-1]);
-          if (leftRow) storePlayer(leftRow.lastName, leftRow.fullName, awayTeam, homeTeam, section, leftRow.nums);
-          if (rightRow) storePlayer(rightRow.lastName, rightRow.fullName, homeTeam, awayTeam, section, rightRow.nums);
-        } else {
-          // Single column — could be either team; try to match to known team
-          const row = parseRow(l);
-          if (row) {
-            // If line starts near left margin it's away, if indented it might be home
-            // Default: assign to away team for now (most parseable single-col lines are away)
-            storePlayer(row.lastName, row.fullName, awayTeam, homeTeam, section, row.nums);
-          }
+      // Find split point between two players on same line
+      // Look for a name token appearing after numbers
+      let splitAt=-1;
+      for(let t=2;t<toks.length-2;t++){
+        if(isName(toks[t])&&/^-?[\d.]+$/.test(toks[t-1])){
+          splitAt=t; break;
         }
       }
 
-      i++;
+      if(splitAt>0){
+        const L=parseSide(toks.slice(0,splitAt),cols);
+        const R=parseSide(toks.slice(splitAt),cols);
+        if(L) store(L.name,awayTeam,homeTeam,section,L.nums);
+        if(R) store(R.name,homeTeam,awayTeam,section,R.nums);
+      } else {
+        const r=parseSide(toks,cols);
+        if(r) store(r.name,awayTeam,homeTeam,section,r.nums);
+      }
     }
 
-    // Rebuild knowledge base
     if(window.pnflDB.buildKnowledgeBase) window.pnflDB.buildKnowledgeBase();
   },
 
@@ -4811,15 +4789,26 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
       if (!kb && window.pnflDB && window.pnflDB.buildKnowledgeBase) kb = window.pnflDB.buildKnowledgeBase();
       const liveCtx = kb || (window.pnflDB?._ready ? window.pnflDB.buildPlayerPrompt(player.name, teamName) : '');
 
+      const lastName = player.name.split(' ').pop();
       const systemPrompt = `You are a PNFL analyst for a fantasy football simulation (2048 season).
 
-INSTRUCTIONS:
-- Search the KNOWLEDGE BASE below for the player named "${player.name}" (look for their last name in game stats and season stats sections)
-- For performance questions: find their WEEK GAME STATS entry first (most recent performance vs their opponent that week)
-- Then reference their SEASON CUMULATIVE STATS for context
-- State the opponent they faced that week using the GAME RESULTS section
-- Never use real NFL knowledge — only the data below
-- Be specific with numbers. Answer in 4-6 sentences.
+THE PLAYER YOU ARE ANALYZING:
+Name: ${player.name} | Last Name: ${lastName} | Team: ${teamName} | Position: ${position}
+
+HOW TO FIND THEIR STATS IN THE KNOWLEDGE BASE:
+1. GAME RESULTS: Find the game where ${teamName} played (e.g. "${teamName} XX at OPPONENT YY")
+2. WEEK GAME STATS: Search for "${lastName}" in the section labeled "[${teamName} vs OPPONENT]"
+   - Their stats are listed as: ${lastName}: Rushing/Receiving/Passing/Defense stats
+3. SEASON STATS: Search for "${lastName} (${teamName.substring(0,3).toUpperCase()})" in the SEASON section
+
+RESPONSE FORMAT:
+- Start with: "In Week [N] vs [Opponent], [Player Name] ([Team])..."
+- State exact numbers from the game stats (carries, yards, avg, TD, receptions etc.)
+- Then add season context if available
+- For OL players: mention team sacks allowed that game
+- For DL players: mention tackles and sacks from the defense stats
+- Never say data is unavailable if you can see their last name in the knowledge base
+- Answer in 4-6 sentences max. Be specific and confident.
 
 ${liveCtx}`;
 
