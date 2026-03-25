@@ -1308,7 +1308,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '9.8'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '9.9'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -4797,7 +4797,17 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
     aiResponseRef.current = '';
     try {
       // Use pre-built knowledge base if available, else build player prompt
+      // Ensure knowledge base is loaded — fetch static files if needed
       var kb = window._pnflKnowledgeBase || '';
+      if (!kb && window.StaticAssets) {
+        try {
+          var seasonHtml = await window.StaticAssets.text('season.htm').catch(function(){return '';});
+          var gameHtml   = await window.StaticAssets.text('gamestats.htm').catch(function(){return '';});
+          if (seasonHtml && window.pnflDB) window.pnflDB._parseSeason(seasonHtml);
+          if (gameHtml   && window.pnflDB) window.pnflDB._parseGameStats(gameHtml);
+          if (window.pnflDB && window.pnflDB.buildKnowledgeBase) kb = window.pnflDB.buildKnowledgeBase();
+        } catch(e2) {}
+      }
       if (!kb && window.pnflDB && window.pnflDB.buildKnowledgeBase) kb = window.pnflDB.buildKnowledgeBase();
       const liveCtx = kb || (window.pnflDB?._ready ? window.pnflDB.buildPlayerPrompt(player.name, teamName) : '');
 
@@ -6876,136 +6886,29 @@ function ScoresTicker({ gameStatsData, seasonData }) {
   // Scores shows continuously. Leader modes auto-advance after 2 full scrolls.
   // Order: scores → passing → rushing → receiving → tackles → scores → ...
   var LEADER_MODES = ['passing','rushing','receiving','tackles'];
-  // ── Player pose SVG icons ──────────────────────────────────────────────────
-  // Each returns a 36x36 SVG: steel-blue body, white accent, black outline
-  var IC_SIZE = 36;
-  var IC_BODY = '#5ab4e0';   // steel blue
-  var IC_HLGT = '#ffffff';   // white highlight
-  var IC_SKIN = '#e8c99a';   // skin tone
-  var IC_HELM = '#2d6fa8';   // darker blue helmet
-  var IC_SHAD = 'rgba(0,0,0,0.18)';
-
-  // Passing pose: QB in throw stance, arm extended back, weight on back foot
-  var IconPassing = function() {
-    return (
-      <svg width={IC_SIZE} height={IC_SIZE} viewBox="0 0 36 36" style={{display:'block',flexShrink:0}}>
-        {/* helmet */}
-        <ellipse cx="22" cy="7" rx="5.5" ry="5" fill={IC_HELM} stroke={IC_HLGT} strokeWidth="0.5"/>
-        <path d="M17.5 8 Q16 11 17 13" stroke={IC_SKIN} strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-        <circle cx="22" cy="6.5" r="2" fill={IC_SKIN}/>
-        {/* facemask bar */}
-        <path d="M17 7.5 Q18 8.5 19 8" stroke={IC_HLGT} strokeWidth="0.9" fill="none"/>
-        {/* body — torso leaning forward */}
-        <path d="M20 12 Q24 13 25 18 Q23 22 20 24" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
-        {/* throwing arm — extended back */}
-        <path d="M20 13 Q14 10 10 8" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
-        <circle cx="9.5" cy="7.5" r="2" fill={IC_SKIN}/>
-        {/* football in throwing hand */}
-        <ellipse cx="8" cy="6" rx="2.5" ry="1.5" fill="#8B4513" transform="rotate(-20 8 6)"/>
-        <path d="M7 5.5 L9 6.5" stroke={IC_HLGT} strokeWidth="0.6"/>
-        {/* front arm */}
-        <path d="M22 14 Q26 15 27 17" stroke={IC_BODY} strokeWidth="2" fill="none" strokeLinecap="round"/>
-        {/* legs — planted stance */}
-        <path d="M20 24 Q17 28 15 33" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
-        <path d="M22 24 Q25 27 26 32" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
-        {/* jersey number hint */}
-        <text x="21" y="21" fontSize="4" fill={IC_HLGT} textAnchor="middle" fontWeight="bold">QB</text>
-      </svg>
-    );
+  // ── Tecmo Bowl style pixel art player icons ──
+  var ICON_URIS = {
+    passing:   'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCI+PGVsbGlwc2UgY3g9IjIwIiBjeT0iMzgiIHJ4PSIxMCIgcnk9IjIiIGZpbGw9InJnYmEoMCwwLDAsMC4zKSIvPjxyZWN0IHg9IjIwLjAiIHk9IjIuNSIgd2lkdGg9IjEwLjAiIGhlaWdodD0iMi41IiBmaWxsPSIjRkZENzAwIi8+PHJlY3QgeD0iMTcuNSIgeT0iMC4wIiB3aWR0aD0iMTIuNSIgaGVpZ2h0PSIyLjUiIGZpbGw9IiNGRkQ3MDAiLz48cmVjdCB4PSIxNy41IiB5PSIwLjAiIHdpZHRoPSIyLjUiIGhlaWdodD0iNy41IiBmaWxsPSIjRkZENzAwIi8+PHJlY3QgeD0iMjcuNSIgeT0iMC4wIiB3aWR0aD0iMi41IiBoZWlnaHQ9IjUuMCIgZmlsbD0iI0ZGRDcwMCIvPjxyZWN0IHg9IjI3LjUiIHk9IjIuNSIgd2lkdGg9IjIuNSIgaGVpZ2h0PSIyLjUiIGZpbGw9IiNhYWEiLz48cmVjdCB4PSIyNy41IiB5PSI1LjAiIHdpZHRoPSIyLjUiIGhlaWdodD0iMi41IiBmaWxsPSIjYWFhIi8+PHJlY3QgeD0iMjAuMCIgeT0iMi41IiB3aWR0aD0iNy41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iI0Y1Qzg5QSIvPjxyZWN0IHg9IjIwLjAiIHk9IjUuMCIgd2lkdGg9IjUuMCIgaGVpZ2h0PSI1LjAiIGZpbGw9IiNGNUM4OUEiLz48cmVjdCB4PSIxNS4wIiB5PSI3LjUiIHdpZHRoPSI3LjUiIGhlaWdodD0iMi41IiBmaWxsPSIjNGE5ZWZmIi8+PHJlY3QgeD0iMTIuNSIgeT0iMTAuMCIgd2lkdGg9IjEwLjAiIGhlaWdodD0iMi41IiBmaWxsPSIjNGE5ZWZmIi8+PHJlY3QgeD0iMTIuNSIgeT0iMTIuNSIgd2lkdGg9IjEwLjAiIGhlaWdodD0iMi41IiBmaWxsPSIjNGE5ZWZmIi8+PHJlY3QgeD0iMTUuMCIgeT0iMTUuMCIgd2lkdGg9IjcuNSIgaGVpZ2h0PSIyLjUiIGZpbGw9IiM0YTllZmYiLz48cmVjdCB4PSIyNS4wIiB5PSI3LjUiIHdpZHRoPSI1LjAiIGhlaWdodD0iMi41IiBmaWxsPSIjNGE5ZWZmIi8+PHJlY3QgeD0iMjcuNSIgeT0iNy41IiB3aWR0aD0iMi41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzRhOWVmZiIvPjxyZWN0IHg9IjMwLjAiIHk9IjUuMCIgd2lkdGg9IjUuMCIgaGVpZ2h0PSIyLjUiIGZpbGw9IiM0YTllZmYiLz48cmVjdCB4PSIzMi41IiB5PSIyLjUiIHdpZHRoPSIyLjUiIGhlaWdodD0iMi41IiBmaWxsPSIjNGE5ZWZmIi8+PHJlY3QgeD0iMzUuMCIgeT0iMC4wIiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iI0Y1Qzg5QSIvPjxyZWN0IHg9IjM3LjUiIHk9IjAuMCIgd2lkdGg9IjUuMCIgaGVpZ2h0PSIyLjUiIGZpbGw9IiM4QjQ1MTMiLz48cmVjdCB4PSIzNy41IiB5PSIyLjUiIHdpZHRoPSI1LjAiIGhlaWdodD0iMi41IiBmaWxsPSIjOEI0NTEzIi8+PHJlY3QgeD0iMTAuMCIgeT0iMTAuMCIgd2lkdGg9IjIuNSIgaGVpZ2h0PSIyLjUiIGZpbGw9IiM0YTllZmYiLz48cmVjdCB4PSI3LjUiIHk9IjEwLjAiIHdpZHRoPSI1LjAiIGhlaWdodD0iMi41IiBmaWxsPSIjNGE5ZWZmIi8+PHJlY3QgeD0iNS4wIiB5PSIxMC4wIiB3aWR0aD0iMi41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iI0Y1Qzg5QSIvPjxyZWN0IHg9IjEyLjUiIHk9IjE3LjUiIHdpZHRoPSIxMC4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzJkNmZhOCIvPjxyZWN0IHg9IjEwLjAiIHk9IjIwLjAiIHdpZHRoPSI3LjUiIGhlaWdodD0iMi41IiBmaWxsPSIjMmQ2ZmE4Ii8+PHJlY3QgeD0iNy41IiB5PSIyMC4wIiB3aWR0aD0iNy41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzJkNmZhOCIvPjxyZWN0IHg9IjEwLjAiIHk9IjIyLjUiIHdpZHRoPSIyLjUiIGhlaWdodD0iMTAuMCIgZmlsbD0iIzJkNmZhOCIvPjxyZWN0IHg9IjEwLjAiIHk9IjI3LjUiIHdpZHRoPSIyLjUiIGhlaWdodD0iNy41IiBmaWxsPSIjMmQ2ZmE4Ii8+PHJlY3QgeD0iMTAuMCIgeT0iMzIuNSIgd2lkdGg9IjUuMCIgaGVpZ2h0PSIyLjUiIGZpbGw9IiMyMjIyMjIiLz48cmVjdCB4PSIxNy41IiB5PSIzNS4wIiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzIyMjIyMiIvPjwvc3ZnPg==',
+    rushing:   'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCI+PGVsbGlwc2UgY3g9IjIwIiBjeT0iMzgiIHJ4PSIxMCIgcnk9IjIiIGZpbGw9InJnYmEoMCwwLDAsMC4zKSIvPjxyZWN0IHg9IjE1LjAiIHk9IjAuMCIgd2lkdGg9IjEwLjAiIGhlaWdodD0iMi41IiBmaWxsPSIjRkZENzAwIi8+PHJlY3QgeD0iMTIuNSIgeT0iMC4wIiB3aWR0aD0iMTIuNSIgaGVpZ2h0PSI1LjAiIGZpbGw9IiNGRkQ3MDAiLz48cmVjdCB4PSIxMC4wIiB5PSIyLjUiIHdpZHRoPSIyLjUiIGhlaWdodD0iNS4wIiBmaWxsPSIjRkZENzAwIi8+PHJlY3QgeD0iMjIuNSIgeT0iMi41IiB3aWR0aD0iMi41IiBoZWlnaHQ9IjUuMCIgZmlsbD0iI0ZGRDcwMCIvPjxyZWN0IHg9IjEyLjUiIHk9IjIuNSIgd2lkdGg9IjEwLjAiIGhlaWdodD0iMi41IiBmaWxsPSIjRjVDODlBIi8+PHJlY3QgeD0iMTUuMCIgeT0iNS4wIiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iI0Y1Qzg5QSIvPjxyZWN0IHg9IjIyLjUiIHk9IjUuMCIgd2lkdGg9IjIuNSIgaGVpZ2h0PSI1LjAiIGZpbGw9IiNhYWEiLz48cmVjdCB4PSIxMi41IiB5PSI3LjUiIHdpZHRoPSIxMC4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzRhOWVmZiIvPjxyZWN0IHg9IjEwLjAiIHk9IjEwLjAiIHdpZHRoPSIxMi41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzRhOWVmZiIvPjxyZWN0IHg9IjEwLjAiIHk9IjEyLjUiIHdpZHRoPSIxMi41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzRhOWVmZiIvPjxyZWN0IHg9IjEyLjUiIHk9IjE1LjAiIHdpZHRoPSI3LjUiIGhlaWdodD0iMi41IiBmaWxsPSIjNGE5ZWZmIi8+PHJlY3QgeD0iMjIuNSIgeT0iMTIuNSIgd2lkdGg9IjcuNSIgaGVpZ2h0PSIyLjUiIGZpbGw9IiM4QjQ1MTMiLz48cmVjdCB4PSIyMC4wIiB5PSIxNS4wIiB3aWR0aD0iNy41IiBoZWlnaHQ9IjUuMCIgZmlsbD0iIzhCNDUxMyIvPjxyZWN0IHg9IjIyLjUiIHk9IjEyLjUiIHdpZHRoPSIyLjUiIGhlaWdodD0iMi41IiBmaWxsPSIjZmZmIi8+PHJlY3QgeD0iMjAuMCIgeT0iMTAuMCIgd2lkdGg9IjUuMCIgaGVpZ2h0PSIyLjUiIGZpbGw9IiM0YTllZmYiLz48cmVjdCB4PSIyMi41IiB5PSIxMi41IiB3aWR0aD0iMi41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzRhOWVmZiIvPjxyZWN0IHg9IjIyLjUiIHk9IjE1LjAiIHdpZHRoPSIyLjUiIGhlaWdodD0iMi41IiBmaWxsPSIjNGE5ZWZmIi8+PHJlY3QgeD0iMTAuMCIgeT0iNy41IiB3aWR0aD0iMi41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzRhOWVmZiIvPjxyZWN0IHg9IjcuNSIgeT0iNS4wIiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzRhOWVmZiIvPjxyZWN0IHg9IjUuMCIgeT0iNS4wIiB3aWR0aD0iMi41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iI0Y1Qzg5QSIvPjxyZWN0IHg9IjEwLjAiIHk9IjE3LjUiIHdpZHRoPSIxMi41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzJkNmZhOCIvPjxyZWN0IHg9IjcuNSIgeT0iMjAuMCIgd2lkdGg9IjEwLjAiIGhlaWdodD0iMi41IiBmaWxsPSIjMmQ2ZmE4Ii8+PHJlY3QgeD0iNy41IiB5PSIyMi41IiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjcuNSIgZmlsbD0iIzJkNmZhOCIvPjxyZWN0IHg9IjEyLjUiIHk9IjI3LjUiIHdpZHRoPSIyLjUiIGhlaWdodD0iNS4wIiBmaWxsPSIjMmQ2ZmE4Ii8+PHJlY3QgeD0iMTcuNSIgeT0iMjIuNSIgd2lkdGg9IjUuMCIgaGVpZ2h0PSIyLjUiIGZpbGw9IiMyZDZmYTgiLz48cmVjdCB4PSIyMC4wIiB5PSIyMC4wIiB3aWR0aD0iNy41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzJkNmZhOCIvPjxyZWN0IHg9IjIyLjUiIHk9IjIwLjAiIHdpZHRoPSIyLjUiIGhlaWdodD0iMi41IiBmaWxsPSIjMmQ2ZmE4Ii8+PHJlY3QgeD0iMTAuMCIgeT0iMzAuMCIgd2lkdGg9IjUuMCIgaGVpZ2h0PSIyLjUiIGZpbGw9IiMyMjIyMjIiLz48cmVjdCB4PSIyNS4wIiB5PSIyMi41IiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzIyMjIyMiIvPjwvc3ZnPg==',
+    receiving: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCI+PGVsbGlwc2UgY3g9IjIwIiBjeT0iMzgiIHJ4PSIxMCIgcnk9IjIiIGZpbGw9InJnYmEoMCwwLDAsMC4zKSIvPjxyZWN0IHg9IjE3LjUiIHk9IjAuMCIgd2lkdGg9IjEwLjAiIGhlaWdodD0iNS4wIiBmaWxsPSIjOEI0NTEzIi8+PHJlY3QgeD0iMjAuMCIgeT0iMC4wIiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iI2ZmZiIvPjxyZWN0IHg9IjEyLjUiIHk9IjUuMCIgd2lkdGg9IjUuMCIgaGVpZ2h0PSIyLjUiIGZpbGw9IiNGNUM4OUEiLz48cmVjdCB4PSIyNy41IiB5PSI1LjAiIHdpZHRoPSI1LjAiIGhlaWdodD0iMi41IiBmaWxsPSIjRjVDODlBIi8+PHJlY3QgeD0iMTIuNSIgeT0iNy41IiB3aWR0aD0iMi41IiBoZWlnaHQ9IjUuMCIgZmlsbD0iIzRhOWVmZiIvPjxyZWN0IHg9IjI3LjUiIHk9IjcuNSIgd2lkdGg9IjIuNSIgaGVpZ2h0PSI1LjAiIGZpbGw9IiM0YTllZmYiLz48cmVjdCB4PSIxNS4wIiB5PSIxMC4wIiB3aWR0aD0iMi41IiBoZWlnaHQ9IjUuMCIgZmlsbD0iIzRhOWVmZiIvPjxyZWN0IHg9IjI1LjAiIHk9IjEwLjAiIHdpZHRoPSIyLjUiIGhlaWdodD0iNS4wIiBmaWxsPSIjNGE5ZWZmIi8+PHJlY3QgeD0iMTUuMCIgeT0iMTIuNSIgd2lkdGg9IjEyLjUiIGhlaWdodD0iMi41IiBmaWxsPSIjRkZENzAwIi8+PHJlY3QgeD0iMTcuNSIgeT0iMTAuMCIgd2lkdGg9IjE1LjAiIGhlaWdodD0iNS4wIiBmaWxsPSIjRkZENzAwIi8+PHJlY3QgeD0iMTcuNSIgeT0iMTAuMCIgd2lkdGg9IjIuNSIgaGVpZ2h0PSI1LjAiIGZpbGw9IiNGRkQ3MDAiLz48cmVjdCB4PSIyNy41IiB5PSIxMC4wIiB3aWR0aD0iMi41IiBoZWlnaHQ9IjUuMCIgZmlsbD0iI0ZGRDcwMCIvPjxyZWN0IHg9IjE3LjUiIHk9IjEyLjUiIHdpZHRoPSIxMC4wIiBoZWlnaHQ9IjUuMCIgZmlsbD0iI0Y1Qzg5QSIvPjxyZWN0IHg9IjIwLjAiIHk9IjEyLjUiIHdpZHRoPSI1LjAiIGhlaWdodD0iMi41IiBmaWxsPSIjRjVDODlBIi8+PHJlY3QgeD0iMjcuNSIgeT0iMTUuMCIgd2lkdGg9IjIuNSIgaGVpZ2h0PSI1LjAiIGZpbGw9IiNhYWEiLz48cmVjdCB4PSIxNS4wIiB5PSIxNy41IiB3aWR0aD0iMTIuNSIgaGVpZ2h0PSIyLjUiIGZpbGw9IiM0YTllZmYiLz48cmVjdCB4PSIxMi41IiB5PSIyMC4wIiB3aWR0aD0iMTUuMCIgaGVpZ2h0PSI1LjAiIGZpbGw9IiM0YTllZmYiLz48cmVjdCB4PSIxNS4wIiB5PSIyMi41IiB3aWR0aD0iMTAuMCIgaGVpZ2h0PSIyLjUiIGZpbGw9IiM0YTllZmYiLz48cmVjdCB4PSIxMi41IiB5PSIyNS4wIiB3aWR0aD0iMTIuNSIgaGVpZ2h0PSIyLjUiIGZpbGw9IiMyZDZmYTgiLz48cmVjdCB4PSIxMi41IiB5PSIyNy41IiB3aWR0aD0iMTAuMCIgaGVpZ2h0PSI1LjAiIGZpbGw9IiMyZDZmYTgiLz48cmVjdCB4PSIxMi41IiB5PSIzMC4wIiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjcuNSIgZmlsbD0iIzJkNmZhOCIvPjxyZWN0IHg9IjIyLjUiIHk9IjMwLjAiIHdpZHRoPSI1LjAiIGhlaWdodD0iNy41IiBmaWxsPSIjMmQ2ZmE4Ii8+PHJlY3QgeD0iMTAuMCIgeT0iMzcuNSIgd2lkdGg9IjUuMCIgaGVpZ2h0PSIyLjUiIGZpbGw9IiMyMjIyMjIiLz48cmVjdCB4PSIyMi41IiB5PSIzNy41IiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzIyMjIyMiIvPjwvc3ZnPg==',
+    tackles:   'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCI+PGVsbGlwc2UgY3g9IjIwIiBjeT0iMzgiIHJ4PSIxMCIgcnk9IjIiIGZpbGw9InJnYmEoMCwwLDAsMC4zKSIvPjxyZWN0IHg9IjI1LjAiIHk9IjAuMCIgd2lkdGg9IjcuNSIgaGVpZ2h0PSIyLjUiIGZpbGw9IiNGRkQ3MDAiLz48cmVjdCB4PSIyMi41IiB5PSIwLjAiIHdpZHRoPSIxMC4wIiBoZWlnaHQ9IjUuMCIgZmlsbD0iI0ZGRDcwMCIvPjxyZWN0IHg9IjIyLjUiIHk9IjIuNSIgd2lkdGg9IjIuNSIgaGVpZ2h0PSI1LjAiIGZpbGw9IiNGRkQ3MDAiLz48cmVjdCB4PSIzMC4wIiB5PSIyLjUiIHdpZHRoPSIyLjUiIGhlaWdodD0iNS4wIiBmaWxsPSIjRkZENzAwIi8+PHJlY3QgeD0iMjUuMCIgeT0iMi41IiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iI0Y1Qzg5QSIvPjxyZWN0IHg9IjI1LjAiIHk9IjUuMCIgd2lkdGg9IjIuNSIgaGVpZ2h0PSI1LjAiIGZpbGw9IiNGNUM4OUEiLz48cmVjdCB4PSIyMi41IiB5PSI3LjUiIHdpZHRoPSI3LjUiIGhlaWdodD0iMi41IiBmaWxsPSIjMWEzYTZhIi8+PHJlY3QgeD0iMjAuMCIgeT0iMTAuMCIgd2lkdGg9IjEwLjAiIGhlaWdodD0iMi41IiBmaWxsPSIjMWEzYTZhIi8+PHJlY3QgeD0iMjAuMCIgeT0iMTIuNSIgd2lkdGg9IjcuNSIgaGVpZ2h0PSIyLjUiIGZpbGw9IiMxYTNhNmEiLz48cmVjdCB4PSIzMC4wIiB5PSIxMC4wIiB3aWR0aD0iMi41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzFhM2E2YSIvPjxyZWN0IHg9IjI3LjUiIHk9IjEyLjUiIHdpZHRoPSI1LjAiIGhlaWdodD0iMi41IiBmaWxsPSIjMWEzYTZhIi8+PHJlY3QgeD0iMjAuMCIgeT0iMTUuMCIgd2lkdGg9IjEwLjAiIGhlaWdodD0iMi41IiBmaWxsPSIjMmQ2ZmE4Ii8+PHJlY3QgeD0iMTcuNSIgeT0iMTcuNSIgd2lkdGg9IjcuNSIgaGVpZ2h0PSI1LjAiIGZpbGw9IiMyZDZmYTgiLz48cmVjdCB4PSIyMC4wIiB5PSIyMi41IiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjcuNSIgZmlsbD0iIzJkNmZhOCIvPjxyZWN0IHg9IjI1LjAiIHk9IjIyLjUiIHdpZHRoPSIyLjUiIGhlaWdodD0iNS4wIiBmaWxsPSIjMmQ2ZmE4Ii8+PHJlY3QgeD0iMjAuMCIgeT0iMzAuMCIgd2lkdGg9IjUuMCIgaGVpZ2h0PSIyLjUiIGZpbGw9IiMyMjIyMjIiLz48cmVjdCB4PSIyNy41IiB5PSIzMC4wIiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzIyMjIyMiIvPjxyZWN0IHg9IjcuNSIgeT0iNS4wIiB3aWR0aD0iNy41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iI0ZGRDcwMCIvPjxyZWN0IHg9IjUuMCIgeT0iMi41IiB3aWR0aD0iMTAuMCIgaGVpZ2h0PSI1LjAiIGZpbGw9IiNGRkQ3MDAiLz48cmVjdCB4PSI1LjAiIHk9IjIuNSIgd2lkdGg9IjIuNSIgaGVpZ2h0PSI3LjUiIGZpbGw9IiNGRkQ3MDAiLz48cmVjdCB4PSIxMi41IiB5PSIyLjUiIHdpZHRoPSIyLjUiIGhlaWdodD0iNS4wIiBmaWxsPSIjRkZENzAwIi8+PHJlY3QgeD0iNy41IiB5PSI1LjAiIHdpZHRoPSI1LjAiIGhlaWdodD0iMi41IiBmaWxsPSIjRjVDODlBIi8+PHJlY3QgeD0iNy41IiB5PSI3LjUiIHdpZHRoPSIyLjUiIGhlaWdodD0iNS4wIiBmaWxsPSIjRjVDODlBIi8+PHJlY3QgeD0iNS4wIiB5PSIxMC4wIiB3aWR0aD0iMTIuNSIgaGVpZ2h0PSIyLjUiIGZpbGw9IiM0YTllZmYiLz48cmVjdCB4PSIyLjUiIHk9IjEyLjUiIHdpZHRoPSIxNS4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzRhOWVmZiIvPjxyZWN0IHg9IjIuNSIgeT0iMTUuMCIgd2lkdGg9IjEyLjUiIGhlaWdodD0iMi41IiBmaWxsPSIjNGE5ZWZmIi8+PHJlY3QgeD0iMTcuNSIgeT0iMTAuMCIgd2lkdGg9IjEwLjAiIGhlaWdodD0iMi41IiBmaWxsPSIjNGE5ZWZmIi8+PHJlY3QgeD0iMjAuMCIgeT0iMTAuMCIgd2lkdGg9IjcuNSIgaGVpZ2h0PSIyLjUiIGZpbGw9IiM0YTllZmYiLz48cmVjdCB4PSIyMi41IiB5PSIxMi41IiB3aWR0aD0iNy41IiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzRhOWVmZiIvPjxyZWN0IHg9IjI1LjAiIHk9IjE1LjAiIHdpZHRoPSI1LjAiIGhlaWdodD0iMi41IiBmaWxsPSIjNGE5ZWZmIi8+PHJlY3QgeD0iMi41IiB5PSI3LjUiIHdpZHRoPSIyLjUiIGhlaWdodD0iNy41IiBmaWxsPSIjNGE5ZWZmIi8+PHJlY3QgeD0iMC4wIiB5PSI1LjAiIHdpZHRoPSI1LjAiIGhlaWdodD0iMi41IiBmaWxsPSIjRjVDODlBIi8+PHJlY3QgeD0iNS4wIiB5PSIxNy41IiB3aWR0aD0iMTAuMCIgaGVpZ2h0PSIyLjUiIGZpbGw9IiMyZDZmYTgiLz48cmVjdCB4PSI1LjAiIHk9IjIwLjAiIHdpZHRoPSI3LjUiIGhlaWdodD0iNS4wIiBmaWxsPSIjMmQ2ZmE4Ii8+PHJlY3QgeD0iNS4wIiB5PSIyMi41IiB3aWR0aD0iMi41IiBoZWlnaHQ9IjEwLjAiIGZpbGw9IiMyZDZmYTgiLz48cmVjdCB4PSIxMC4wIiB5PSIyNS4wIiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzJkNmZhOCIvPjxyZWN0IHg9IjUuMCIgeT0iMzAuMCIgd2lkdGg9IjUuMCIgaGVpZ2h0PSIyLjUiIGZpbGw9IiMyMjIyMjIiLz48cmVjdCB4PSIxNS4wIiB5PSIyNy41IiB3aWR0aD0iNS4wIiBoZWlnaHQ9IjIuNSIgZmlsbD0iIzIyMjIyMiIvPjxyZWN0IHg9IjE3LjUiIHk9IjcuNSIgd2lkdGg9IjIuNSIgaGVpZ2h0PSIyLjUiIGZpbGw9IiNGRkQ3MDAiLz48cmVjdCB4PSIyMC4wIiB5PSI1LjAiIHdpZHRoPSIyLjUiIGhlaWdodD0iMi41IiBmaWxsPSIjRkZENzAwIi8+PHJlY3QgeD0iMjAuMCIgeT0iMTAuMCIgd2lkdGg9IjIuNSIgaGVpZ2h0PSIyLjUiIGZpbGw9IiNGRkQ3MDAiLz48cmVjdCB4PSIyMi41IiB5PSI3LjUiIHdpZHRoPSIyLjUiIGhlaWdodD0iMi41IiBmaWxsPSIjRkZENzAwIi8+PC9zdmc+',
   };
-
-  // Rushing pose: RB leaning forward, ball tucked, driving knees high
-  var IconRushing = function() {
-    return (
-      <svg width={IC_SIZE} height={IC_SIZE} viewBox="0 0 36 36" style={{display:'block',flexShrink:0}}>
-        {/* helmet angled forward */}
-        <ellipse cx="14" cy="7" rx="5" ry="4.8" fill={IC_HELM} stroke={IC_HLGT} strokeWidth="0.5" transform="rotate(-10 14 7)"/>
-        <circle cx="14" cy="6.5" r="2" fill={IC_SKIN}/>
-        <path d="M9.5 7 Q10.5 8.5 11 9" stroke={IC_HLGT} strokeWidth="0.8" fill="none"/>
-        {/* torso leaning aggressively forward */}
-        <path d="M15 11 Q20 13 22 17 Q20 21 17 23" stroke={IC_BODY} strokeWidth="2.8" fill="none" strokeLinecap="round"/>
-        {/* ball-carrying arm — tucked tight */}
-        <path d="M17 14 Q15 17 14 19" stroke={IC_BODY} strokeWidth="2.2" fill="none" strokeLinecap="round"/>
-        <ellipse cx="13" cy="20.5" rx="3" ry="2" fill="#8B4513" transform="rotate(-30 13 20)"/>
-        <path d="M11.5 19.5 L14.5 21" stroke={IC_HLGT} strokeWidth="0.6"/>
-        {/* free arm pumping */}
-        <path d="M19 13 Q24 11 26 9" stroke={IC_BODY} strokeWidth="2.2" fill="none" strokeLinecap="round"/>
-        <circle cx="26.5" cy="8.5" r="1.8" fill={IC_SKIN}/>
-        {/* legs — high-knee drive */}
-        <path d="M18 23 Q14 27 11 30" stroke={IC_BODY} strokeWidth="2.8" fill="none" strokeLinecap="round"/>
-        <path d="M11 30 Q10 32 12 33" stroke={IC_BODY} strokeWidth="2.2" fill="none" strokeLinecap="round"/>
-        {/* raised knee */}
-        <path d="M19 23 Q22 24 23 21" stroke={IC_BODY} strokeWidth="2.8" fill="none" strokeLinecap="round"/>
-        <path d="M23 21 Q27 23 27 26" stroke={IC_BODY} strokeWidth="2.2" fill="none" strokeLinecap="round"/>
-        <text x="19" y="19" fontSize="3.5" fill={IC_HLGT} textAnchor="middle" fontWeight="bold">RB</text>
-      </svg>
-    );
-  };
-
-  // Receiving pose: WR hands outstretched above head making a catch
-  var IconReceiving = function() {
-    return (
-      <svg width={IC_SIZE} height={IC_SIZE} viewBox="0 0 36 36" style={{display:'block',flexShrink:0}}>
-        {/* helmet — looking up */}
-        <ellipse cx="18" cy="6.5" rx="5" ry="4.8" fill={IC_HELM} stroke={IC_HLGT} strokeWidth="0.5"/>
-        <circle cx="18" cy="6" r="2" fill={IC_SKIN}/>
-        <path d="M13.5 7 Q14.5 8.5 15 9" stroke={IC_HLGT} strokeWidth="0.8" fill="none"/>
-        {/* torso upright reaching up */}
-        <path d="M18 11 Q18 16 18 21" stroke={IC_BODY} strokeWidth="2.8" fill="none" strokeLinecap="round"/>
-        {/* both arms extended HIGH and WIDE forming a catch triangle */}
-        <path d="M18 12 Q12 8 8 5" stroke={IC_BODY} strokeWidth="2.3" fill="none" strokeLinecap="round"/>
-        <path d="M18 12 Q24 8 28 5" stroke={IC_BODY} strokeWidth="2.3" fill="none" strokeLinecap="round"/>
-        {/* hands spread */}
-        <circle cx="7.5" cy="4.5" r="2" fill={IC_SKIN}/>
-        <circle cx="28.5" cy="4.5" r="2" fill={IC_SKIN}/>
-        {/* football at catch point between hands */}
-        <ellipse cx="18" cy="3.5" rx="3.5" ry="2" fill="#8B4513"/>
-        <path d="M15.5 3.5 L20.5 3.5" stroke={IC_HLGT} strokeWidth="0.7"/>
-        <path d="M18 1.5 L18 5.5" stroke={IC_HLGT} strokeWidth="0.7"/>
-        {/* legs planted, slight squat */}
-        <path d="M17 21 Q14 26 12 32" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
-        <path d="M19 21 Q22 26 24 32" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
-        <text x="18" y="19" fontSize="3.5" fill={IC_HLGT} textAnchor="middle" fontWeight="bold">WR</text>
-      </svg>
-    );
-  };
-
-  // Tackle pose: two players — defender wrapping up ball carrier
-  var IconTackle = function() {
-    return (
-      <svg width={IC_SIZE} height={IC_SIZE} viewBox="0 0 36 36" style={{display:'block',flexShrink:0}}>
-        {/* Ball carrier — dark jersey, being hit */}
-        <ellipse cx="24" cy="8" rx="4.2" ry="4" fill="#2d6fa8" stroke={IC_HLGT} strokeWidth="0.4" transform="rotate(15 24 8)"/>
-        <circle cx="24" cy="7.5" r="1.8" fill={IC_SKIN}/>
-        <path d="M23 12 Q26 15 25 20" stroke="#2d6fa8" strokeWidth="2.5" fill="none" strokeLinecap="round" transform="rotate(10 24 15)"/>
-        <path d="M23 13 Q28 12 30 10" stroke="#2d6fa8" strokeWidth="2" fill="none" strokeLinecap="round"/>
-        <path d="M25 20 Q27 25 26 30" stroke="#2d6fa8" strokeWidth="2.2" fill="none" strokeLinecap="round"/>
-        <path d="M25 20 Q22 24 23 29" stroke="#2d6fa8" strokeWidth="2.2" fill="none" strokeLinecap="round"/>
-        {/* Tackler — light blue jersey, driving in low */}
-        <ellipse cx="11" cy="13" rx="4.5" ry="4" fill={IC_HELM} stroke={IC_HLGT} strokeWidth="0.4" transform="rotate(-20 11 13)"/>
-        <circle cx="11.5" cy="12" r="1.8" fill={IC_SKIN}/>
-        {/* tackler body driving forward and low */}
-        <path d="M13 17 Q17 18 21 20" stroke={IC_BODY} strokeWidth="2.8" fill="none" strokeLinecap="round"/>
-        {/* arms wrapping around carrier */}
-        <path d="M15 17 Q20 22 23 22" stroke={IC_BODY} strokeWidth="2.3" fill="none" strokeLinecap="round"/>
-        <path d="M16 19 Q21 25 24 24" stroke={IC_BODY} strokeWidth="2.3" fill="none" strokeLinecap="round"/>
-        {/* tackler legs driving */}
-        <path d="M12 17 Q8 21 6 26" stroke={IC_BODY} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
-        <path d="M13 18 Q10 23 9 28" stroke={IC_BODY} strokeWidth="2.2" fill="none" strokeLinecap="round"/>
-        {/* impact lines */}
-        <path d="M18 14 L20 12" stroke="#ffd700" strokeWidth="1.2" strokeLinecap="round"/>
-        <path d="M19 16 L22 15" stroke="#ffd700" strokeWidth="1.2" strokeLinecap="round"/>
-        <path d="M17 18 L19 19.5" stroke="#ffd700" strokeWidth="1.0" strokeLinecap="round"/>
-      </svg>
-    );
+  var TecmoIcon = function(props) {
+    var uri = ICON_URIS[props.mode];
+    if (!uri) return null;
+    return React.createElement('img', {
+      src: uri, width: 36, height: 36,
+      style: {imageRendering:'pixelated', display:'block', flexShrink:0,
+              filter:'drop-shadow(0 2px 4px rgba(0,0,0,0.6))'}
+    });
   };
 
   var MODE_META = {
-    scores:    { badge:['SCORES',''],           label:'',                  IconComp: null },
-    passing:   { badge:['PASSING','LEADERS'],   label:'Passing Leaders',   IconComp: IconPassing },
-    rushing:   { badge:['RUSHING','LEADERS'],   label:'Rushing Leaders',   IconComp: IconRushing },
-    receiving: { badge:['RECEIVING','LEADERS'], label:'Receiving Leaders', IconComp: IconReceiving },
-    tackles:   { badge:['TACKLE','LEADERS'],    label:'Tackle Leaders',    IconComp: IconTackle },
+    scores:    { badge:['SCORES',''],           label:'',                  mode: null },
+    passing:   { badge:['PASSING','LEADERS'],   label:'Passing Leaders',   mode: 'passing' },
+    rushing:   { badge:['RUSHING','LEADERS'],   label:'Rushing Leaders',   mode: 'rushing' },
+    receiving: { badge:['RECEIVING','LEADERS'], label:'Receiving Leaders', mode: 'receiving' },
+    tackles:   { badge:['TACKLE','LEADERS'],    label:'Tackle Leaders',    mode: 'tackles' },
   };
 
   var [mode,        setMode]        = React.useState('scores');
@@ -7211,13 +7114,13 @@ function ScoresTicker({ gameStatsData, seasonData }) {
         {showIntro && (
           <div key={'intro-'+introKey} className="espn-ticker-intro">
             <div className="espn-ticker-intro-label">
-              {meta.IconComp && <meta.IconComp/>}
+              {meta.mode && <TecmoIcon mode={meta.mode}/>}
               <span style={{fontFamily:'Arial Black,Arial,sans-serif',fontSize:'0.88rem',
                 fontWeight:'900',color:'#ffffff',letterSpacing:'2.5px',textTransform:'uppercase',
-                textShadow:'0 0 24px rgba(90,180,224,0.7),0 0 8px rgba(255,255,255,0.3)'}}>
+                textShadow:'0 0 24px rgba(255,215,0,0.6),0 0 8px rgba(255,255,255,0.3)'}}>
                 {meta.label}
               </span>
-              {meta.IconComp && <meta.IconComp/>}
+              {meta.mode && <TecmoIcon mode={meta.mode}/>}
             </div>
           </div>
         )}
