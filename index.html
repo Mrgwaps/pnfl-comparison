@@ -255,6 +255,15 @@ function parseContractAsync(arrayBuffer) {
 // Ollama runs locally on the user's machine — zero API keys, zero cost, no CORS.
 // Ollama download: https://ollama.com  — then: ollama pull qwen2.5:1.5b
 
+// Clear stale model names from previous sessions
+(function(){
+  var s = sessionStorage.getItem('pnfl_ollama_model');
+  if (s && s !== 'minimax-m2.7:cloud') {
+    sessionStorage.removeItem('pnfl_ollama_model');
+    console.log('[pnflAI] cleared stale model:', s, '-> minimax-m2.7:cloud');
+  }
+})();
+
 window.pnflAI = {
   _ready:      false,
   _loading:    false,
@@ -3580,7 +3589,7 @@ function AIConnectModal({ onClose, onConnected }) {
                         placeholder="minimax-m2.7:cloud"/>
                   }
                   <datalist id="ollama-models">
-                    {['minimax-m2.7:cloud','minimax-m2.7:cloud','llama3.2:1b','llama3.2:3b','qwen2.5:1.5b','qwen2.5:7b','phi3.5','mistral','deepseek-r1:1.5b','gemma3:1b'].map(m=><option key={m} value={m}/>)}
+                    {['minimax-m2.7:cloud','llama3.2:1b','llama3.2:3b','qwen2.5:1.5b','qwen2.5:7b','phi3.5','mistral','deepseek-r1:1.5b','gemma3:1b'].map(m=><option key={m} value={m}/>)}
                   </datalist>
                 </div>
               </div>
