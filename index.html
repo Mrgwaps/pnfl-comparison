@@ -3005,10 +3005,16 @@ window.pnflDB = {
       db.playerSeason[lastName].name = name;
       db.playerSeason[lastName].team = team;
     }
+    // Rebuild knowledge base after parsing season stats
+    if(window.pnflDB.buildKnowledgeBase) window.pnflDB.buildKnowledgeBase();
   },
 
   _parseGameStats: function(text) {
     const db = window.pnflDB;
+    // Auto-strip HTML if needed (static file is served as HTML)
+    if (text && (text.includes('<html') || text.includes('<table') || text.includes('<td'))) {
+      text = window.pnflDB._textFromHtml(text);
+    }
     const lines = text.split('\n');
     db.games = [];
     let currentGame = null;
@@ -3051,6 +3057,8 @@ window.pnflDB = {
     // Player of the week
     const potwM = text.match(/Player of the week:\s+([A-Za-z .'-]+),\s+([A-Z]+),\s+([A-Za-z ]+)/);
     if(potwM) db.potw = {name:potwM[1],pos:potwM[2],team:potwM[3]};
+    // Rebuild knowledge base after parsing game stats
+    if(window.pnflDB.buildKnowledgeBase) window.pnflDB.buildKnowledgeBase();
   },
 
   // ── Query helpers ──
@@ -3088,6 +3096,79 @@ window.pnflDB = {
     return {name:playerName, lastName, season, game,
             hasGameStats:Object.keys(game).length>0,
             hasSeasonStats:Object.keys(season).length>0};
+  },
+
+  // Build a flat AI knowledge document from all loaded data
+  // Stored in window._pnflKnowledgeBase for direct injection into AI prompts
+  buildKnowledgeBase: function() {
+    const db = window.pnflDB;
+    const lines = [];
+    lines.push('=== PNFL 2048 SEASON KNOWLEDGE BASE (Week ' + (db.week||'?') + ') ===');
+    lines.push('This is a fantasy football simulation. All stats are fictional PNFL data.');
+    lines.push('');
+
+    // Game results and individual game stats
+    if (db.games && db.games.length > 0) {
+      lines.push('--- WEEK ' + (db.week||'?') + ' GAME RESULTS ---');
+      db.games.forEach(function(g) {
+        var winner = g.awayScore > g.homeScore ? g.away : g.home;
+        var loser  = g.awayScore > g.homeScore ? g.home : g.away;
+        var ws = Math.max(g.awayScore, g.homeScore);
+        var ls = Math.min(g.awayScore, g.homeScore);
+        lines.push(g.away + ' ' + g.awayScore + ' at ' + g.home + ' ' + g.homeScore +
+                   ' | Winner: ' + winner + ' (' + ws + '-' + ls + ')');
+        if (g.potg) lines.push('  Player of Game: ' + g.potg.name + ' (' + g.potg.pos + ', ' + g.potg.team + ')');
+      });
+      if (db.potw) lines.push('Player of the Week: ' + db.potw.name + ' (' + db.potw.pos + ', ' + db.potw.team + ')');
+      lines.push('');
+    }
+
+    // Individual game stats (Week N performance)
+    var gameKeys = Object.keys(db.playerGame || {});
+    if (gameKeys.length > 0) {
+      lines.push('--- WEEK ' + (db.week||'?') + ' INDIVIDUAL GAME STATS ---');
+      gameKeys.forEach(function(lastName) {
+        var p = db.playerGame[lastName];
+        if (!p) return;
+        var statParts = [];
+        if (p.pass) statParts.push('Passing: ' + p.pass.com + '/' + p.pass.att + ' ' + p.pass.yds + 'yds ' + (p.pass.td||0) + 'TD ' + (p.pass.int||0) + 'INT');
+        if (p.rush) statParts.push('Rushing: ' + p.rush.car + 'car ' + p.rush.yds + 'yds ' + (p.rush.td||0) + 'TD');
+        if (p.rec)  statParts.push('Receiving: ' + p.rec.rec + 'rec ' + p.rec.yds + 'yds ' + (p.rec.td||0) + 'TD');
+        if (p.def)  statParts.push('Defense: ' + p.def.tackles + 'tkl ' + p.def.sacks + 'sk');
+        if (statParts.length > 0) lines.push('  ' + lastName + ': ' + statParts.join(' | '));
+      });
+      lines.push('');
+    }
+
+    // Season cumulative stats
+    var seasonKeys = Object.keys(db.playerSeason || {});
+    if (seasonKeys.length > 0) {
+      lines.push('--- SEASON CUMULATIVE STATS (through Week ' + (db.week||'?') + ') ---');
+      seasonKeys.forEach(function(lastName) {
+        var p = db.playerSeason[lastName];
+        if (!p) return;
+        var statParts = [];
+        if (p.pass) statParts.push('Passing: ' + (p.pass.att||0) + 'att ' + (p.pass.yds||0) + 'yds ' + (p.pass.td||0) + 'TD ' + (p.pass.int||0) + 'INT rtg:' + (p.pass.rtg||0));
+        if (p.rush) statParts.push('Rushing: ' + (p.rush.att||0) + 'att ' + (p.rush.yds||0) + 'yds ' + (p.rush.td||0) + 'TD');
+        if (p.rec)  statParts.push('Receiving: ' + (p.rec.rec||0) + 'rec ' + (p.rec.yds||0) + 'yds ' + (p.rec.td||0) + 'TD');
+        if (p.def)  statParts.push('Defense: ' + (p.def.tackles||0) + 'tkl ' + (p.def.sacks||0) + 'sk');
+        if (statParts.length > 0) lines.push('  ' + lastName + ' (' + (p.team||'?') + '): ' + statParts.join(' | '));
+      });
+      lines.push('');
+    }
+
+    // Standings
+    if (db.standings && Object.keys(db.standings).length > 0) {
+      lines.push('--- STANDINGS ---');
+      Object.keys(db.standings).forEach(function(team) {
+        var s = db.standings[team];
+        lines.push('  ' + team + ': ' + (s.wins||0) + '-' + (s.losses||0) + ' PF:' + (s.pf||0) + ' PA:' + (s.pa||0));
+      });
+    }
+
+    window._pnflKnowledgeBase = lines.join('\n');
+    console.log('[pnflDB] Knowledge base built: ' + gameKeys.length + ' game stats, ' + seasonKeys.length + ' season stats');
+    return window._pnflKnowledgeBase;
   },
 
   buildPlayerPrompt: function(playerName, teamName) {
@@ -4517,14 +4598,20 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
     setAiResponse('');
     aiResponseRef.current = '';
     try {
-      const liveCtx = window.pnflDB?._ready ? window.pnflDB.buildPlayerPrompt(player.name, teamName) : '' || '';
+      // Use pre-built knowledge base if available, else build player prompt
+      var kb = window._pnflKnowledgeBase || '';
+      if (!kb && window.pnflDB && window.pnflDB.buildKnowledgeBase) kb = window.pnflDB.buildKnowledgeBase();
+      const liveCtx = kb || (window.pnflDB?._ready ? window.pnflDB.buildPlayerPrompt(player.name, teamName) : '');
 
-      const systemPrompt = `You are a PNFL analyst for a fantasy football simulation (2048 season). Rules:
-1. ONLY use the PNFL data in the context below — never use real NFL knowledge.
-2. For performance questions, prioritize the most recent WEEK game stats if available, then season totals.
-3. Reference the opponent from the week game entry when discussing recent performance.
-4. Be specific with numbers from the data. Answer in 4-6 sentences.
-5. If stats are missing, say so and use what is available.
+      const systemPrompt = `You are a PNFL analyst for a fantasy football simulation (2048 season).
+
+INSTRUCTIONS:
+- Search the KNOWLEDGE BASE below for the player named "${player.name}" (look for their last name in game stats and season stats sections)
+- For performance questions: find their WEEK GAME STATS entry first (most recent performance vs their opponent that week)
+- Then reference their SEASON CUMULATIVE STATS for context
+- State the opponent they faced that week using the GAME RESULTS section
+- Never use real NFL knowledge — only the data below
+- Be specific with numbers. Answer in 4-6 sentences.
 
 ${liveCtx}`;
 
