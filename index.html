@@ -1308,7 +1308,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '9.7'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '9.8'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -3011,53 +3011,145 @@ window.pnflDB = {
 
   _parseGameStats: function(text) {
     const db = window.pnflDB;
-    // Auto-strip HTML if needed (static file is served as HTML)
+    // Strip HTML
     if (text && (text.includes('<html') || text.includes('<table') || text.includes('<td'))) {
       text = window.pnflDB._textFromHtml(text);
     }
     const lines = text.split('\n');
     db.games = [];
-    let currentGame = null;
+    db.playerGame = {}; // reset
+    let curGame = null;
+    let awayTeam = '', homeTeam = '';
 
-    // Section parsers for individual game stats
-    const parsePlayerBlock = (lines, startIdx, type) => {
-      for(let i=startIdx; i<Math.min(startIdx+40,lines.length); i++) {
-        const l = lines[i].trim();
-        if(!l || l.match(/^(Passing|Rushing|Receiving|Defense|Intercepts|Punt|KO|Fumble|Safeties|Punts|Converts|Field|Back|---)/)) break;
-        const parts = l.split(/\s+/);
-        if(parts.length < 3 || !parts[0] || parts[0].length < 2) continue;
-        const lastName = parts[0];
-        if(!db.playerGame[lastName]) db.playerGame[lastName] = {};
-        if(type==='pass' && parts.length>=7) db.playerGame[lastName].pass={att:+parts[1],com:+parts[2],yds:+parts[3],td:+parts[6]||0,int:+parts[7]||0};
-        if(type==='rush' && parts.length>=5) db.playerGame[lastName].rush={car:+parts[1],yds:+parts[2],avg:+parts[3]||0,td:+parts[5]||0};
-        if(type==='rec'  && parts.length>=5) db.playerGame[lastName].rec={rec:+parts[1],yds:+parts[2],avg:+parts[3]||0,td:+parts[5]||0};
-        if(type==='def'  && parts.length>=3) db.playerGame[lastName].def={tackles:+parts[1],sacks:+parts[2]};
-      }
-    };
-
-    for(let i=0; i<lines.length; i++) {
-      const l = lines[i].trim();
-      // Game header: "Miami at Buffalo\n  20    3"
-      const gameM = l.match(/^([A-Za-z ]+?)\s+at\s+([A-Za-z ]+?)$/);
-      if(gameM) {
-        const scoreLine = lines[i+1] ? lines[i+1].trim() : '';
-        const scores = scoreLine.match(/(\d+)\s+(\d+)/);
-        const potgLine = lines.slice(i+2,i+5).join(' ');
-        const potgM = potgLine.match(/Player of the game:\s+([A-Za-z .'-]+),\s+([A-Z]+),\s+([A-Za-z ]+)/);
-        currentGame = {away:gameM[1].trim(), home:gameM[2].trim(), awayScore:scores?+scores[1]:0, homeScore:scores?+scores[2]:0, potg:potgM?{name:potgM[1],pos:potgM[2],team:potgM[3]}:null};
-        db.games.push(currentGame);
-      }
-      // Stat block headers
-      if(l==='Passing')   parsePlayerBlock(lines, i+1, 'pass');
-      if(l==='Rushing')   parsePlayerBlock(lines, i+1, 'rush');
-      if(l==='Receiving') parsePlayerBlock(lines, i+1, 'rec');
-      if(l==='Defense')   parsePlayerBlock(lines, i+1, 'def');
+    // Parse a single-line stat row: "Smith  4  74  18.5  51  0"
+    // Returns {lastName, nums[]} or null
+    function parseRow(s) {
+      s = s.trim();
+      if (!s) return null;
+      const m = s.match(/^([A-Za-z][A-Za-z '.-]{0,20}?)\s{2,}([\d. /-]+)$/);
+      if (!m) return null;
+      const lastName = m[1].trim().split(/\s+/).pop(); // use last word as key
+      const nums = m[2].trim().split(/\s+/).filter(Boolean);
+      return {lastName, fullName: m[1].trim(), nums};
     }
 
-    // Player of the week
-    const potwM = text.match(/Player of the week:\s+([A-Za-z .'-]+),\s+([A-Z]+),\s+([A-Za-z ]+)/);
-    if(potwM) db.potw = {name:potwM[1],pos:potwM[2],team:potwM[3]};
-    // Rebuild knowledge base after parsing game stats
+    // Store player stat with team+opponent context
+    function storePlayer(lastName, fullName, team, opponent, type, nums) {
+      // Use "lastName_TEAM" as key to avoid collisions
+      const key = lastName + '_' + team.substring(0,3).toUpperCase();
+      if (!db.playerGame[key]) db.playerGame[key] = {lastName, fullName, team, opponent};
+      const p = db.playerGame[key];
+      // Also store by plain lastName for fuzzy lookup (last writer wins if same name different team)
+      if (!db.playerGame[lastName]) db.playerGame[lastName] = p;
+      else db.playerGame[lastName + '_2'] = p; // keep both
+
+      if (type==='pass' && nums.length>=7) {
+        p.pass = {att:+nums[0], com:+nums[1], yds:+nums[2], pct:+nums[3], lg:+nums[4], td:+nums[5], int:+nums[6]};
+      } else if (type==='rush' && nums.length>=5) {
+        p.rush = {car:+nums[0], yds:+nums[1], avg:+nums[2], lg:+nums[3], td:+nums[4]};
+      } else if (type==='rec' && nums.length>=5) {
+        p.rec = {rec:+nums[0], yds:+nums[1], avg:+nums[2], lg:+nums[3], td:+nums[4]};
+      } else if (type==='def' && nums.length>=2) {
+        p.def = {tackles:+nums[0], sacks:+nums[1]};
+      }
+    }
+
+    // Parse a block of rows for one team, given starting line index
+    // Returns rows parsed
+    function parseBlock(startIdx, team, opponent, type) {
+      for (let i=startIdx; i<Math.min(startIdx+30, lines.length); i++) {
+        const l = lines[i];
+        const trimmed = l.trim();
+        if (!trimmed) continue;
+        // Stop at next section header or separator
+        if (trimmed.match(/^(Passing|Rushing|Receiving|Defense|Intercepts|Punt|KO|Fumble|Safeties|Punts|Converts|Field|Back|---|CHI|SEA|BUF|NE |MIA|JAX|PIT|DEN|LVR|LAR|CIN|ATL|NYG|PHI|WAS|GB |MIN|SF )/)) break;
+        if (trimmed.match(/^[A-Z][a-z]+ Total/)) continue; // skip team totals
+        if (trimmed.match(/^None\./)) continue;
+        const row = parseRow(trimmed);
+        if (row) storePlayer(row.lastName, row.fullName, team, opponent, type, row.nums);
+      }
+    }
+
+    // Main parse loop — detect game headers and stat sections
+    let i = 0;
+    let section = null; // 'pass','rush','rec','def'
+    let sideLeft = true; // true=parsing left(away) column
+
+    while (i < lines.length) {
+      const l = lines[i].trim();
+
+      // Game header: "Miami at Las Vegas" or "Chicago at Seattle"
+      const gameM = l.match(/^([A-Za-z ]+?)\s+at\s+([A-Za-z ]+?)$/);
+      if (gameM && !l.includes('efficiency') && !l.includes('downs')) {
+        awayTeam = gameM[1].trim();
+        homeTeam = gameM[2].trim();
+        // Score on next non-empty line
+        let scoreStr = '';
+        for (let j=i+1; j<Math.min(i+5,lines.length); j++) {
+          scoreStr = lines[j].trim();
+          if (scoreStr.match(/\d/)) break;
+        }
+        const scores = scoreStr.match(/(\d+)\s+(\d+)/);
+        curGame = {
+          away: awayTeam, home: homeTeam,
+          awayScore: scores ? +scores[1] : 0,
+          homeScore: scores ? +scores[2] : 0,
+          potg: null
+        };
+        db.games.push(curGame);
+        section = null;
+        i++; continue;
+      }
+
+      // Player of game
+      const potgM = l.match(/Player of the game:\s+([A-Za-z .'-]+),\s+([A-Z]+),\s+([A-Za-z ]+)/);
+      if (potgM && curGame) { curGame.potg = {name:potgM[1],pos:potgM[2],team:potgM[3]}; }
+
+      // Player of week
+      const potwM = l.match(/Player of the week:\s+([A-Za-z .'-]+),\s+([A-Z]+),\s+([A-Za-z ]+)/);
+      if (potwM) db.potw = {name:potwM[1],pos:potwM[2],team:potwM[3]};
+
+      // Section header with two-column layout:
+      // "Passing   Att Com Yds  % Lg TD IN    Passing   Att Com Yds..."
+      // The header appears once for both teams. After it, rows are one player per line.
+      // Each row has either one player (one team) or two separated by big whitespace.
+
+      if (l.match(/^Passing\s+Att/))  { section='pass'; i++; continue; }
+      if (l.match(/^Rushing\s+Car/))  { section='rush'; i++; continue; }
+      if (l.match(/^Receiving\s+Rec/)) { section='rec'; i++; continue; }
+      if (l.match(/^Defense\s+Tac/))  { section='def';  i++; continue; }
+      if (l.match(/^Intercepts\s+Int/)) { section='def'; i++; continue; }
+      // Reset section on blank-ish separators between sections
+      if (l.match(/^(Punt Returns|KO Returns|Fumbles|Safeties|Punts|Converts|Field Goals)/)) { section=null; }
+
+      // Parse stat rows when in a section
+      if (section && curGame && l.length > 3) {
+        // The two-column format: each line may have AWAY stats on left, HOME stats on right
+        // They're separated by a large gap (multiple spaces between the two teams' data)
+        // Strategy: split on 4+ spaces to find potential two-column entries
+        const cols = l.split(/\s{4,}/);
+
+        if (cols.length >= 2) {
+          // Left column = away team, right column = home team
+          const leftRow = parseRow(cols[0]);
+          const rightRow = parseRow(cols[cols.length-1]);
+          if (leftRow) storePlayer(leftRow.lastName, leftRow.fullName, awayTeam, homeTeam, section, leftRow.nums);
+          if (rightRow) storePlayer(rightRow.lastName, rightRow.fullName, homeTeam, awayTeam, section, rightRow.nums);
+        } else {
+          // Single column — could be either team; try to match to known team
+          const row = parseRow(l);
+          if (row) {
+            // If line starts near left margin it's away, if indented it might be home
+            // Default: assign to away team for now (most parseable single-col lines are away)
+            storePlayer(row.lastName, row.fullName, awayTeam, homeTeam, section, row.nums);
+          }
+        }
+      }
+
+      i++;
+    }
+
+    // Rebuild knowledge base
     if(window.pnflDB.buildKnowledgeBase) window.pnflDB.buildKnowledgeBase();
   },
 
@@ -3123,19 +3215,50 @@ window.pnflDB = {
       lines.push('');
     }
 
-    // Individual game stats (Week N performance)
-    var gameKeys = Object.keys(db.playerGame || {});
+    // Individual game stats — group by game for clarity
+    if (db.games && db.games.length > 0) {
+      lines.push('--- WEEK ' + (db.week||'?') + ' INDIVIDUAL GAME STATS BY MATCHUP ---');
+      db.games.forEach(function(g) {
+        lines.push('');
+        lines.push('GAME: ' + g.away + ' ' + g.awayScore + ' at ' + g.home + ' ' + g.homeScore);
+        // Find all players from this game
+        Object.keys(db.playerGame).forEach(function(key) {
+          var p = db.playerGame[key];
+          if (!p || (!p.team)) return;
+          // Skip duplicate keys (lastName_2 style)
+          if (key.endsWith('_2') || key.length > 20) return;
+          var inGame = (p.team===g.away && p.opponent===g.home) ||
+                       (p.team===g.home && p.opponent===g.away);
+          if (!inGame) return;
+          var statParts = [];
+          if (p.pass) statParts.push('Passing: '+p.pass.com+'/'+p.pass.att+' '+p.pass.yds+'yds '+p.pass.pct+'% '+(p.pass.td||0)+'TD '+(p.pass.int||0)+'INT');
+          if (p.rush) statParts.push('Rushing: '+p.rush.car+'car '+p.rush.yds+'yds avg:'+p.rush.avg+' '+(p.rush.td||0)+'TD');
+          if (p.rec)  statParts.push('Receiving: '+p.rec.rec+'rec '+p.rec.yds+'yds avg:'+p.rec.avg+' '+(p.rec.td||0)+'TD');
+          if (p.def)  statParts.push('Defense: '+p.def.tackles+'tkl '+(p.def.sacks||0)+'sk');
+          if (statParts.length > 0) {
+            lines.push('  ['+p.team+' vs '+p.opponent+'] '+(p.fullName||key)+': '+statParts.join(' | '));
+          }
+        });
+      });
+      lines.push('');
+    }
+
+    // Also list ALL game stats by player for direct lookup
+    var gameKeys = Object.keys(db.playerGame || {}).filter(function(k){ return !k.endsWith('_2'); });
     if (gameKeys.length > 0) {
-      lines.push('--- WEEK ' + (db.week||'?') + ' INDIVIDUAL GAME STATS ---');
-      gameKeys.forEach(function(lastName) {
-        var p = db.playerGame[lastName];
+      lines.push('--- WEEK ' + (db.week||'?') + ' ALL PLAYER GAME STATS (for direct lookup) ---');
+      gameKeys.forEach(function(key) {
+        var p = db.playerGame[key];
         if (!p) return;
         var statParts = [];
-        if (p.pass) statParts.push('Passing: ' + p.pass.com + '/' + p.pass.att + ' ' + p.pass.yds + 'yds ' + (p.pass.td||0) + 'TD ' + (p.pass.int||0) + 'INT');
-        if (p.rush) statParts.push('Rushing: ' + p.rush.car + 'car ' + p.rush.yds + 'yds ' + (p.rush.td||0) + 'TD');
-        if (p.rec)  statParts.push('Receiving: ' + p.rec.rec + 'rec ' + p.rec.yds + 'yds ' + (p.rec.td||0) + 'TD');
-        if (p.def)  statParts.push('Defense: ' + p.def.tackles + 'tkl ' + p.def.sacks + 'sk');
-        if (statParts.length > 0) lines.push('  ' + lastName + ': ' + statParts.join(' | '));
+        if (p.pass) statParts.push('Passing: '+p.pass.com+'/'+p.pass.att+' '+p.pass.yds+'yds '+(p.pass.td||0)+'TD '+(p.pass.int||0)+'INT');
+        if (p.rush) statParts.push('Rushing: '+p.rush.car+'car '+p.rush.yds+'yds avg:'+p.rush.avg+' '+(p.rush.td||0)+'TD');
+        if (p.rec)  statParts.push('Receiving: '+p.rec.rec+'rec '+p.rec.yds+'yds '+(p.rec.td||0)+'TD');
+        if (p.def)  statParts.push('Defense: '+p.def.tackles+'tkl '+(p.def.sacks||0)+'sk');
+        if (statParts.length > 0) {
+          var ctx = p.team ? ' ('+p.team+' vs '+p.opponent+')' : '';
+          lines.push('  '+(p.fullName||key)+ctx+': '+statParts.join(' | '));
+        }
       });
       lines.push('');
     }
@@ -3153,6 +3276,24 @@ window.pnflDB = {
         if (p.rec)  statParts.push('Receiving: ' + (p.rec.rec||0) + 'rec ' + (p.rec.yds||0) + 'yds ' + (p.rec.td||0) + 'TD');
         if (p.def)  statParts.push('Defense: ' + (p.def.tackles||0) + 'tkl ' + (p.def.sacks||0) + 'sk');
         if (statParts.length > 0) lines.push('  ' + lastName + ' (' + (p.team||'?') + '): ' + statParts.join(' | '));
+      });
+      lines.push('');
+    }
+
+    // Team sacks allowed/taken per game (for OL/DL queries)
+    if (db.games && db.games.length > 0) {
+      lines.push('--- WEEK ' + (db.week||'?') + ' TEAM SACK SUMMARY ---');
+      db.games.forEach(function(g) {
+        // Count sacks from defense sections
+        var awaySacks=0, homeSacks=0;
+        Object.keys(db.playerGame).forEach(function(key) {
+          var p = db.playerGame[key];
+          if (!p || !p.def || !p.team) return;
+          if (p.team===g.away && p.opponent===g.home) awaySacks += (p.def.sacks||0);
+          if (p.team===g.home && p.opponent===g.away) homeSacks += (p.def.sacks||0);
+        });
+        lines.push('  '+g.away+' defense: '+awaySacks+' sacks recorded | '+g.home+' defense: '+homeSacks+' sacks recorded');
+        lines.push('  ('+g.away+' OL allowed '+homeSacks+' sacks | '+g.home+' OL allowed '+awaySacks+' sacks)');
       });
       lines.push('');
     }
@@ -4582,6 +4723,63 @@ function PosAttrRanges() {
   );
 }
 
+// ── AI Response Formatter — styled output with team logos ──
+var FormatAIResponse = function(props) {
+  var text = props.text; var playerTeam = props.playerTeam;
+  if (!text) return null;
+  var TEAM_COLORS = {'Chicago':'#4a9eff','Seattle':'#69be28','Buffalo':'#00338D',
+    'Miami':'#008E97','New England':'#C60C30','Jacksonville':'#006778',
+    'Pittsburgh':'#FFB612','Denver':'#FB4F14','Las Vegas':'#A5ACAF',
+    'Los Angeles':'#003594','Cincinnati':'#FB4F14','Atlanta':'#A71930',
+    'New York':'#0B2265','Philadelphia':'#004C54','Washington':'#5A1414',
+    'Green Bay':'#203731','Minnesota':'#4F2683','San Francisco':'#AA0000'};
+  var TEAMS = ['New England','San Francisco','Los Angeles','Las Vegas','New York',
+               'Green Bay','Chicago','Seattle','Buffalo','Miami','Jacksonville',
+               'Pittsburgh','Denver','Cincinnati','Atlanta','Philadelphia',
+               'Washington','Minnesota'];
+
+  var injectLogos = function(line) {
+    var out = [line];
+    TEAMS.forEach(function(team) {
+      var next = [];
+      out.forEach(function(part) {
+        if (typeof part !== 'string') { next.push(part); return; }
+        var idx = part.indexOf(team);
+        if (idx < 0) { next.push(part); return; }
+        if (part.slice(0,idx)) next.push(part.slice(0,idx));
+        next.push(React.createElement('span',{
+          key:team+idx,
+          style:{display:'inline-flex',alignItems:'center',gap:'2px',verticalAlign:'middle'}
+        }, React.createElement(TeamLogo,{teamName:team,size:'tiny'}),
+           React.createElement('span',{style:{color:TEAM_COLORS[team]||'#a0d8ff',fontWeight:'700'}},team)));
+        if (part.slice(idx+team.length)) next.push(part.slice(idx+team.length));
+      });
+      out = next;
+    });
+    return out;
+  };
+
+  var lines = text.split('\n').filter(function(l){return l.trim();});
+  return React.createElement('div',{style:{fontFamily:'Roboto Condensed',fontSize:'0.82rem',lineHeight:1.6,color:'#c8e0ff'}},
+    lines.map(function(line,i) {
+      var t = line.trim();
+      var isStat    = /\d+\s*(car|yds|att|com|rec|tkl|sk|TD|INT|avg)/i.test(t);
+      var isHeading = /^(Week \d|Season|Game|Passing|Rushing|Receiving|Defense|Note|Overall)/i.test(t) || t.endsWith(':');
+      var isNote    = t.startsWith('Note') || t.startsWith('\u26a0');
+      if (isStat) return React.createElement('div',{key:i,style:{
+        background:'rgba(0,200,100,0.07)',border:'1px solid rgba(74,255,138,0.12)',
+        borderRadius:'4px',padding:'3px 8px',margin:'2px 0',fontSize:'0.79rem',
+        display:'flex',flexWrap:'wrap',alignItems:'center',gap:'3px'}}, injectLogos(t));
+      if (isHeading) return React.createElement('div',{key:i,style:{
+        color:'#ffd700',fontFamily:'Orbitron',fontSize:'0.67rem',fontWeight:'900',
+        letterSpacing:'0.8px',marginTop:'6px',marginBottom:'2px',
+        textTransform:'uppercase',borderBottom:'1px solid rgba(255,215,0,0.12)',paddingBottom:'2px'}}, injectLogos(t));
+      if (isNote) return React.createElement('div',{key:i,style:{color:'#ff9966',fontStyle:'italic',fontSize:'0.75rem',marginTop:'4px'}}, t);
+      return React.createElement('div',{key:i,style:{marginBottom:'2px'}}, injectLogos(t));
+    })
+  );
+};
+
 // ── Player Lightbox ──
 function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contractData, onClose }) {
   if (!player || !position) return null;
@@ -4999,7 +5197,7 @@ ${aiQuery}`;
                   </div>
                   {(aiResponse || aiLoading) && (
                     <div style={{padding:'8px 10px',background:'rgba(40,20,60,0.4)',borderRadius:'6px',border:'1px solid rgba(160,100,255,0.15)',fontSize:'0.78rem',color:'#c0b0e0',fontFamily:'Roboto Condensed',lineHeight:1.5,whiteSpace:'pre-wrap',wordBreak:'break-word',maxHeight:'200px',overflowY:'auto'}}>
-                      {aiResponse || <span style={{color:'#7050a0',fontStyle:'italic'}}>Thinking…</span>}
+                      {aiResponse ? <FormatAIResponse text={aiResponse} playerTeam={teamName}/> : <span style={{color:'#7050a0',fontStyle:'italic'}}>Thinking…</span>}
                       {aiLoading && aiResponse && <span style={{display:'inline-block',width:'8px',height:'13px',background:'#c090ff',marginLeft:'2px',verticalAlign:'middle',opacity:1,animation:'blink 0.7s step-end infinite'}}/>}
                     </div>
                   )}
