@@ -1308,7 +1308,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '10.3'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '10.4'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -3077,6 +3077,14 @@ window.pnflDB = {
     const lines = text.split('\n');
     if (lines.length < 50) {
       console.warn('[pnflDB] _parseGameStats: skipped — too few lines:', lines.length);
+      return;
+    }
+    // Validate this is actually a PNFL gamestats page before wiping existing data
+    var _hasStatHdr = lines.some(function(l){
+      return /^Passing\s+Att|^Rushing\s+Car|^Receiving\s+Rec/i.test(l.trim());
+    });
+    if (!_hasStatHdr) {
+      console.warn('[pnflDB] _parseGameStats: skipped — no stat headers found (not a gamestats page)');
       return;
     }
 
@@ -4850,45 +4858,45 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
     aiResponseRef.current = '';
     try {
       // Use pre-built knowledge base if available, else build player prompt
-      // ── Ensure game/season data is in pnflDB without destroying existing data ──
-      var db = window.pnflDB;
-      var _gameEmpty   = !db || !db.playerGame || Object.keys(db.playerGame).length === 0;
-      var _seasonEmpty = !db || !db.playerSeason || Object.keys(db.playerSeason).length === 0;
+      // ── Use existing pnflDB data — never re-parse if data already loaded ─────
+      var db = window.pnflDB || {};
+      var _pgCount = db.playerGame ? Object.keys(db.playerGame).length : 0;
+      var _psCount = db.playerSeason ? Object.keys(db.playerSeason).length : 0;
 
-      // If either dataset is missing, try a live fetch from pnfl.biz via proxy
-      if ((_gameEmpty || _seasonEmpty) && db) {
+      // Only fetch if genuinely empty (no data loaded at all yet)
+      if ((_pgCount === 0 || _psCount === 0) && db.season && db.week) {
         try {
-          var _season = db.season || '2048';
-          var _week   = db.week   || '4';
-          var _yr     = _season.toString().slice(-2);
-          var _gsUrl  = 'https://pnfl.biz/GameStats/'+_season+'/'+_yr+'W'+_week+'-PNFL_game%20stats.htm';
-          var _ssUrl  = 'https://pnfl.biz/pnflstats/PNFL_season.htm';
-          var _PROXIES = [
-            function(u){ return 'https://corsproxy.io/?'+encodeURIComponent(u); },
-            function(u){ return 'https://api.allorigins.win/raw?url='+encodeURIComponent(u); },
-          ];
-          var _proxyFetch = async function(url) {
-            for (var pi=0; pi<_PROXIES.length; pi++) {
+          var _yr    = (db.season||'2048').toString().slice(-2);
+          var _gsUrl = 'https://pnfl.biz/GameStats/'+(db.season||'2048')+'/'+_yr+'W'+(db.week||'4')+'-PNFL_game%20stats.htm';
+          var _ssUrl = 'https://pnfl.biz/pnflstats/PNFL_season.htm';
+          var _tryFetch = async function(url) {
+            var proxies = [
+              'https://corsproxy.io/?'+encodeURIComponent(url),
+              'https://api.allorigins.win/raw?url='+encodeURIComponent(url),
+            ];
+            for (var _pi=0; _pi<proxies.length; _pi++) {
               try {
-                var _r = await fetch(_PROXIES[pi](url), {signal: AbortSignal.timeout(12000)});
-                if (_r.ok) { var _t = await _r.text(); if (_t && _t.length > 200) return _t; }
-              } catch(_pe) {}
+                var _res = await fetch(proxies[_pi], {signal: AbortSignal.timeout(10000)});
+                if (_res.ok) { var _txt = await _res.text(); if (_txt.length > 500) return _txt; }
+              } catch(_) {}
             }
-            return '';
+            return null;
           };
-          if (_gameEmpty) {
-            var _gh = await _proxyFetch(_gsUrl);
-            if (_gh && _gh.length > 200) db._parseGameStats(_gh);
+          if (_pgCount === 0) {
+            var _gt = await _tryFetch(_gsUrl);
+            if (_gt) db._parseGameStats(_gt);  // guard inside will validate
           }
-          if (_seasonEmpty) {
-            var _sh = await _proxyFetch(_ssUrl);
-            if (_sh && _sh.length > 200) db._parseSeason(_sh);
+          if (_psCount === 0) {
+            var _st = await _tryFetch(_ssUrl);
+            if (_st) db._parseSeason(_st);
           }
-        } catch(_fe) {}
+        } catch(_fetchErr) {
+          console.warn('[AI] fetch fallback failed:', _fetchErr.message);
+        }
       }
 
-      // Build KB from whatever is now in pnflDB (don't destroy existing data)
-      var kb = (db && db.buildKnowledgeBase)
+      // Build KB — always use current state of db.playerGame/playerSeason
+      var kb = (db.buildKnowledgeBase)
                  ? db.buildKnowledgeBase()
                  : (window._pnflKnowledgeBase || '');
 
