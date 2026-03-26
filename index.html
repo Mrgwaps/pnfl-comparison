@@ -352,7 +352,7 @@ window.pnflAI = {
         body:    JSON.stringify({
           model:   ai._model,
           stream:  true,
-          options: { num_predict: maxTokens || 600, temperature: 0.45, num_ctx: 8192 },
+          options: { num_predict: maxTokens || 600, temperature: 0.2, num_ctx: 8192, stop: ['<|endoftext|>'] },
           messages:[
             { role:'system', content: systemPrompt },
             { role:'user',   content: userMessage  },
@@ -3183,8 +3183,15 @@ window.pnflDB = {
   buildKnowledgeBase: function() {
     const db = window.pnflDB;
     const lines = [];
-    lines.push('=== PNFL 2048 SEASON KNOWLEDGE BASE (Week ' + (db.week||'?') + ') ===');
-    lines.push('This is a fantasy football simulation. All stats are fictional PNFL data.');
+    var weekNum = db.week || '?';
+    lines.push('╔══════════════════════════════════════════════════════════╗');
+    lines.push('║  PNFL 2048 SEASON — WEEK ' + weekNum + ' KNOWLEDGE BASE                ║');
+    lines.push('║  SOURCE: pnfl.biz/GameStats/2048/48W'+weekNum+'-PNFL_game%20stats.htm  ║');
+    lines.push('║  SOURCE: pnfl.biz/pnflstats/PNFL_season.htm              ║');
+    lines.push('║  WARNING: This is NOT NFL data. Do NOT use NFL training.  ║');
+    lines.push('║  ALL answers must come from the sections below ONLY.      ║');
+    lines.push('╚══════════════════════════════════════════════════════════╝');
+    lines.push('CURRENT PNFL WEEK: ' + weekNum + ' — Only reference Week ' + weekNum + ' game stats for recent performance.');
     lines.push('');
 
     // Game results and individual game stats
@@ -4806,30 +4813,45 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
       const liveCtx = kb || (window.pnflDB?._ready ? window.pnflDB.buildPlayerPrompt(player.name, teamName) : '');
 
       const lastName = player.name.split(' ').pop();
-      const systemPrompt = `You are a PNFL analyst for a fantasy football simulation (2048 season).
+      const systemPrompt = `You are a PNFL analyst. PNFL is a private fantasy football simulation league — Season 2048. Player names may match real NFL players but ALL stats, results, and performance data are PNFL-only and completely separate from the NFL.
 
-THE PLAYER YOU ARE ANALYZING:
-Name: ${player.name} | Last Name: ${lastName} | Team: ${teamName} | Position: ${position}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ABSOLUTE RULES — NEVER VIOLATE THESE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. ZERO NFL DATA: You have NO knowledge of NFL stats, NFL weeks, NFL seasons, or NFL performance. Do not reference ANY real-world NFL game, stat, week number, or season from your training. If a player name matches an NFL player, that is irrelevant — their PNFL stats are the ONLY truth.
+2. KNOWLEDGE BASE ONLY: Every number you state MUST come directly from the PNFL KNOWLEDGE BASE below. If a stat is not in the knowledge base, say "not found in PNFL data" — never guess or substitute.
+3. NO HALLUCINATION: You cannot reference "Week 11", "Week 16", or any week other than what appears in the knowledge base header. The knowledge base shows the current PNFL week — use ONLY that week number.
+4. CURRENT WEEK = MOST RECENT GAME: "Recent performance" always means the game stats in "WEEK [N] INDIVIDUAL GAME STATS" — the most recent PNFL game played. Never invent a different week.
 
-HOW TO FIND THEIR STATS IN THE KNOWLEDGE BASE:
-1. GAME RESULTS: Find the game where ${teamName} played (e.g. "${teamName} XX at OPPONENT YY")
-2. WEEK GAME STATS: Search for "${lastName}" in the section labeled "[${teamName} vs OPPONENT]"
-   - Their stats are listed as: ${lastName}: Rushing/Receiving/Passing/Defense stats
-3. SEASON STATS: Search for "${lastName} (${teamName.substring(0,3).toUpperCase()})" in the SEASON section
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HOW TO FIND THIS PLAYER IN THE KNOWLEDGE BASE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Player: ${player.name} | Last Name: ${lastName} | Team: ${teamName}
 
+STEP 1 — Find the game: Look for "${teamName}" in "WEEK N GAME RESULTS" to identify their opponent and score.
+STEP 2 — Find game stats: Search "WEEK N ALL PLAYER GAME STATS" for "${lastName} (${teamName} vs OPPONENT)". This has exact carries, yards, receptions, TDs from that PNFL game.
+STEP 3 — Find season stats: Search "SEASON CUMULATIVE STATS" for "${lastName} (${teamName.substring(0,3).toUpperCase()})" for season totals.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RESPONSE FORMAT:
-- Start with: "In Week [N] vs [Opponent], [Player Name] ([Team])..."
-- State exact numbers from the game stats (carries, yards, avg, TD, receptions etc.)
-- Then add season context if available
-- For OL players: mention team sacks allowed that game
-- For DL players: mention tackles and sacks from the defense stats
-- Never say data is unavailable if you can see their last name in the knowledge base
-- Answer in 4-6 sentences max. Be specific and confident.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Open with: "In PNFL Week [N] vs [Opponent], [Player Name] ([Team])..."
+- Quote the exact PNFL stats from the knowledge base — carries, yards, avg, TDs, receptions, tackles, etc.
+- Follow with season cumulative context if found.
+- For OL: reference the team sack summary for that game.
+- For DL: state individual tackles and sacks from the game stats section.
+- Keep response to 4-6 sentences. Be direct and specific.
+- If the player's last name does not appear in the knowledge base at all, say: "No PNFL game data found for ${lastName} in the current week's stats."
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PNFL KNOWLEDGE BASE — THIS IS YOUR ONLY SOURCE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${liveCtx}`;
 
       const contract = lookupContract(contractData, player.name, player.num);
-      const userMsg = `=== PLAYER CARD DATA ===
+      const userMsg = `=== STRICT INSTRUCTION: Use ONLY the PNFL Knowledge Base above. Do NOT use NFL data. Current PNFL Week: ${window.pnflDB&&window.pnflDB.week||'?'} ===
+
+=== PLAYER CARD DATA ===
 Name: ${player.name} | Team: ${teamName} | Position: ${POSITION_DISPLAY[position]||position} | Status: ${player.status}
 Attributes (SP/AC/AG/ST/HA/EN/IN/DI): ${player.attrs.join('/')} actual | ${pattrs.join('/')} potential
 Development: ${actualTotal}/${playerPotentialTotal} total (${pctOfMax}% developed) | ${maxedCount}/8 attrs maxed
