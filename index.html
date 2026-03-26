@@ -1308,7 +1308,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '10.1'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '10.2'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -4798,18 +4798,68 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
     aiResponseRef.current = '';
     try {
       // Use pre-built knowledge base if available, else build player prompt
-      // Ensure knowledge base is loaded — fetch static files if needed
-      var kb = window._pnflKnowledgeBase || '';
-      if (!kb && window.StaticAssets) {
-        try {
-          var seasonHtml = await window.StaticAssets.text('season.htm').catch(function(){return '';});
-          var gameHtml   = await window.StaticAssets.text('gamestats.htm').catch(function(){return '';});
-          if (seasonHtml && window.pnflDB) window.pnflDB._parseSeason(seasonHtml);
-          if (gameHtml   && window.pnflDB) window.pnflDB._parseGameStats(gameHtml);
-          if (window.pnflDB && window.pnflDB.buildKnowledgeBase) kb = window.pnflDB.buildKnowledgeBase();
-        } catch(e2) {}
-      }
-      if (!kb && window.pnflDB && window.pnflDB.buildKnowledgeBase) kb = window.pnflDB.buildKnowledgeBase();
+      // Always ensure latest data is parsed before answering
+      try {
+        if (window.StaticAssets && window.pnflDB) {
+          var _sHtml = await window.StaticAssets.text('season.htm').catch(function(){return '';});
+          var _gHtml = await window.StaticAssets.text('gamestats.htm').catch(function(){return '';});
+          if (_sHtml) window.pnflDB._parseSeason(_sHtml);
+          if (_gHtml) window.pnflDB._parseGameStats(_gHtml);
+        }
+      } catch(_e) {}
+      var kb = (window.pnflDB && window.pnflDB.buildKnowledgeBase)
+                 ? window.pnflDB.buildKnowledgeBase()
+                 : (window._pnflKnowledgeBase || '');
+
+      // ── Extract this specific player's stats directly for injection ──────────
+      var _playerStats = (function() {
+        var db = window.pnflDB;
+        if (!db) return '';
+        var ln = lastName;
+        // Try team-qualified key first, then plain lastName
+        var teamCode = teamName.substring(0,3).toUpperCase();
+        var pg = db.playerGame && (db.playerGame[ln+'_'+teamCode] || db.playerGame[ln]);
+        var ps = db.playerSeason && (db.playerSeason[ln+'_'+teamCode] || db.playerSeason[ln]);
+        var lines = [];
+
+        if (pg) {
+          var opp = pg.opponent || 'opponent';
+          var week = db.week || '?';
+          lines.push('=== ' + player.name + ' PNFL WEEK ' + week + ' GAME STATS (vs ' + opp + ') ===');
+          if (pg.pass) lines.push('Passing: ' + pg.pass.com + '/' + pg.pass.att + ' completions, ' +
+            pg.pass.yds + ' yards, ' + (pg.pass.pct||0) + '% completion, ' +
+            (pg.pass.td||0) + ' TD, ' + (pg.pass.int||0) + ' INT, ' +
+            'long: ' + (pg.pass.lg||0) + ' yards');
+          if (pg.rush) lines.push('Rushing: ' + pg.rush.car + ' carries, ' +
+            pg.rush.yds + ' yards, avg ' + pg.rush.avg + ' yds/carry, ' +
+            (pg.rush.td||0) + ' TD, long: ' + (pg.rush.lg||0));
+          if (pg.rec)  lines.push('Receiving: ' + pg.rec.rec + ' receptions, ' +
+            pg.rec.yds + ' yards, avg ' + pg.rec.avg + ' yds/rec, ' +
+            (pg.rec.td||0) + ' TD, long: ' + (pg.rec.lg||0));
+          if (pg.def)  lines.push('Defense: ' + pg.def.tackles + ' tackles, ' +
+            (pg.def.sacks||0) + ' sacks');
+          lines.push('Team: ' + (pg.team||teamName) + ' | Opponent: ' + opp);
+        } else {
+          lines.push('=== ' + player.name + ' WEEK GAME STATS: Not found in parsed game data ===');
+          lines.push('(Check that gamestats.htm was downloaded via Fetch Rosters button)');
+        }
+
+        if (ps) {
+          var week = db.week || '?';
+          lines.push('=== ' + player.name + ' PNFL SEASON STATS (through Week ' + week + ') ===');
+          if (ps.pass) lines.push('Season Passing: ' + (ps.pass.att||0) + ' att, ' +
+            (ps.pass.yds||0) + ' yds, ' + (ps.pass.td||0) + ' TD, ' +
+            (ps.pass.int||0) + ' INT, rating ' + (ps.pass.rtg||0));
+          if (ps.rush) lines.push('Season Rushing: ' + (ps.rush.att||0) + ' att, ' +
+            (ps.rush.yds||0) + ' yds, ' + (ps.rush.td||0) + ' TD');
+          if (ps.rec)  lines.push('Season Receiving: ' + (ps.rec.rec||0) + ' rec, ' +
+            (ps.rec.yds||0) + ' yds, ' + (ps.rec.td||0) + ' TD');
+          if (ps.def)  lines.push('Season Defense: ' + (ps.def.tackles||0) + ' tackles, ' +
+            (ps.def.sacks||0) + ' sacks');
+        }
+        return lines.join('\n');
+      })();
+
       const liveCtx = kb || (window.pnflDB?._ready ? window.pnflDB.buildPlayerPrompt(player.name, teamName) : '');
 
       const lastName = player.name.split(' ').pop();
@@ -4844,14 +4894,23 @@ RESPONSE FORMAT:
 - If the player's last name does not appear in the knowledge base at all, say: "No PNFL game data found for ${lastName} in the current week's stats."
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PNFL KNOWLEDGE BASE — THIS IS YOUR ONLY SOURCE:
+THIS PLAYER'S STATS — ALREADY EXTRACTED FOR YOU:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${_playerStats}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FULL PNFL KNOWLEDGE BASE (for additional context):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${liveCtx}`;
 
       const contract = lookupContract(contractData, player.name, player.num);
-      const userMsg = `=== STRICT INSTRUCTION: Use ONLY the PNFL Knowledge Base above. Do NOT use NFL data. Current PNFL Week: ${window.pnflDB&&window.pnflDB.week||'?'} ===
+      const userMsg = `=== PNFL WEEK ${window.pnflDB&&window.pnflDB.week||'?'} — ALL STATS BELOW ARE PNFL SIMULATION DATA ONLY ===
+=== DO NOT USE NFL TRAINING DATA — ONLY USE THE STATS PROVIDED ABOVE AND BELOW ===
 
-=== PLAYER CARD DATA ===
+=== ${player.name.toUpperCase()} (${teamName}) — PNFL GAME & SEASON DATA ===
+${_playerStats}
+
+=== PLAYER ATTRIBUTES ===
 Name: ${player.name} | Team: ${teamName} | Position: ${POSITION_DISPLAY[position]||position} | Status: ${player.status}
 Attributes (SP/AC/AG/ST/HA/EN/IN/DI): ${player.attrs.join('/')} actual | ${pattrs.join('/')} potential
 Development: ${actualTotal}/${playerPotentialTotal} total (${pctOfMax}% developed) | ${maxedCount}/8 attrs maxed
