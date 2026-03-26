@@ -1308,7 +1308,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '10.2'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '10.3'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -2962,9 +2962,16 @@ window.pnflDB = {
     } catch(e) { return html; }
   },
   _parseSeason: function(text) {
-    // Auto-strip HTML if needed
-    if (text && text.includes('<html') || (text && text.includes('<table'))) {
+    if (!text || text.trim().length < 100) {
+      console.warn('[pnflDB] _parseSeason: skipped — input empty or too short');
+      return;
+    }
+    if (text.includes('<html') || text.includes('<table')) {
       text = window.pnflDB._textFromHtml(text);
+    }
+    if (!text || text.trim().length < 100) {
+      console.warn('[pnflDB] _parseSeason: skipped after strip');
+      return;
     }
     const db = window.pnflDB;
     const lines = text.split('\n');
@@ -3054,10 +3061,26 @@ window.pnflDB = {
 
   _parseGameStats: function(text) {
     const db = window.pnflDB;
-    if (text && (text.includes('<html') || text.includes('<table') || text.includes('<td'))) {
+    // Guard: never wipe existing data on empty or tiny input
+    if (!text || text.trim().length < 100) {
+      console.warn('[pnflDB] _parseGameStats: skipped — input empty or too short');
+      return;
+    }
+    if (text.includes('<html') || text.includes('<table') || text.includes('<td')) {
       text = window.pnflDB._textFromHtml(text);
     }
+    // Second guard after HTML strip
+    if (!text || text.trim().length < 100) {
+      console.warn('[pnflDB] _parseGameStats: skipped — stripped content too short');
+      return;
+    }
     const lines = text.split('\n');
+    // Only reset if we have enough lines to expect real data (a valid gamestats page
+    // has 200+ lines of content)
+    if (lines.length < 50) {
+      console.warn('[pnflDB] _parseGameStats: skipped — too few lines:', lines.length);
+      return;
+    }
     db.games = [];
     db.playerGame = {};
     let awayTeam='', homeTeam='', section=null;
@@ -4807,17 +4830,46 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
     aiResponseRef.current = '';
     try {
       // Use pre-built knowledge base if available, else build player prompt
-      // Always ensure latest data is parsed before answering
-      try {
-        if (window.StaticAssets && window.pnflDB) {
-          var _sHtml = await window.StaticAssets.text('season.htm').catch(function(){return '';});
-          var _gHtml = await window.StaticAssets.text('gamestats.htm').catch(function(){return '';});
-          if (_sHtml) window.pnflDB._parseSeason(_sHtml);
-          if (_gHtml) window.pnflDB._parseGameStats(_gHtml);
-        }
-      } catch(_e) {}
-      var kb = (window.pnflDB && window.pnflDB.buildKnowledgeBase)
-                 ? window.pnflDB.buildKnowledgeBase()
+      // ── Ensure game/season data is in pnflDB without destroying existing data ──
+      var db = window.pnflDB;
+      var _gameEmpty   = !db || !db.playerGame || Object.keys(db.playerGame).length === 0;
+      var _seasonEmpty = !db || !db.playerSeason || Object.keys(db.playerSeason).length === 0;
+
+      // If either dataset is missing, try a live fetch from pnfl.biz via proxy
+      if ((_gameEmpty || _seasonEmpty) && db) {
+        try {
+          var _season = db.season || '2048';
+          var _week   = db.week   || '4';
+          var _yr     = _season.toString().slice(-2);
+          var _gsUrl  = 'https://pnfl.biz/GameStats/'+_season+'/'+_yr+'W'+_week+'-PNFL_game%20stats.htm';
+          var _ssUrl  = 'https://pnfl.biz/pnflstats/PNFL_season.htm';
+          var _PROXIES = [
+            function(u){ return 'https://corsproxy.io/?'+encodeURIComponent(u); },
+            function(u){ return 'https://api.allorigins.win/raw?url='+encodeURIComponent(u); },
+          ];
+          var _proxyFetch = async function(url) {
+            for (var pi=0; pi<_PROXIES.length; pi++) {
+              try {
+                var _r = await fetch(_PROXIES[pi](url), {signal: AbortSignal.timeout(12000)});
+                if (_r.ok) { var _t = await _r.text(); if (_t && _t.length > 200) return _t; }
+              } catch(_pe) {}
+            }
+            return '';
+          };
+          if (_gameEmpty) {
+            var _gh = await _proxyFetch(_gsUrl);
+            if (_gh && _gh.length > 200) db._parseGameStats(_gh);
+          }
+          if (_seasonEmpty) {
+            var _sh = await _proxyFetch(_ssUrl);
+            if (_sh && _sh.length > 200) db._parseSeason(_sh);
+          }
+        } catch(_fe) {}
+      }
+
+      // Build KB from whatever is now in pnflDB (don't destroy existing data)
+      var kb = (db && db.buildKnowledgeBase)
+                 ? db.buildKnowledgeBase()
                  : (window._pnflKnowledgeBase || '');
 
       // ── Extract this player's stats: team+position+name aware lookup ─────────
