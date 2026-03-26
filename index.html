@@ -2840,8 +2840,15 @@ window.pnflDB = {
       if(!raw) return false;
       const d = JSON.parse(raw);
       Object.assign(window.pnflDB, d);
+      // Restore playerGame if it was cached
+      if (d.playerGame) window.pnflDB.playerGame = d.playerGame;
       window.pnflDB._ready = !!(d.season && Object.keys(d.standings||{}).length > 0);
-      if(window.pnflDB._ready) console.log('[pnflDB] loaded from cache — week '+d.week);
+      if(window.pnflDB._ready) {
+        var pgCount = Object.keys(window.pnflDB.playerGame||{}).length;
+        console.log('[pnflDB] loaded from cache — week:'+d.week+' playerGame:'+pgCount+' entries');
+        // Rebuild knowledge base from cached data
+        if (window.pnflDB.buildKnowledgeBase) window.pnflDB.buildKnowledgeBase();
+      }
       return window.pnflDB._ready;
     } catch(e){ return false; }
   },
@@ -8257,7 +8264,13 @@ function App() {
         // Feed ONLY game stats into pnflDB.playerGame — separate from season stats
         if (window.pnflDB) {
           window.pnflDB._parseGameStats(gameStatsHtml);
-          console.log('[pnflDB] playerGame entries:', Object.keys(window.pnflDB.playerGame).length);
+          var _pgCount = Object.keys(window.pnflDB.playerGame||{}).length;
+          console.log('[pnflDB] playerGame entries after parse:', _pgCount);
+          // Rebuild KB immediately so AI has fresh data
+          if (window.pnflDB.buildKnowledgeBase) {
+            window._pnflKnowledgeBase = window.pnflDB.buildKnowledgeBase();
+            console.log('[pnflDB] KB rebuilt with', _pgCount, 'game stats');
+          }
         }
         console.log('[PNFL] GameStats loaded:', parsed.games.length, 'games');
       } catch(e) { console.warn('GameStats parse failed:', e.message); }
