@@ -3034,10 +3034,19 @@ window.pnflDB = {
       const nums = m[3].trim().split(/\s+/).filter(Boolean);
       const stat = {name, team};
       indSection.cols.forEach((c,i) => { if(nums[i]!==undefined) stat[c] = isNaN(+nums[i].replace(',','')) ? nums[i] : +nums[i].replace(',',''); });
+      // Store by plain lastName (backward compat) AND by lastName_TEAMCODE (disambiguation)
+      var teamCode = team.substring(0,3).toUpperCase();
+      var qualKey  = lastName + '_' + teamCode;
       if(!db.playerSeason[lastName]) db.playerSeason[lastName] = {};
+      if(!db.playerSeason[qualKey])  db.playerSeason[qualKey]  = {};
       db.playerSeason[lastName][indSection.key] = stat;
       db.playerSeason[lastName].name = name;
       db.playerSeason[lastName].team = team;
+      db.playerSeason[lastName].lastName = lastName;
+      db.playerSeason[qualKey][indSection.key] = stat;
+      db.playerSeason[qualKey].name = name;
+      db.playerSeason[qualKey].team = team;
+      db.playerSeason[qualKey].lastName = lastName;
     }
     // Rebuild knowledge base after parsing season stats
     if(window.pnflDB.buildKnowledgeBase) window.pnflDB.buildKnowledgeBase();
@@ -4811,50 +4820,129 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
                  ? window.pnflDB.buildKnowledgeBase()
                  : (window._pnflKnowledgeBase || '');
 
-      // ── Extract this specific player's stats directly for injection ──────────
+      // ── Extract this player's stats: team+position+name aware lookup ─────────
       var _playerStats = (function() {
         var db = window.pnflDB;
         if (!db) return '';
         var ln = lastName;
-        // Try team-qualified key first, then plain lastName
-        var teamCode = teamName.substring(0,3).toUpperCase();
-        var pg = db.playerGame && (db.playerGame[ln+'_'+teamCode] || db.playerGame[ln]);
-        var ps = db.playerSeason && (db.playerSeason[ln+'_'+teamCode] || db.playerSeason[ln]);
-        var lines = [];
+        var week = db.week || '?';
 
-        if (pg) {
-          var opp = pg.opponent || 'opponent';
-          var week = db.week || '?';
-          lines.push('=== ' + player.name + ' PNFL WEEK ' + week + ' GAME STATS (vs ' + opp + ') ===');
-          if (pg.pass) lines.push('Passing: ' + pg.pass.com + '/' + pg.pass.att + ' completions, ' +
-            pg.pass.yds + ' yards, ' + (pg.pass.pct||0) + '% completion, ' +
-            (pg.pass.td||0) + ' TD, ' + (pg.pass.int||0) + ' INT, ' +
-            'long: ' + (pg.pass.lg||0) + ' yards');
-          if (pg.rush) lines.push('Rushing: ' + pg.rush.car + ' carries, ' +
-            pg.rush.yds + ' yards, avg ' + pg.rush.avg + ' yds/carry, ' +
-            (pg.rush.td||0) + ' TD, long: ' + (pg.rush.lg||0));
-          if (pg.rec)  lines.push('Receiving: ' + pg.rec.rec + ' receptions, ' +
-            pg.rec.yds + ' yards, avg ' + pg.rec.avg + ' yds/rec, ' +
-            (pg.rec.td||0) + ' TD, long: ' + (pg.rec.lg||0));
-          if (pg.def)  lines.push('Defense: ' + pg.def.tackles + ' tackles, ' +
-            (pg.def.sacks||0) + ' sacks');
-          lines.push('Team: ' + (pg.team||teamName) + ' | Opponent: ' + opp);
-        } else {
-          lines.push('=== ' + player.name + ' WEEK GAME STATS: Not found in parsed game data ===');
-          lines.push('(Check that gamestats.htm was downloaded via Fetch Rosters button)');
+        // Position → stat type map for validation
+        var POS_STAT = {QB:'pass', HB:'rush', RB:'rush', FB:'rush', WR:'rec',
+                        TE:'rec', FL:'rec', SE:'rec', CB:'def', LB:'def',
+                        DL:'def', DE:'def', DT:'def', NT:'def', SS:'def', FS:'def', S:'def'};
+        var posCode = position ? position.toUpperCase() : '';
+        var expectedStat = POS_STAT[posCode] || null;
+
+        // ── Smart playerGame lookup ──────────────────────────────────────────
+        // Strategy: scan ALL keys, find one matching lastName whose team matches
+        // teamName (full or partial), and optionally whose stat type matches position
+        function findGameEntry() {
+          if (!db.playerGame) return null;
+          var allKeys = Object.keys(db.playerGame);
+          var candidates = [];
+
+          allKeys.forEach(function(key) {
+            var p = db.playerGame[key];
+            if (!p || !p.lastName) return;
+            // Must match lastName (case-insensitive)
+            if (!p || !p.lastName) return;
+            if (p.lastName.toLowerCase() !== ln.toLowerCase()) return;
+            // Score by team match quality
+            var teamMatch = 0;
+            if (p.team && teamName) {
+              var pt = p.team.toLowerCase();
+              var tn = teamName.toLowerCase();
+              if (pt === tn) teamMatch = 3;                          // exact
+              else if (pt.includes(tn) || tn.includes(pt)) teamMatch = 2; // contains
+              else if (pt.substring(0,3) === tn.substring(0,3)) teamMatch = 1; // prefix
+            }
+            // Score by position/stat match
+            var statMatch = 0;
+            if (expectedStat) {
+              if (p[expectedStat]) statMatch = 2;
+            } else {
+              statMatch = 1; // no position info, accept any
+            }
+            if (teamMatch > 0 || statMatch > 0) {
+              candidates.push({p, teamMatch, statMatch, score: teamMatch*10 + statMatch});
+            }
+          });
+
+          if (candidates.length === 0) return null;
+          // Sort by score descending, pick best match
+          candidates.sort(function(a,b){ return b.score - a.score; });
+          return candidates[0].p;
         }
 
+        // ── Smart playerSeason lookup ────────────────────────────────────────
+        function findSeasonEntry() {
+          if (!db.playerSeason) return null;
+          var allKeys = Object.keys(db.playerSeason);
+          var candidates = [];
+          allKeys.forEach(function(key) {
+            var p = db.playerSeason[key];
+            if (!p) return;
+            // lastName match
+            var storedLn = key.split('_')[0];
+            if (storedLn.toLowerCase() !== ln.toLowerCase()) return;
+            var teamMatch = 0;
+            if (p.team && teamName) {
+              var pt = p.team.toLowerCase();
+              var tn = teamName.toLowerCase();
+              if (pt === tn) teamMatch = 3;
+              else if (pt.includes(tn) || tn.includes(pt)) teamMatch = 2;
+              else if (pt.substring(0,3) === tn.substring(0,3)) teamMatch = 1;
+            }
+            var statMatch = expectedStat && p[expectedStat] ? 2 : 1;
+            candidates.push({p, score: teamMatch*10 + statMatch});
+          });
+          if (candidates.length === 0) return null;
+          candidates.sort(function(a,b){ return b.score - a.score; });
+          return candidates[0].p;
+        }
+
+        var pg = findGameEntry();
+        var ps = findSeasonEntry();
+        var lines = [];
+
+        // ── Game stats output ────────────────────────────────────────────────
+        lines.push('╔══════════════════════════════════════════════════════╗');
+        lines.push('║ PNFL WEEK ' + week + ' — ' + player.name + ' (' + teamName + ') ║');
+        lines.push('╚══════════════════════════════════════════════════════╝');
+
+        if (pg) {
+          var opp = pg.opponent || 'unknown opponent';
+          var pgTeam = pg.team || teamName;
+          lines.push('MOST RECENT GAME: ' + pgTeam + ' vs ' + opp + ' (PNFL Week ' + week + ')');
+          if (pg.pass) lines.push('  Passing:   ' + pg.pass.com + '/' + pg.pass.att +
+            ' comp (' + (pg.pass.pct||0) + '%), ' + pg.pass.yds + ' yds, ' +
+            (pg.pass.td||0) + ' TD, ' + (pg.pass.int||0) + ' INT, long ' + (pg.pass.lg||0));
+          if (pg.rush) lines.push('  Rushing:   ' + pg.rush.car + ' car, ' +
+            pg.rush.yds + ' yds, avg ' + pg.rush.avg + ', ' + (pg.rush.td||0) + ' TD');
+          if (pg.rec)  lines.push('  Receiving: ' + pg.rec.rec + ' rec, ' +
+            pg.rec.yds + ' yds, avg ' + pg.rec.avg + ', ' + (pg.rec.td||0) + ' TD');
+          if (pg.def)  lines.push('  Defense:   ' + pg.def.tackles + ' tackles, ' +
+            (pg.def.sacks||0) + ' sacks');
+          if (!pg.pass && !pg.rush && !pg.rec && !pg.def)
+            lines.push('  (stats parsed but empty — verify gamestats.htm download)');
+        } else {
+          lines.push('GAME STATS: Not found for ' + ln + ' on ' + teamName);
+          lines.push('  → Ensure gamestats.htm is downloaded (Fetch Rosters button)');
+          lines.push('  → Check player team matches gamestats team name exactly');
+        }
+
+        // ── Season stats output ──────────────────────────────────────────────
         if (ps) {
-          var week = db.week || '?';
-          lines.push('=== ' + player.name + ' PNFL SEASON STATS (through Week ' + week + ') ===');
-          if (ps.pass) lines.push('Season Passing: ' + (ps.pass.att||0) + ' att, ' +
+          lines.push('SEASON TOTALS (through Week ' + week + '):');
+          if (ps.pass) lines.push('  Passing:   ' + (ps.pass.att||0) + ' att, ' +
             (ps.pass.yds||0) + ' yds, ' + (ps.pass.td||0) + ' TD, ' +
             (ps.pass.int||0) + ' INT, rating ' + (ps.pass.rtg||0));
-          if (ps.rush) lines.push('Season Rushing: ' + (ps.rush.att||0) + ' att, ' +
+          if (ps.rush) lines.push('  Rushing:   ' + (ps.rush.att||0) + ' att, ' +
             (ps.rush.yds||0) + ' yds, ' + (ps.rush.td||0) + ' TD');
-          if (ps.rec)  lines.push('Season Receiving: ' + (ps.rec.rec||0) + ' rec, ' +
+          if (ps.rec)  lines.push('  Receiving: ' + (ps.rec.rec||0) + ' rec, ' +
             (ps.rec.yds||0) + ' yds, ' + (ps.rec.td||0) + ' TD');
-          if (ps.def)  lines.push('Season Defense: ' + (ps.def.tackles||0) + ' tackles, ' +
+          if (ps.def)  lines.push('  Defense:   ' + (ps.def.tackles||0) + ' tackles, ' +
             (ps.def.sacks||0) + ' sacks');
         }
         return lines.join('\n');
@@ -4863,45 +4951,23 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
       const liveCtx = kb || (window.pnflDB?._ready ? window.pnflDB.buildPlayerPrompt(player.name, teamName) : '');
 
       const lastName = player.name.split(' ').pop();
-      const systemPrompt = `You are a PNFL analyst. PNFL is a private fantasy football simulation league — Season 2048. Player names may match real NFL players but ALL stats, results, and performance data are PNFL-only and completely separate from the NFL.
+      const systemPrompt = `You are a PNFL stats assistant for a private fantasy football simulation league (Season 2048). Player names match real NFL players but this is NOT the NFL — it is a fictional simulation with its own games, stats, and results.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ABSOLUTE RULES — NEVER VIOLATE THESE:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. ZERO NFL DATA: You have NO knowledge of NFL stats, NFL weeks, NFL seasons, or NFL performance. Do not reference ANY real-world NFL game, stat, week number, or season from your training. If a player name matches an NFL player, that is irrelevant — their PNFL stats are the ONLY truth.
-2. KNOWLEDGE BASE ONLY: Every number you state MUST come directly from the PNFL KNOWLEDGE BASE below. If a stat is not in the knowledge base, say "not found in PNFL data" — never guess or substitute.
-3. NO HALLUCINATION: You cannot reference "Week 11", "Week 16", or any week other than what appears in the knowledge base header. The knowledge base shows the current PNFL week — use ONLY that week number.
-4. CURRENT WEEK = MOST RECENT GAME: "Recent performance" always means the game stats in "WEEK [N] INDIVIDUAL GAME STATS" — the most recent PNFL game played. Never invent a different week.
+CRITICAL: You have been given this player's PNFL stats already extracted from the game file. Use them. Do not reference NFL stats, NFL weeks, or NFL seasons under any circumstances.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-HOW TO FIND THIS PLAYER IN THE KNOWLEDGE BASE:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Player: ${player.name} | Last Name: ${lastName} | Team: ${teamName}
-
-STEP 1 — Find the game: Look for "${teamName}" in "WEEK N GAME RESULTS" to identify their opponent and score.
-STEP 2 — Find game stats: Search "WEEK N ALL PLAYER GAME STATS" for "${lastName} (${teamName} vs OPPONENT)". This has exact carries, yards, receptions, TDs from that PNFL game.
-STEP 3 — Find season stats: Search "SEASON CUMULATIVE STATS" for "${lastName} (${teamName.substring(0,3).toUpperCase()})" for season totals.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-RESPONSE FORMAT:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Open with: "In PNFL Week [N] vs [Opponent], [Player Name] ([Team])..."
-- Quote the exact PNFL stats from the knowledge base — carries, yards, avg, TDs, receptions, tackles, etc.
-- Follow with season cumulative context if found.
-- For OL: reference the team sack summary for that game.
-- For DL: state individual tackles and sacks from the game stats section.
-- Keep response to 4-6 sentences. Be direct and specific.
-- If the player's last name does not appear in the knowledge base at all, say: "No PNFL game data found for ${lastName} in the current week's stats."
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-THIS PLAYER'S STATS — ALREADY EXTRACTED FOR YOU:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━ PNFL DATA FOR ${player.name} (${teamName}) — Week ${window.pnflDB&&window.pnflDB.week||'?'} ━━━
 ${_playerStats}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FULL PNFL KNOWLEDGE BASE (for additional context):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${liveCtx}`;
+INSTRUCTIONS:
+1. The stats above are the ONLY source of truth. Use the exact numbers shown.
+2. If the stats section says "Not found" — say the game data wasn't loaded, suggest pressing Fetch Rosters.
+3. NEVER use NFL knowledge. Never say "Week 11", "Week 16", or any week other than what's shown above.
+4. Answer in 3-5 sentences. Be direct, reference exact PNFL numbers.
+5. Start with: "In PNFL Week [N] vs [Opponent], [Name] ([Team])..."
+
+ADDITIONAL CONTEXT (full league data):
+${liveCtx}`;;
 
       const contract = lookupContract(contractData, player.name, player.num);
       const userMsg = `=== PNFL WEEK ${window.pnflDB&&window.pnflDB.week||'?'} — ALL STATS BELOW ARE PNFL SIMULATION DATA ONLY ===
