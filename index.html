@@ -1308,7 +1308,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '10.4'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '10.5'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -2826,11 +2826,17 @@ window.pnflDB = {
 
     db._parseStandings(db._raw.standings||'');
     db._parseSeason(db._raw.season||'');
-    db._parseGameStats(db._raw.gameStats||'');
+    // Only parse gameStats if the response is valid — never wipe existing playerGame with bad data
+    var _rawGs = db._raw.gameStats || '';
+    if (_rawGs.length > 500 && (_rawGs.includes('Passing') || _rawGs.includes('Rushing'))) {
+      db._parseGameStats(_rawGs);
+    } else if (_rawGs.length > 0) {
+      console.warn('[pnflDB] fetch: gameStats response invalid — keeping existing playerGame (' + Object.keys(db.playerGame||{}).length + ' entries)');
+    }
     db._ready = true;
     console.log('[pnflDB] ready — standings:'+Object.keys(db.standings).length+' players:'+Object.keys(db.playerSeason).length+' gameStats:'+Object.keys(db.playerGame).length);
     // Persist to sessionStorage as compact JSON
-    try { sessionStorage.setItem('pnfl_db', JSON.stringify({season:db.season,week:db.week,standings:db.standings,powerRank:db.powerRank,schedule:db.schedule,teamStats:db.teamStats,playerSeason:db.playerSeason,games:db.games})); } catch(e){}
+    try { sessionStorage.setItem('pnfl_db', JSON.stringify({season:db.season,week:db.week,gameDate:db.gameDate||'',standings:db.standings,powerRank:db.powerRank,schedule:db.schedule,teamStats:db.teamStats,playerSeason:db.playerSeason,playerGame:db.playerGame||{},games:db.games})); } catch(e){}
   },
 
   // ── Load cached version from sessionStorage ──
@@ -7906,8 +7912,12 @@ function App() {
               if (parsed && parsed.games && parsed.games.length > 0) {
                 saveGameStatsCache(parsed);
                 setGameStatsData(parsed);
-                if (window.pnflDB) window.pnflDB._parseGameStats(html);
-                console.log('[App] Static game stats: ' + parsed.games.length + ' games (Wk' + manifest.week + ')');
+                if (window.pnflDB) {
+                  window.pnflDB._parseGameStats(html);
+                  var _pgN = Object.keys(window.pnflDB.playerGame||{}).length;
+                  if (window.pnflDB.buildKnowledgeBase) window.pnflDB.buildKnowledgeBase();
+                  console.log('[App] Static game stats: ' + parsed.games.length + ' games, ' + _pgN + ' players parsed (Wk' + manifest.week + ')');
+                }
               }
             }).catch(function(){})
           );
