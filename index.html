@@ -551,6 +551,178 @@ window.pnflAI = {
   },
 };
 window.pnflAI.restore();
+
+
+// ── pnflAI_extractPlayerStats: parse gamestats/season text for a specific player ──
+// Called from Babel askAI handler — keeps complex regex out of Babel compiler
+window.pnflAI_extractPlayerStats = function(playerName, teamName, positionCode, rawGameText, rawSeasonText, dbWeek, dbSeason, dbGameDate) {
+  var lastName  = playerName.split(' ').pop();
+  var week      = dbWeek    || '?';
+  var season    = dbSeason  || '2048';
+  var gameDate  = dbGameDate || '';
+  var lines     = [];
+
+  // DIAGNOSTIC — always visible in console
+  console.log('[PNFL AI] extractPlayerStats called:', playerName, teamName, positionCode);
+  console.log('[PNFL AI] rawGameText length:', (rawGameText||'').length, 'week:', week);
+  console.log('[PNFL AI] window._pnflRawGameStats length:', (window._pnflRawGameStats||'').length);
+
+  lines.push('PNFL '+season+' — WEEK '+week+(gameDate?' | '+gameDate:'')+' | '+playerName+' ('+teamName+', '+positionCode+')');
+
+  // ── Parse gamestats.htm text directly ──────────────────────────────────────
+  var gText = rawGameText || window._pnflRawGameStats || '';
+  console.log('[PNFL AI] gText length after fallback:', gText.length);
+  if (gText.indexOf('<') >= 0) {
+    // Extract <pre> content first (pnfl.biz uses <pre> for fixed-width stats)
+    var preMatch = gText.match(/<pre[^>]*>([\s\S]+?)<\/pre>/i);
+    if (preMatch) {
+      gText = preMatch[1];
+    } else {
+      gText = gText.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+    }
+  }
+
+  var gameFound    = false;
+  var playerOpp    = '';
+  var playerGameSt = {};
+
+  if (gText && gText.length > 100) {
+    var gLines       = gText.split('
+');
+    var inGame       = false;
+    var awayT = '', homeT = '';
+    var curSection   = '';
+    var tnL          = teamName.toLowerCase();
+    var lnL          = lastName.toLowerCase();
+    var ENTRY_RE     = /([A-Z][A-Za-z']{1,20}(?:\s[A-Z][A-Za-z']{1,15})?)\s+((?:-?[\d.]+\s*){2,})/g;
+    var SKIP_ENTRY   = /^(Att|Com|Yds|Rec|Car|Avg|Pct|Lg|TD|IN|Total|Defense|Passing|Rushing|Receiving|None|Individual|Statistics)$/i;
+    var COLS         = {pass:7, rush:5, rec:5, def:2};
+
+    for (var gi = 0; gi < gLines.length; gi++) {
+      var raw = gLines[gi];
+      var gl  = raw.trim();
+      if (!gl) continue;
+
+      // Game header: "Buffalo at Denver" or "Chicago at Seattle"
+      var gmM = gl.match(/^([A-Za-z ]+?)\s+at\s+([A-Za-z ]+?)$/);
+      if (gmM && gl.indexOf('Avg') < 0 && gl.indexOf('efficiency') < 0) {
+        awayT = gmM[1].trim();
+        homeT = gmM[2].trim();
+        var atL = awayT.toLowerCase(), htL = homeT.toLowerCase();
+        inGame  = atL.indexOf(tnL) >= 0 || tnL.indexOf(atL) >= 0 ||
+                  htL.indexOf(tnL) >= 0 || tnL.indexOf(htL) >= 0;
+        if (inGame) playerOpp = (atL.indexOf(tnL) >= 0 || tnL.indexOf(atL) >= 0) ? homeT : awayT;
+        curSection = '';
+        continue;
+      }
+      if (!inGame) continue;
+
+      // Section headers
+      if (/^Passing\s+Att/i.test(gl))   { curSection = 'pass'; continue; }
+      if (/^Rushing\s+Car/i.test(gl))    { curSection = 'rush'; continue; }
+      if (/^Receiving\s+Rec/i.test(gl))  { curSection = 'rec';  continue; }
+      if (/^Defense\s+Tac/i.test(gl))    { curSection = 'def';  continue; }
+      if (/^(Intercepts|Punt|Fumble|Safe|Punts|Converts|Field)/i.test(gl)) { curSection = ''; continue; }
+      if (/Individual Statistics/i.test(gl)) { curSection = ''; continue; }
+      if (!curSection) continue;
+      if (/Total$/i.test(gl) || /^None/i.test(gl)) continue;
+
+      // Find player in this line
+      ENTRY_RE.lastIndex = 0;
+      var em;
+      while ((em = ENTRY_RE.exec(gl)) !== null) {
+        var eName = em[1].trim();
+        if (SKIP_ENTRY.test(eName)) continue;
+        var entLn = eName.split(' ').pop().toLowerCase();
+        if (entLn !== lnL) continue;
+        var n = em[2].trim().split(/\s+/);
+        if (curSection === 'pass' && n.length >= 7)
+          playerGameSt.pass = {att:+n[0],com:+n[1],yds:+n[2],pct:+n[3],lg:+n[4],td:+n[5],int:+n[6]};
+        else if (curSection === 'rush' && n.length >= 5)
+          playerGameSt.rush = {car:+n[0],yds:+n[1],avg:+n[2],lg:+n[3],td:+n[4]};
+        else if (curSection === 'rec'  && n.length >= 5)
+          playerGameSt.rec  = {rec:+n[0],yds:+n[1],avg:+n[2],lg:+n[3],td:+n[4]};
+        else if (curSection === 'def'  && n.length >= 2)
+          playerGameSt.def  = {tackles:+n[0],sacks:+n[1]};
+        gameFound = true;
+      }
+    }
+
+    if (gameFound) {
+      lines.push('GAME: '+teamName+' vs '+playerOpp+' (PNFL Week '+week+')');
+      var s = playerGameSt;
+      if (s.pass) lines.push('  Passing: '+s.pass.com+'/'+s.pass.att+' ('+s.pass.pct+'%) '+s.pass.yds+'yds '+s.pass.td+'TD '+s.pass.int+'INT LG:'+s.pass.lg);
+      if (s.rush) lines.push('  Rushing: '+s.rush.car+'car '+s.rush.yds+'yds avg:'+s.rush.avg+' '+s.rush.td+'TD');
+      if (s.rec)  lines.push('  Receiving: '+s.rec.rec+'rec '+s.rec.yds+'yds avg:'+s.rec.avg+' '+s.rec.td+'TD LG:'+s.rec.lg);
+      if (s.def)  lines.push('  Defense: '+s.def.tackles+'tkl '+s.def.sacks+'sacks');
+      if (!s.pass && !s.rush && !s.rec && !s.def)
+        lines.push('  (player listed in game but no individual stats recorded)');
+    } else {
+      lines.push('GAME STATS: '+playerName+' not found in Week '+week+' game data for '+teamName);
+    }
+  } else {
+    // Fallback: use db.playerGame if raw text not available
+    var _db = window.pnflDB;
+    if (_db && _db.playerGame && Object.keys(_db.playerGame).length > 0) {
+      var _lnL2 = lastName.toLowerCase();
+      var _tnU  = teamName.substring(0,3).toUpperCase();
+      var _pg   = _db.playerGame[lastName+'_'+_tnU] || _db.playerGame[lastName];
+      if (_pg) {
+        lines.push('GAME: '+(_pg.team||teamName)+' vs '+(_pg.opponent||'opponent')+' (PNFL Week '+week+')');
+        var s = _pg;
+        if (s.pass) lines.push('  Passing: '+s.pass.com+'/'+s.pass.att+' ('+s.pass.pct+'%) '+s.pass.yds+'yds '+s.pass.td+'TD '+s.pass.int+'INT LG:'+s.pass.lg);
+        if (s.rush) lines.push('  Rushing: '+s.rush.car+'car '+s.rush.yds+'yds avg:'+s.rush.avg+' '+s.rush.td+'TD');
+        if (s.rec)  lines.push('  Receiving: '+s.rec.rec+'rec '+s.rec.yds+'yds avg:'+s.rec.avg+' '+s.rec.td+'TD LG:'+s.rec.lg);
+        if (s.def)  lines.push('  Defense: '+s.def.tackles+'tkl '+s.def.sacks+'sacks');
+      } else {
+        lines.push('GAME STATS: '+playerName+' not found in loaded game data');
+      }
+    } else {
+      // rawGameText empty — try db.playerGame as fallback
+      var _db2 = window.pnflDB;
+      var _pg2 = _db2 && _db2.playerGame;
+      var _pgFound = false;
+      if (_pg2 && Object.keys(_pg2).length > 0) {
+        var _lnL2 = lastName.toLowerCase();
+        var _tnL2 = teamName.toLowerCase();
+        Object.keys(_pg2).forEach(function(key) {
+          if (_pgFound) return;
+          var p = _pg2[key];
+          if (!p || !p.lastName) return;
+          if (p.lastName.toLowerCase() !== _lnL2) return;
+          var tMatch = !p.team || p.team.toLowerCase().indexOf(_tnL2.substring(0,4)) >= 0 || _tnL2.indexOf(p.team.toLowerCase().substring(0,4)) >= 0;
+          if (!tMatch) return;
+          var opp2 = p.opponent || 'opponent';
+          var wk2 = (_db2 && _db2.week) || dbWeek || '?';
+          lines.push('GAME (Week '+wk2+'): '+(p.team||teamName)+' vs '+opp2);
+          if (p.pass) lines.push('  Passing: '+p.pass.com+'/'+p.pass.att+' ('+p.pass.pct+'%) '+p.pass.yds+'yds '+p.pass.td+'TD '+p.pass.int+'INT');
+          if (p.rush) lines.push('  Rushing: '+p.rush.car+'car '+p.rush.yds+'yds avg:'+p.rush.avg+' '+p.rush.td+'TD');
+          if (p.rec)  lines.push('  Receiving: '+p.rec.rec+'rec '+p.rec.yds+'yds avg:'+p.rec.avg+' '+p.rec.td+'TD');
+          if (p.def)  lines.push('  Defense: '+p.def.tackles+'tkl '+p.def.sacks+'sacks');
+          _pgFound = true;
+        });
+      }
+      if (!_pgFound) {
+        lines.push('GAME STATS: No data found for '+playerName+' ('+teamName+') — gamestats.htm may not be deployed yet');
+      }
+    }
+  }
+
+  // ── Season stats from pnflDB ──────────────────────────────────────────────
+  var db = window.pnflDB;
+  if (db && db.playerSeason) {
+    var teamCode = teamName.substring(0,3).toUpperCase();
+    var ps = db.playerSeason[lastName+'_'+teamCode] || db.playerSeason[lastName];
+    if (ps) {
+      lines.push('SEASON '+season+' TOTALS (Week '+week+'):');
+      if (ps.pass) lines.push('  Passing: '+(ps.pass.yds||0)+'yds '+(ps.pass.td||0)+'TD '+(ps.pass.int||0)+'INT rtg:'+(ps.pass.rtg||0));
+      if (ps.rush) lines.push('  Rushing: '+(ps.rush.yds||0)+'yds '+(ps.rush.td||0)+'TD');
+      if (ps.rec)  lines.push('  Receiving: '+(ps.rec.yds||0)+'yds '+(ps.rec.td||0)+'TD');
+      if (ps.def)  lines.push('  Defense: '+(ps.def.tackles||0)+'tkl '+(ps.def.sacks||0)+'sacks');
+    }
+  }
+  return lines.join('\n');
+};
 </script>
 
 <script>
@@ -3636,178 +3808,7 @@ window.PLAYER_SPRITES = {"passing":["data:image/png;base64,iVBORw0KGgoAAAANSUhEU
 </script>
 
 
-<script>
-// ── pnflAI_extractPlayerStats: parse gamestats/season text for a specific player ──
-// Called from Babel askAI handler — keeps complex regex out of Babel compiler
-window.pnflAI_extractPlayerStats = function(playerName, teamName, positionCode, rawGameText, rawSeasonText, dbWeek, dbSeason, dbGameDate) {
-  var lastName  = playerName.split(' ').pop();
-  var week      = dbWeek    || '?';
-  var season    = dbSeason  || '2048';
-  var gameDate  = dbGameDate || '';
-  var lines     = [];
 
-  // DIAGNOSTIC — always visible in console
-  console.log('[PNFL AI] extractPlayerStats called:', playerName, teamName, positionCode);
-  console.log('[PNFL AI] rawGameText length:', (rawGameText||'').length, 'week:', week);
-  console.log('[PNFL AI] window._pnflRawGameStats length:', (window._pnflRawGameStats||'').length);
-
-  lines.push('PNFL '+season+' — WEEK '+week+(gameDate?' | '+gameDate:'')+' | '+playerName+' ('+teamName+', '+positionCode+')');
-
-  // ── Parse gamestats.htm text directly ──────────────────────────────────────
-  var gText = rawGameText || window._pnflRawGameStats || '';
-  console.log('[PNFL AI] gText length after fallback:', gText.length);
-  if (gText.indexOf('<') >= 0) {
-    // Extract <pre> content first (pnfl.biz uses <pre> for fixed-width stats)
-    var preMatch = gText.match(/<pre[^>]*>([\s\S]+?)<\/pre>/i);
-    if (preMatch) {
-      gText = preMatch[1];
-    } else {
-      gText = gText.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
-    }
-  }
-
-  var gameFound    = false;
-  var playerOpp    = '';
-  var playerGameSt = {};
-
-  if (gText && gText.length > 100) {
-    var gLines       = gText.split('
-');
-    var inGame       = false;
-    var awayT = '', homeT = '';
-    var curSection   = '';
-    var tnL          = teamName.toLowerCase();
-    var lnL          = lastName.toLowerCase();
-    var ENTRY_RE     = /([A-Z][A-Za-z']{1,20}(?:\s[A-Z][A-Za-z']{1,15})?)\s+((?:-?[\d.]+\s*){2,})/g;
-    var SKIP_ENTRY   = /^(Att|Com|Yds|Rec|Car|Avg|Pct|Lg|TD|IN|Total|Defense|Passing|Rushing|Receiving|None|Individual|Statistics)$/i;
-    var COLS         = {pass:7, rush:5, rec:5, def:2};
-
-    for (var gi = 0; gi < gLines.length; gi++) {
-      var raw = gLines[gi];
-      var gl  = raw.trim();
-      if (!gl) continue;
-
-      // Game header: "Buffalo at Denver" or "Chicago at Seattle"
-      var gmM = gl.match(/^([A-Za-z ]+?)\s+at\s+([A-Za-z ]+?)$/);
-      if (gmM && gl.indexOf('Avg') < 0 && gl.indexOf('efficiency') < 0) {
-        awayT = gmM[1].trim();
-        homeT = gmM[2].trim();
-        var atL = awayT.toLowerCase(), htL = homeT.toLowerCase();
-        inGame  = atL.indexOf(tnL) >= 0 || tnL.indexOf(atL) >= 0 ||
-                  htL.indexOf(tnL) >= 0 || tnL.indexOf(htL) >= 0;
-        if (inGame) playerOpp = (atL.indexOf(tnL) >= 0 || tnL.indexOf(atL) >= 0) ? homeT : awayT;
-        curSection = '';
-        continue;
-      }
-      if (!inGame) continue;
-
-      // Section headers
-      if (/^Passing\s+Att/i.test(gl))   { curSection = 'pass'; continue; }
-      if (/^Rushing\s+Car/i.test(gl))    { curSection = 'rush'; continue; }
-      if (/^Receiving\s+Rec/i.test(gl))  { curSection = 'rec';  continue; }
-      if (/^Defense\s+Tac/i.test(gl))    { curSection = 'def';  continue; }
-      if (/^(Intercepts|Punt|Fumble|Safe|Punts|Converts|Field)/i.test(gl)) { curSection = ''; continue; }
-      if (/Individual Statistics/i.test(gl)) { curSection = ''; continue; }
-      if (!curSection) continue;
-      if (/Total$/i.test(gl) || /^None/i.test(gl)) continue;
-
-      // Find player in this line
-      ENTRY_RE.lastIndex = 0;
-      var em;
-      while ((em = ENTRY_RE.exec(gl)) !== null) {
-        var eName = em[1].trim();
-        if (SKIP_ENTRY.test(eName)) continue;
-        var entLn = eName.split(' ').pop().toLowerCase();
-        if (entLn !== lnL) continue;
-        var n = em[2].trim().split(/\s+/);
-        if (curSection === 'pass' && n.length >= 7)
-          playerGameSt.pass = {att:+n[0],com:+n[1],yds:+n[2],pct:+n[3],lg:+n[4],td:+n[5],int:+n[6]};
-        else if (curSection === 'rush' && n.length >= 5)
-          playerGameSt.rush = {car:+n[0],yds:+n[1],avg:+n[2],lg:+n[3],td:+n[4]};
-        else if (curSection === 'rec'  && n.length >= 5)
-          playerGameSt.rec  = {rec:+n[0],yds:+n[1],avg:+n[2],lg:+n[3],td:+n[4]};
-        else if (curSection === 'def'  && n.length >= 2)
-          playerGameSt.def  = {tackles:+n[0],sacks:+n[1]};
-        gameFound = true;
-      }
-    }
-
-    if (gameFound) {
-      lines.push('GAME: '+teamName+' vs '+playerOpp+' (PNFL Week '+week+')');
-      var s = playerGameSt;
-      if (s.pass) lines.push('  Passing: '+s.pass.com+'/'+s.pass.att+' ('+s.pass.pct+'%) '+s.pass.yds+'yds '+s.pass.td+'TD '+s.pass.int+'INT LG:'+s.pass.lg);
-      if (s.rush) lines.push('  Rushing: '+s.rush.car+'car '+s.rush.yds+'yds avg:'+s.rush.avg+' '+s.rush.td+'TD');
-      if (s.rec)  lines.push('  Receiving: '+s.rec.rec+'rec '+s.rec.yds+'yds avg:'+s.rec.avg+' '+s.rec.td+'TD LG:'+s.rec.lg);
-      if (s.def)  lines.push('  Defense: '+s.def.tackles+'tkl '+s.def.sacks+'sacks');
-      if (!s.pass && !s.rush && !s.rec && !s.def)
-        lines.push('  (player listed in game but no individual stats recorded)');
-    } else {
-      lines.push('GAME STATS: '+playerName+' not found in Week '+week+' game data for '+teamName);
-    }
-  } else {
-    // Fallback: use db.playerGame if raw text not available
-    var _db = window.pnflDB;
-    if (_db && _db.playerGame && Object.keys(_db.playerGame).length > 0) {
-      var _lnL2 = lastName.toLowerCase();
-      var _tnU  = teamName.substring(0,3).toUpperCase();
-      var _pg   = _db.playerGame[lastName+'_'+_tnU] || _db.playerGame[lastName];
-      if (_pg) {
-        lines.push('GAME: '+(_pg.team||teamName)+' vs '+(_pg.opponent||'opponent')+' (PNFL Week '+week+')');
-        var s = _pg;
-        if (s.pass) lines.push('  Passing: '+s.pass.com+'/'+s.pass.att+' ('+s.pass.pct+'%) '+s.pass.yds+'yds '+s.pass.td+'TD '+s.pass.int+'INT LG:'+s.pass.lg);
-        if (s.rush) lines.push('  Rushing: '+s.rush.car+'car '+s.rush.yds+'yds avg:'+s.rush.avg+' '+s.rush.td+'TD');
-        if (s.rec)  lines.push('  Receiving: '+s.rec.rec+'rec '+s.rec.yds+'yds avg:'+s.rec.avg+' '+s.rec.td+'TD LG:'+s.rec.lg);
-        if (s.def)  lines.push('  Defense: '+s.def.tackles+'tkl '+s.def.sacks+'sacks');
-      } else {
-        lines.push('GAME STATS: '+playerName+' not found in loaded game data');
-      }
-    } else {
-      // rawGameText empty — try db.playerGame as fallback
-      var _db2 = window.pnflDB;
-      var _pg2 = _db2 && _db2.playerGame;
-      var _pgFound = false;
-      if (_pg2 && Object.keys(_pg2).length > 0) {
-        var _lnL2 = lastName.toLowerCase();
-        var _tnL2 = teamName.toLowerCase();
-        Object.keys(_pg2).forEach(function(key) {
-          if (_pgFound) return;
-          var p = _pg2[key];
-          if (!p || !p.lastName) return;
-          if (p.lastName.toLowerCase() !== _lnL2) return;
-          var tMatch = !p.team || p.team.toLowerCase().indexOf(_tnL2.substring(0,4)) >= 0 || _tnL2.indexOf(p.team.toLowerCase().substring(0,4)) >= 0;
-          if (!tMatch) return;
-          var opp2 = p.opponent || 'opponent';
-          var wk2 = (_db2 && _db2.week) || dbWeek || '?';
-          lines.push('GAME (Week '+wk2+'): '+(p.team||teamName)+' vs '+opp2);
-          if (p.pass) lines.push('  Passing: '+p.pass.com+'/'+p.pass.att+' ('+p.pass.pct+'%) '+p.pass.yds+'yds '+p.pass.td+'TD '+p.pass.int+'INT');
-          if (p.rush) lines.push('  Rushing: '+p.rush.car+'car '+p.rush.yds+'yds avg:'+p.rush.avg+' '+p.rush.td+'TD');
-          if (p.rec)  lines.push('  Receiving: '+p.rec.rec+'rec '+p.rec.yds+'yds avg:'+p.rec.avg+' '+p.rec.td+'TD');
-          if (p.def)  lines.push('  Defense: '+p.def.tackles+'tkl '+p.def.sacks+'sacks');
-          _pgFound = true;
-        });
-      }
-      if (!_pgFound) {
-        lines.push('GAME STATS: No data found for '+playerName+' ('+teamName+') — gamestats.htm may not be deployed yet');
-      }
-    }
-  }
-
-  // ── Season stats from pnflDB ──────────────────────────────────────────────
-  var db = window.pnflDB;
-  if (db && db.playerSeason) {
-    var teamCode = teamName.substring(0,3).toUpperCase();
-    var ps = db.playerSeason[lastName+'_'+teamCode] || db.playerSeason[lastName];
-    if (ps) {
-      lines.push('SEASON '+season+' TOTALS (Week '+week+'):');
-      if (ps.pass) lines.push('  Passing: '+(ps.pass.yds||0)+'yds '+(ps.pass.td||0)+'TD '+(ps.pass.int||0)+'INT rtg:'+(ps.pass.rtg||0));
-      if (ps.rush) lines.push('  Rushing: '+(ps.rush.yds||0)+'yds '+(ps.rush.td||0)+'TD');
-      if (ps.rec)  lines.push('  Receiving: '+(ps.rec.yds||0)+'yds '+(ps.rec.td||0)+'TD');
-      if (ps.def)  lines.push('  Defense: '+(ps.def.tackles||0)+'tkl '+(ps.def.sacks||0)+'sacks');
-    }
-  }
-  return lines.join('\n');
-};
-</script>
 
 <script type="text/babel">
 if(window._plStage) window._plStage("Compiling app (may take a few seconds)...");
