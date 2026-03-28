@@ -3983,8 +3983,14 @@ function AIConnectModal({ onClose, onConnected }) {
   }, []);
 
   const connect = async () => {
+    // Defensive: if pnflAI not loaded yet, wait briefly and retry once
     if (!window.pnflAI || typeof window.pnflAI.load !== 'function') {
-      setStatus('error'); setErrorMsg('AI module not initialized — refresh the page.'); return;
+      await new Promise(r => setTimeout(r, 500));
+      if (!window.pnflAI || typeof window.pnflAI.load !== 'function') {
+        setStatus('error');
+        setErrorMsg('AI module not ready. pnflAI=' + (typeof window.pnflAI) + ' load=' + (window.pnflAI ? typeof window.pnflAI.load : 'n/a'));
+        return;
+      }
     }
     setStatus('connecting'); setErrorMsg('');
     try {
