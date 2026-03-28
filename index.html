@@ -1308,7 +1308,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '10.6'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '10.7'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -2809,7 +2809,7 @@ window.pnflDB = {
       standings:  'https://pnfl.biz/pnflstats/PNFL_standings.htm',
       season:     'https://pnfl.biz/pnflstats/PNFL_season.htm',
       teamStats:  'https://pnfl.biz/pnflstats/PNFL_team%20stats.htm',
-      gameStats:  gUrl,
+      // gameStats handled by static asset loader — NOT fetched here to avoid wiping playerGame
     };
 
     const results = await Promise.allSettled(
@@ -2826,13 +2826,8 @@ window.pnflDB = {
 
     db._parseStandings(db._raw.standings||'');
     db._parseSeason(db._raw.season||'');
-    // Only parse gameStats if the response is valid — never wipe existing playerGame with bad data
-    var _rawGs = db._raw.gameStats || '';
-    if (_rawGs.length > 500 && (_rawGs.includes('Passing') || _rawGs.includes('Rushing'))) {
-      db._parseGameStats(_rawGs);
-    } else if (_rawGs.length > 0) {
-      console.warn('[pnflDB] fetch: gameStats response invalid — keeping existing playerGame (' + Object.keys(db.playerGame||{}).length + ' entries)');
-    }
+    // gameStats is NOT fetched here — handled by static asset loader at startup
+    // This prevents the proxy fetch from wiping playerGame with bad data
     db._ready = true;
     console.log('[pnflDB] ready — standings:'+Object.keys(db.standings).length+' players:'+Object.keys(db.playerSeason).length+' gameStats:'+Object.keys(db.playerGame).length);
     // Persist to sessionStorage as compact JSON
@@ -3648,10 +3643,16 @@ window.pnflAI_extractPlayerStats = function(playerName, teamName, positionCode, 
   var gameDate  = dbGameDate || '';
   var lines     = [];
 
+  // DIAGNOSTIC — always visible in console
+  console.log('[PNFL AI] extractPlayerStats called:', playerName, teamName, positionCode);
+  console.log('[PNFL AI] rawGameText length:', (rawGameText||'').length, 'week:', week);
+  console.log('[PNFL AI] window._pnflRawGameStats length:', (window._pnflRawGameStats||'').length);
+
   lines.push('PNFL '+season+' — WEEK '+week+(gameDate?' | '+gameDate:'')+' | '+playerName+' ('+teamName+', '+positionCode+')');
 
   // ── Parse gamestats.htm text directly ──────────────────────────────────────
-  var gText = rawGameText || '';
+  var gText = rawGameText || window._pnflRawGameStats || '';
+  console.log('[PNFL AI] gText length after fallback:', gText.length);
   if (gText.indexOf('<') >= 0) {
     // Extract <pre> content first (pnfl.biz uses <pre> for fixed-width stats)
     var preMatch = gText.match(/<pre[^>]*>([\s\S]+?)<\/pre>/i);
@@ -3741,7 +3742,51 @@ window.pnflAI_extractPlayerStats = function(playerName, teamName, positionCode, 
       lines.push('GAME STATS: '+playerName+' not found in Week '+week+' game data for '+teamName);
     }
   } else {
-    lines.push('GAME STATS: gamestats.htm not available in static assets');
+    // Fallback: use db.playerGame if raw text not available
+    var _db = window.pnflDB;
+    if (_db && _db.playerGame && Object.keys(_db.playerGame).length > 0) {
+      var _lnL2 = lastName.toLowerCase();
+      var _tnU  = teamName.substring(0,3).toUpperCase();
+      var _pg   = _db.playerGame[lastName+'_'+_tnU] || _db.playerGame[lastName];
+      if (_pg) {
+        lines.push('GAME: '+(_pg.team||teamName)+' vs '+(_pg.opponent||'opponent')+' (PNFL Week '+week+')');
+        var s = _pg;
+        if (s.pass) lines.push('  Passing: '+s.pass.com+'/'+s.pass.att+' ('+s.pass.pct+'%) '+s.pass.yds+'yds '+s.pass.td+'TD '+s.pass.int+'INT LG:'+s.pass.lg);
+        if (s.rush) lines.push('  Rushing: '+s.rush.car+'car '+s.rush.yds+'yds avg:'+s.rush.avg+' '+s.rush.td+'TD');
+        if (s.rec)  lines.push('  Receiving: '+s.rec.rec+'rec '+s.rec.yds+'yds avg:'+s.rec.avg+' '+s.rec.td+'TD LG:'+s.rec.lg);
+        if (s.def)  lines.push('  Defense: '+s.def.tackles+'tkl '+s.def.sacks+'sacks');
+      } else {
+        lines.push('GAME STATS: '+playerName+' not found in loaded game data');
+      }
+    } else {
+      // rawGameText empty — try db.playerGame as fallback
+      var _db2 = window.pnflDB;
+      var _pg2 = _db2 && _db2.playerGame;
+      var _pgFound = false;
+      if (_pg2 && Object.keys(_pg2).length > 0) {
+        var _lnL2 = lastName.toLowerCase();
+        var _tnL2 = teamName.toLowerCase();
+        Object.keys(_pg2).forEach(function(key) {
+          if (_pgFound) return;
+          var p = _pg2[key];
+          if (!p || !p.lastName) return;
+          if (p.lastName.toLowerCase() !== _lnL2) return;
+          var tMatch = !p.team || p.team.toLowerCase().indexOf(_tnL2.substring(0,4)) >= 0 || _tnL2.indexOf(p.team.toLowerCase().substring(0,4)) >= 0;
+          if (!tMatch) return;
+          var opp2 = p.opponent || 'opponent';
+          var wk2 = (_db2 && _db2.week) || dbWeek || '?';
+          lines.push('GAME (Week '+wk2+'): '+(p.team||teamName)+' vs '+opp2);
+          if (p.pass) lines.push('  Passing: '+p.pass.com+'/'+p.pass.att+' ('+p.pass.pct+'%) '+p.pass.yds+'yds '+p.pass.td+'TD '+p.pass.int+'INT');
+          if (p.rush) lines.push('  Rushing: '+p.rush.car+'car '+p.rush.yds+'yds avg:'+p.rush.avg+' '+p.rush.td+'TD');
+          if (p.rec)  lines.push('  Receiving: '+p.rec.rec+'rec '+p.rec.yds+'yds avg:'+p.rec.avg+' '+p.rec.td+'TD');
+          if (p.def)  lines.push('  Defense: '+p.def.tackles+'tkl '+p.def.sacks+'sacks');
+          _pgFound = true;
+        });
+      }
+      if (!_pgFound) {
+        lines.push('GAME STATS: No data found for '+playerName+' ('+teamName+') — gamestats.htm may not be deployed yet');
+      }
+    }
   }
 
   // ── Season stats from pnflDB ──────────────────────────────────────────────
@@ -4992,15 +5037,20 @@ function PlayerLightbox({ player, position, teamName, allTeamsRosterData, contra
     aiResponseRef.current = '';
     try {
       // Use pre-built knowledge base if available, else build player prompt
-            // ── Get data and extract player stats via plain-script function ──────────
-      var db  = window.pnflDB || {};
-      var _rawGT = '', _rawST = '';
-      try {
-        if (window.StaticAssets) {
-          _rawGT = await window.StaticAssets.text('gamestats.htm').catch(function(){return '';});
-          _rawST = await window.StaticAssets.text('season.htm').catch(function(){return '';});
-        }
-      } catch(_e) {}
+            // ── Get pre-cached raw data (set at startup by static asset loader) ────────
+      var db   = window.pnflDB || {};
+      var _rawGT = window._pnflRawGameStats   || '';
+      var _rawST = window._pnflRawSeasonStats || '';
+
+      // Fallback: try StaticAssets if cache is empty
+      if (!_rawGT && window.StaticAssets) {
+        try { _rawGT = await window.StaticAssets.text('gamestats.htm').catch(function(){return '';}); } catch(_){} 
+        if (_rawGT) window._pnflRawGameStats = _rawGT;
+      }
+      if (!_rawST && window.StaticAssets) {
+        try { _rawST = await window.StaticAssets.text('season.htm').catch(function(){return '';}); } catch(_){}
+        if (_rawST) window._pnflRawSeasonStats = _rawST;
+      }
 
       var _playerStats = window.pnflAI_extractPlayerStats
         ? window.pnflAI_extractPlayerStats(player.name, teamName, position||'', _rawGT, _rawST, db.week, db.season, db.gameDate)
@@ -7869,7 +7919,7 @@ function App() {
         // ── Phase 1: Load static assets immediately (fast, no network wait) ──
         var staticLoads = [];
 
-        if (manifest.files['gamestats.htm']) {
+        if (manifest.files['gamestats.htm'] === true || manifest.files['gamestats.htm'] === 'true') {
           staticLoads.push(
             window.StaticAssets.text('gamestats.htm').then(function(html) {
               var parsed = parseGameStats(html);
@@ -7877,6 +7927,13 @@ function App() {
                 saveGameStatsCache(parsed);
                 setGameStatsData(parsed);
                 if (window.pnflDB) {
+                  window._pnflRawGameStats = html;  // cache for AI handler
+                  // Archive this week's data
+                  if (!window._pnflWeeklyData) window._pnflWeeklyData = {};
+                  var _wk = (window.pnflDB && window.pnflDB.week) || manifest.week || '?';
+                  window._pnflWeeklyData[_wk] = window._pnflWeeklyData[_wk] || {};
+                  window._pnflWeeklyData[_wk].gameStats = html;
+                  window._pnflWeeklyData[_wk].week = _wk;
                   window.pnflDB._parseGameStats(html);
                   var _pgN = Object.keys(window.pnflDB.playerGame||{}).length;
                   if (window.pnflDB.buildKnowledgeBase) window.pnflDB.buildKnowledgeBase();
@@ -8218,7 +8275,14 @@ function App() {
         saveSeasonCache(parsed);
         setSeasonData(parsed);
         // Also feed into pnflDB for AI context
-        if (window.pnflDB) { window.pnflDB._parseSeason(seasonHtml); }
+        if (window.pnflDB) {
+          window._pnflRawSeasonStats = seasonHtml;  // cache for AI handler
+          if (!window._pnflWeeklyData) window._pnflWeeklyData = {};
+          var _wkS = (window.pnflDB && window.pnflDB.week) || '?';
+          window._pnflWeeklyData[_wkS] = window._pnflWeeklyData[_wkS] || {};
+          window._pnflWeeklyData[_wkS].season = seasonHtml;
+          window.pnflDB._parseSeason(seasonHtml);
+        }
         if (window.parsePassingLeadersFromHtml) {
           window._pnflPassingLeaders   = window.parsePassingLeadersFromHtml(seasonHtml);
           window._pnflRushingLeaders   = window.parseRushingLeadersFromHtml(seasonHtml);
@@ -8237,6 +8301,7 @@ function App() {
         setGameStatsData(parsed);
         // Feed ONLY game stats into pnflDB.playerGame — separate from season stats
         if (window.pnflDB) {
+          window._pnflRawGameStats = gameStatsHtml;
           window.pnflDB._parseGameStats(gameStatsHtml);
           var _pgCount = Object.keys(window.pnflDB.playerGame||{}).length;
           console.log('[pnflDB] playerGame entries after parse:', _pgCount);
