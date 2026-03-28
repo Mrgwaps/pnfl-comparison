@@ -26,6 +26,14 @@
   // Advance stage after each heavy script block loads
   window._plStage = function(s){ next(s); };
 })();
+
+// Safety fallback: pnflAI_extractPlayerStats defined early so it's always available
+if (!window.pnflAI_extractPlayerStats) {
+  window.pnflAI_extractPlayerStats = function(playerName, teamName, pos, rawGT, rawST, wk, season, gd) {
+    return 'PNFL Week '+(wk||'?')+' | '+playerName+' ('+teamName+'): Stats loading...';
+  };
+}
+
 </script>
 
 <script>
@@ -1480,7 +1488,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '10.7'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '10.8'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
