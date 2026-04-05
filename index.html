@@ -27,14 +27,7 @@
   window._plStage = function(s){ next(s); };
 })();
 
-// Safety fallback: pnflAI_extractPlayerStats defined early so it's always available
-if (!window.pnflAI_extractPlayerStats) {
-  window.pnflAI_extractPlayerStats = function(playerName, teamName, pos, rawGT, rawST, wk, season, gd) {
-    return 'PNFL Week '+(wk||'?')+' | '+playerName+' ('+teamName+'): Stats loading...';
-  };
-}
-
-</script>
+// Safety fallback: pnflAI_extractPlayerStats defined early so it's always available\nif (!window.pnflAI_extractPlayerStats) {\n  window.pnflAI_extractPlayerStats = function(playerName, teamName, pos, rawGT, rawST, wk, season, gd) {\n    return 'PNFL Week '+(wk||'?')+' | '+playerName+' ('+teamName+'): Stats loading...';\n  };\n}\n\n</script>
 
 <script>
 // ── Contract XLSX Web Worker (Blob URL) ──
@@ -595,8 +588,7 @@ window.pnflAI_extractPlayerStats = function(playerName, teamName, positionCode, 
   var playerGameSt = {};
 
   if (gText && gText.length > 100) {
-    var gLines       = gText.split('
-');
+    var gLines       = gText.split('\n');
     var inGame       = false;
     var awayT = '', homeT = '';
     var curSection   = '';
@@ -1488,7 +1480,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '10.9'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '10.8'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -2831,7 +2823,712 @@ function buildPlaceholderRoster(teamName){
 
 
 <script>
+// ══════════════════════════════════════════════════════════════════
+// PNFL Data Engine v2 — parses all sources into indexed JSON
+// window.pnflDB — fully structured, always current, fast lookups
+// ══════════════════════════════════════════════════════════════════
+window.pnflDB = {
+  season:'2048', week:'3',
+  standings:{},      // team -> {wins,losses,pf,pa,streak,div,conf}
+  powerRank:[],       // [{rank,team,w,oppW,pts}]
+  schedule:{},        // team -> {results:[{opp,score,oppScore,home}], next:''}
+  teamStats:{},       // team -> {passYds,passRank,rushYds,rushRank,passDefRank,rushDefRank,sacks,ints,...}
+  playerSeason:{},    // lastName -> {team,pass:{att,yds,td,int},rush:{att,yds,td},rec:{rec,yds,td},def:{tackles,sacks}}
+  playerGame:{},      // lastName -> same structure but for current week only
+  games:[],           // [{home,away,homeScore,awayScore,potw,potg}]
+  _raw:{},
+  _ready:false,
 
+  // ── Main fetch: get all 4 sources concurrently ──
+  fetch: async function(season, week) {
+    const db = window.pnflDB;
+    if(season) db.season = String(season);
+    if(week)   db.week   = String(week);
+
+    const px = url => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+    // Build GameStats URL — week files use 2-digit year prefix (48W3, not 2048W3)
+    const yearShort = (db.season||'2048').slice(-2);
+    const gUrl = `https://pnfl.biz/GameStats/${db.season}/${yearShort}W${db.week}-PNFL_game%20stats.htm`;
+
+    const urls = {
+      standings:  'https://pnfl.biz/pnflstats/PNFL_standings.htm',
+      season:     'https://pnfl.biz/pnflstats/PNFL_season.htm',
+      teamStats:  'https://pnfl.biz/pnflstats/PNFL_team%20stats.htm',
+      // gameStats handled by static asset loader — NOT fetched here to avoid wiping playerGame
+    };
+
+    const results = await Promise.allSettled(
+      Object.entries(urls).map(async ([k,u]) => {
+        try {
+          const r = await fetch(px(u), {signal:AbortSignal.timeout(15000)});
+          if(!r.ok) throw new Error('HTTP '+r.status);
+          const t = await r.text();
+          db._raw[k] = t;
+          return [k,t];
+        } catch(e) { console.warn('[pnflDB]',k,'failed:',e.message); return [k,'']; }
+      })
+    );
+
+    db._parseStandings(db._raw.standings||'');
+    db._parseSeason(db._raw.season||'');
+    // gameStats is NOT fetched here — handled by static asset loader at startup
+    // This prevents the proxy fetch from wiping playerGame with bad data
+    db._ready = true;
+    console.log('[pnflDB] ready — standings:'+Object.keys(db.standings).length+' players:'+Object.keys(db.playerSeason).length+' gameStats:'+Object.keys(db.playerGame).length);
+    // Persist to sessionStorage as compact JSON
+    try { sessionStorage.setItem('pnfl_db', JSON.stringify({season:db.season,week:db.week,gameDate:db.gameDate||'',standings:db.standings,powerRank:db.powerRank,schedule:db.schedule,teamStats:db.teamStats,playerSeason:db.playerSeason,playerGame:db.playerGame||{},games:db.games})); } catch(e){}
+  },
+
+  // ── Load cached version from sessionStorage ──
+  loadCache: function() {
+    try {
+      const raw = sessionStorage.getItem('pnfl_db');
+      if(!raw) return false;
+      const d = JSON.parse(raw);
+      Object.assign(window.pnflDB, d);
+      // Restore playerGame if it was cached
+      if (d.playerGame) window.pnflDB.playerGame = d.playerGame;
+      window.pnflDB._ready = !!(d.season && Object.keys(d.standings||{}).length > 0);
+      if(window.pnflDB._ready) {
+        var pgCount = Object.keys(window.pnflDB.playerGame||{}).length;
+        console.log('[pnflDB] loaded from cache — week:'+d.week+' playerGame:'+pgCount+' entries');
+        // Rebuild knowledge base from cached data
+        if (window.pnflDB.buildKnowledgeBase) window.pnflDB.buildKnowledgeBase();
+      }
+      return window.pnflDB._ready;
+    } catch(e){ return false; }
+  },
+
+  _parseStandings: function(text) {
+    const db = window.pnflDB;
+    const lines = text.split('\n');
+    let inRankings = false, inSchedule = false, inTiebreak = false;
+    let currentWeekSched = false, nextWeekSched = false;
+    const TEAMS = ['Jacksonville','Buffalo','New England','Miami','Denver','Las Vegas','Cincinnati','Los Angeles','Pittsburgh','Atlanta','New York','Philadelphia','Washington','Green Bay','Chicago','Seattle','Minnesota','San Francisco'];
+
+    for(const line of lines) {
+      const l = line.trim();
+
+      // Season/week header
+      const sm = l.match(/(\d{4})\s*season/i); if(sm) db.season = sm[1];
+      const wm = l.match(/Week\s*(\d+)/i); if(wm) db.week = wm[1];
+
+      // Standings table rows: "New England    3  0  0   86   32    W3  2-0-0  1-0-0"
+      const standM = line.match(/^([A-Za-z ]+?)\s{2,}(\d+)\s+(\d+)\s+\d+\s+(\d+)\s+(\d+)\s+(W|L)(\d+)/);
+      if(standM) {
+        const team = standM[1].trim();
+        if(TEAMS.includes(team)) {
+          db.standings[team] = {wins:+standM[2],losses:+standM[3],pf:+standM[4],pa:+standM[5],streak:standM[6]+standM[7],diff:(+standM[4])-(+standM[5])};
+        }
+      }
+
+      // Power rankings
+      if(l.includes('Power Rankings')) inRankings = true;
+      if(inRankings && l.includes('Tie Break')) { inRankings = false; }
+      if(inRankings) {
+        const rm = line.match(/^\s*(\d+)\s+([A-Za-z ]+?)\s{2,}(\d+)\s+(\d+)\s+(\d+)\s+((?:[A-Z]{2,3}\s*)*)/);
+        const tm = line.match(/^\s{3,}([A-Za-z ]+?)\s{2,}(\d+)\s+(\d+)\s+(\d+)\s+((?:[A-Z]{2,3}\s*)*)/);
+        if(rm) {
+          const entry = {rank:+rm[1],team:rm[2].trim(),w:+rm[3],oppW:+rm[4],pts:+rm[5],opps:rm[6].trim().split(/\s+/).filter(Boolean)};
+          if(TEAMS.includes(entry.team)) db.powerRank.push(entry);
+        } else if(tm && db.powerRank.length>0) {
+          const prev = db.powerRank[db.powerRank.length-1];
+          const team = tm[1].trim();
+          if(TEAMS.includes(team)) db.powerRank.push({rank:prev.rank,team,w:+tm[2],oppW:+tm[3],pts:+tm[4],opps:tm[5].trim().split(/\s+/).filter(Boolean)});
+        }
+      }
+
+      // Schedule: "Week 3   Miami 20 at Buffalo 3   Philadelphia 22 at New York 29"
+      if(l.match(/^Week\s+\d+\s*$/)) {
+        const wn = l.match(/^Week\s+(\d+)/);
+        currentWeekSched = wn && +wn[1] === +db.week;
+        nextWeekSched    = wn && +wn[1] === +db.week+1;
+      }
+      if(currentWeekSched || nextWeekSched) {
+        // "Miami 20 at Buffalo 3" or "Miami at Las Vegas"
+        const scoreM = l.match(/([A-Za-z ]+?)\s+(\d+)\s+at\s+([A-Za-z ]+?)\s+(\d+)\s*$/);
+        const futureM = l.match(/([A-Za-z ]+?)\s+at\s+([A-Za-z ]+?)\s*$/);
+        if(scoreM && currentWeekSched) {
+          const away=scoreM[1].trim(), aScore=+scoreM[2], home=scoreM[3].trim(), hScore=+scoreM[4];
+          if(!db.schedule[away]) db.schedule[away]={results:[],next:''};
+          if(!db.schedule[home]) db.schedule[home]={results:[],next:''};
+          db.schedule[away].results.push({opp:home,score:aScore,oppScore:hScore,home:false,win:aScore>hScore});
+          db.schedule[home].results.push({opp:away,score:hScore,oppScore:aScore,home:true,win:hScore>aScore});
+        }
+        if(futureM && nextWeekSched) {
+          const away=futureM[1].trim(), home=futureM[2].trim();
+          if(TEAMS.includes(away)) { if(!db.schedule[away]) db.schedule[away]={results:[],next:''}; db.schedule[away].next=home+' (away)'; }
+          if(TEAMS.includes(home)) { if(!db.schedule[home]) db.schedule[home]={results:[],next:''}; db.schedule[home].next=away+' (home)'; }
+        }
+      }
+
+      // Tie-break data — parse W/L records
+      if(l.includes('Tie Break Data')) inTiebreak = true;
+      if(inTiebreak) {
+        const wlM = line.match(/\[W\]\s*((?:[A-Z]{2,3}\s*)+)/);
+        const llM = line.match(/\[L\]\s*((?:[a-z]{2,3}\s*)+)/);
+        // Find which team this belongs to by looking at recent standings entry
+        // Skip for now — covered by powerRank opps
+      }
+    }
+  },
+
+  _textFromHtml: function(html) {
+    if (!html || !html.includes('<')) return html || '';
+    try {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+
+      // PRIORITY 1: <pre> or <tt> tags contain perfectly-formatted plain text
+      // (pnfl.biz game stats pages use this for fixed-width stat tables)
+      var preEl = doc.querySelector('pre,tt');
+      if (preEl && preEl.textContent && preEl.textContent.length > 200) {
+        return preEl.textContent;
+      }
+
+      // PRIORITY 2: Extract table rows as space-separated lines
+      // Join each <tr> cells with two spaces to preserve column structure
+      var tables = doc.querySelectorAll('table');
+      if (tables.length > 0) {
+        var lines = [];
+        // Get any text BEFORE the first table (game header, score, etc.)
+        var walker = document.createTreeWalker ? null : null;
+        doc.querySelectorAll('body > *:not(table), body > div > *:not(table)').forEach(function(el) {
+          if (el.tagName === 'TABLE') return;
+          var t = el.textContent.trim();
+          if (t && t.length > 1) lines.push(t);
+        });
+        tables.forEach(function(tbl) {
+          tbl.querySelectorAll('tr').forEach(function(row) {
+            var cells = Array.from(row.querySelectorAll('td,th'))
+              .map(function(td) { return td.textContent.trim(); })
+              .filter(function(t) { return t !== ''; });
+            if (cells.length > 0) lines.push(cells.join('  '));
+          });
+        });
+        var result = lines.join('\n');
+        if (result.length > 100) return result;
+      }
+
+      // PRIORITY 3: Plain innerText fallback
+      return doc.body ? (doc.body.innerText || doc.body.textContent || '') : html;
+    } catch(e) { return html; }
+  },
+  _parseSeason: function(text) {
+    if (!text || text.trim().length < 100) {
+      console.warn('[pnflDB] _parseSeason: skipped — input empty or too short');
+      return;
+    }
+    if (text.includes('<html') || text.includes('<table')) {
+      text = window.pnflDB._textFromHtml(text);
+    }
+    if (!text || text.trim().length < 100) {
+      console.warn('[pnflDB] _parseSeason: skipped after strip');
+      return;
+    }
+    const db = window.pnflDB;
+    const lines = text.split('\n');
+    let section = '', teamSection = '';
+
+    // Team stat tables: parse rankings for each team
+    const TEAM_SECTIONS = {
+      'Team Passing\n':           {key:'passOff',  cols:['att','com','pct','yds','avg','lg','td','int','rtg']},
+      'Team Passing - Opponents': {key:'passDef',  cols:['att','com','pct','yds','avg','lg','td','int','rtg']},
+      'Team Rushing\n':           {key:'rushOff',  cols:['att','yds','avg','lg','td']},
+      'Team Rushing - Opponents': {key:'rushDef',  cols:['att','yds','avg','lg','td']},
+      'Team Sacks\n':             {key:'sacks',    cols:['sacks','safeties']},
+      'Team Interceptions\n':     {key:'ints',     cols:['int','rtYds','avg','lg','td']},
+      'Team Tackles\n':           {key:'tackles',  cols:['tackles']},
+      'Team Scoring\n':           {key:'scoring',  cols:['td','xp','fg','sfty','pts']},
+    };
+
+    const TEAMS = ['Jacksonville','Buffalo','New England','Miami','Denver','Las Vegas','Cincinnati','Los Angeles','Pittsburgh','Atlanta','New York','Philadelphia','Washington','Green Bay','Chicago','Seattle','Minnesota','San Francisco'];
+    let currentSection = null, rank = 0;
+
+    for(let i=0; i<lines.length; i++) {
+      const l = lines[i];
+
+      // Detect section headers
+      for(const [header, cfg] of Object.entries(TEAM_SECTIONS)) {
+        if(l.includes(header.trim())) { currentSection = cfg; rank = 0; break; }
+      }
+      if(l.includes('Back to top')) { currentSection = null; }
+      if(!currentSection) continue;
+
+      // Parse ranked row: "1 New England    91  62  68.1  712  7.8  41  6  0  113.4  3-17"
+      const m = l.match(/^\s*(\d+)\s+([A-Za-z ]+?)\s{2,}([\d,. /-]+)\s*$/);
+      if(m) {
+        rank = +m[1];
+        const team = m[2].trim();
+        if(!TEAMS.includes(team)) continue;
+        if(!db.teamStats[team]) db.teamStats[team] = {};
+        const nums = m[3].trim().split(/\s+/).filter(Boolean);
+        const stat = {rank};
+        currentSection.cols.forEach((c,i) => { if(nums[i]!==undefined) stat[c] = isNaN(+nums[i].replace(',','')) ? nums[i] : +nums[i].replace(',',''); });
+        db.teamStats[team][currentSection.key] = stat;
+      }
+    }
+
+    // Individual stats — parse passing/rushing/receiving leaders
+    const IND_SECTIONS = {
+      'Individual Passing':  {key:'pass',  cols:['yr','att','com','pct','yds','avg','lg','td','int','rtg']},
+      'Individual Rushing':  {key:'rush',  cols:['att','yds','avg','lg','td']},
+      'Individual Receiving':{key:'rec',   cols:['rec','yds','avg','lg','td']},
+      'Individual Tackles':  {key:'def',   cols:['tackles','sacks']},
+      'Individual Sacks':    {key:'sacks', cols:['sacks']},
+      'Individual Interceptions':{key:'ints',cols:['int','rtYds','avg','lg','td']},
+    };
+    let indSection = null;
+    for(const line of lines) {
+      for(const [hdr, cfg] of Object.entries(IND_SECTIONS)) {
+        if(line.includes(hdr)) { indSection = cfg; break; }
+      }
+      if(line.includes('Back to top')) indSection = null;
+      if(!indSection) continue;
+      // "1 Baker Mayfield  MIA  95  60  63.2  789  8.3  63  2  0  96.3  6-31"
+      const m = line.match(/^\s*\d+\s+([A-Za-z .'-]+?)\s{2,}([A-Z]{2,3})\s+([\d,. /-]+)\s*$/);
+      if(!m) continue;
+      const name = m[1].trim();
+      const lastName = name.split(' ').pop();
+      const team = m[2].trim();
+      const nums = m[3].trim().split(/\s+/).filter(Boolean);
+      const stat = {name, team};
+      indSection.cols.forEach((c,i) => { if(nums[i]!==undefined) stat[c] = isNaN(+nums[i].replace(',','')) ? nums[i] : +nums[i].replace(',',''); });
+      // Store by plain lastName (backward compat) AND by lastName_TEAMCODE (disambiguation)
+      var teamCode = team.substring(0,3).toUpperCase();
+      var qualKey  = lastName + '_' + teamCode;
+      if(!db.playerSeason[lastName]) db.playerSeason[lastName] = {};
+      if(!db.playerSeason[qualKey])  db.playerSeason[qualKey]  = {};
+      db.playerSeason[lastName][indSection.key] = stat;
+      db.playerSeason[lastName].name = name;
+      db.playerSeason[lastName].team = team;
+      db.playerSeason[lastName].lastName = lastName;
+      db.playerSeason[qualKey][indSection.key] = stat;
+      db.playerSeason[qualKey].name = name;
+      db.playerSeason[qualKey].team = team;
+      db.playerSeason[qualKey].lastName = lastName;
+    }
+    // Rebuild knowledge base after parsing season stats
+    if(window.pnflDB.buildKnowledgeBase) window.pnflDB.buildKnowledgeBase();
+  },
+
+  _parseGameStats: function(text) {
+    const db = window.pnflDB;
+    // Guard: never wipe existing data on empty or tiny input
+    if (!text || text.trim().length < 100) {
+      console.warn('[pnflDB] _parseGameStats: skipped — input empty or too short');
+      return;
+    }
+    if (text.includes('<html') || text.includes('<table') || text.includes('<td')) {
+      text = window.pnflDB._textFromHtml(text);
+    }
+    // Second guard after HTML strip
+    if (!text || text.trim().length < 100) {
+      console.warn('[pnflDB] _parseGameStats: skipped — stripped content too short');
+      return;
+    }
+    const lines = text.split('\n');
+    if (lines.length < 50) {
+      console.warn('[pnflDB] _parseGameStats: skipped — too few lines:', lines.length);
+      return;
+    }
+    // Validate this is actually a PNFL gamestats page before wiping existing data
+    var _hasStatHdr = lines.some(function(l){
+      return /^Passing\s+Att|^Rushing\s+Car|^Receiving\s+Rec/i.test(l.trim());
+    });
+    if (!_hasStatHdr) {
+      console.warn('[pnflDB] _parseGameStats: skipped — no stat headers found (not a gamestats page)');
+      return;
+    }
+
+    // Parse week/season/date from the gamestats header
+    // e.g. "2048 season", "Week 4", "September 27, 2048"
+    for (var hi=0; hi<Math.min(20,lines.length); hi++) {
+      var hl = lines[hi].trim();
+      var wm = hl.match(/^Week\s*(\d+)/i);
+      if (wm) { db.week = wm[1]; }
+      var sm = hl.match(/(\d{4})\s*season/i);
+      if (sm) { db.season = sm[1]; }
+      var dm = hl.match(/([A-Z][a-z]+ \d+,\s*\d{4})/);
+      if (dm) { db.gameDate = dm[1]; }
+    }
+
+    db.games = [];
+    db.playerGame = {};
+    let awayTeam='', homeTeam='', section=null;
+
+    // Regex to extract player entries: NAME followed by 2+ numbers
+    // Handles McBride, ThomasOliver, Robinson II, etc.
+    const ENTRY_RE = /([A-Z][A-Za-z']{1,20}(?:\s[A-Z][A-Za-z']{1,15})?)\s+((?:-?[\d.]+\s*){2,})/g;
+    const SKIP_WORDS = new Set(['Att','Com','Yds','Rec','Car','Avg','Pct','Num','Ret','GAv',
+      'NAv','Lg','TD','IN','FC','TB','Bk','None','Total','Defense','Passing','Rushing',
+      'Receiving','Individual','Statistics','Intercepts','Returns','Fumbles','Safeties',
+      'Punts','Converts','Field','Goals','Back','Games','This','Week','Player','Team']);
+    const COLS = {pass:7, rush:5, rec:5, def:2};
+
+    function store(nameRaw, team, opp, type, nums) {
+      if (!nameRaw || !team || nums.length < 2) return;
+      const lastName = nameRaw.split(/\s+/).pop();
+      const key = lastName + '_' + team.substring(0,3).toUpperCase();
+      if (!db.playerGame[key]) db.playerGame[key] = {lastName, fullName:nameRaw, team, opponent:opp};
+      const p = db.playerGame[key];
+      // Also index by plain lastName for fuzzy lookup (first writer wins)
+      if (!db.playerGame[lastName]) db.playerGame[lastName] = p;
+      const n = nums;
+      if      (type==='pass' && n.length>=7) p.pass={att:+n[0],com:+n[1],yds:+n[2],pct:+n[3],lg:+n[4],td:+n[5],int:+n[6]};
+      else if (type==='rush' && n.length>=5) p.rush={car:+n[0],yds:+n[1],avg:+n[2],lg:+n[3],td:+n[4]};
+      else if (type==='rec'  && n.length>=5) p.rec ={rec:+n[0],yds:+n[1],avg:+n[2],lg:+n[3],td:+n[4]};
+      else if (type==='def'  && n.length>=2) p.def ={tackles:+n[0],sacks:+n[1]};
+    }
+
+    for (let i=0; i<lines.length; i++) {
+      const raw = lines[i];
+      const l   = raw.trim();
+      if (!l) continue;
+
+      // Game header: "Miami at Las Vegas"
+      const gm = l.match(/^([A-Za-z ]+?)\s+at\s+([A-Za-z ]+?)$/);
+      if (gm && !l.includes('Avg') && !l.includes('efficiency') && !l.includes('Returns')) {
+        awayTeam = gm[1].trim();
+        homeTeam = gm[2].trim();
+        for (let j=i+1; j<Math.min(i+6,lines.length); j++) {
+          const sm = lines[j].match(/(\d+)\s+(\d+)/);
+          if (sm) { db.games.push({away:awayTeam,home:homeTeam,awayScore:+sm[1],homeScore:+sm[2],potg:null}); break; }
+        }
+        section=null; continue;
+      }
+
+      // Player of game/week
+      const potg = l.match(/Player of the game:\s+([A-Za-z .'-]+),\s+([A-Z]+),\s+([A-Za-z ]+)/);
+      if (potg && db.games.length) db.games[db.games.length-1].potg={name:potg[1],pos:potg[2],team:potg[3]};
+      const potw = l.match(/Player of the week:\s+([A-Za-z .'-]+),\s+([A-Z]+),\s+([A-Za-z ]+)/);
+      if (potw) db.potw={name:potw[1],pos:potw[2],team:potw[3]};
+
+      // Section headers
+      if (/^Passing\s+(Att|Name)/i.test(l))   { section='pass'; continue; }
+      if (/^Rushing\s+(Car|Name)/i.test(l))   { section='rush'; continue; }
+      if (/^Receiving\s+(Rec|Name)/i.test(l)) { section='rec';  continue; }
+      if (/^Defense\s+(Tac|Name)/i.test(l))   { section='def';  continue; }
+      if (/^(Intercepts|Punt|KO Returns|Fumbles|Safeties|Punts|Converts|Field Goals)/i.test(l)) { section=null; continue; }
+      if (/Individual Statistics/i.test(l))   { section=null; continue; }
+
+      // Skip header rows and totals
+      if (!section || !awayTeam) continue;
+      if (/Total$/i.test(l) || /^None\.?/i.test(l)) continue;
+      if (/^(Passing|Rushing|Receiving|Defense)\s+(Att|Car|Rec|Tac)/i.test(l)) continue;
+
+      // Extract ALL player entries from this line using regex
+      ENTRY_RE.lastIndex = 0;
+      const entries = [];
+      let m;
+      while ((m = ENTRY_RE.exec(l)) !== null) {
+        const name = m[1].trim();
+        if (SKIP_WORDS.has(name)) continue;
+        const nums = m[2].trim().split(/\s+/).filter(Boolean);
+        entries.push({name, nums});
+      }
+
+      if (entries.length >= 2) {
+        // Two players: first = away team, second = home team
+        store(entries[0].name, awayTeam, homeTeam, section, entries[0].nums.slice(0, COLS[section]));
+        store(entries[1].name, homeTeam, awayTeam, section, entries[1].nums.slice(0, COLS[section]));
+      } else if (entries.length === 1) {
+        // Single player — detect which team by checking if line starts left (away) or right (home)
+        // Use raw indentation: if line has leading spaces suggesting right column, it's home
+        const indent = raw.match(/^(\s*)/)[1].length;
+        const team   = indent > 20 ? homeTeam : awayTeam;
+        const opp    = team === awayTeam ? homeTeam : awayTeam;
+        store(entries[0].name, team, opp, section, entries[0].nums.slice(0, COLS[section]));
+      }
+    }
+
+    if (window.pnflDB.buildKnowledgeBase) window.pnflDB.buildKnowledgeBase();
+  },
+
+  // ── Query helpers ──
+  getTeamSummary: function(team) {
+    const db = window.pnflDB;
+    const st = db.standings[team] || {};
+    const pr = db.powerRank.find(r=>r.team===team) || {};
+    const ts = db.teamStats[team] || {};
+    const sc = db.schedule[team] || {};
+    return {team, season:db.season, week:db.week, ...st, powerRank:pr.rank||'?', powerPts:pr.pts||0, oppWins:pr.oppW||0, schedule:sc, teamStats:ts};
+  },
+
+  getPlayerSummary: function(playerName) {
+    const db = window.pnflDB;
+    const lastName = playerName.split(' ').pop();
+    // Try multiple lookup strategies: lastName, full name, "Last, First" format
+    function findInMap(map, name) {
+      if (!map) return {};
+      const last = name.split(' ').pop();
+      const first = name.split(' ')[0];
+      // Direct lookups
+      if (map[name]) return map[name];
+      if (map[last])  return map[last];
+      // "Last, First" format (from stats page)
+      const commaSep = last + ', ' + first;
+      if (map[commaSep]) return map[commaSep];
+      // Case-insensitive last name
+      const lowerLast = last.toLowerCase();
+      const key = Object.keys(map).find(k => k.toLowerCase() === lowerLast ||
+                                             k.toLowerCase().startsWith(lowerLast + ','));
+      return key ? map[key] : {};
+    }
+    const season = findInMap(db.playerSeason, playerName);
+    const game   = findInMap(db.playerGame,   playerName);
+    return {name:playerName, lastName, season, game,
+            hasGameStats:Object.keys(game).length>0,
+            hasSeasonStats:Object.keys(season).length>0};
+  },
+
+  // Build a flat AI knowledge document from all loaded data
+  // Stored in window._pnflKnowledgeBase for direct injection into AI prompts
+  buildKnowledgeBase: function() {
+    const db = window.pnflDB;
+    const weekNum  = db.week   || '?';
+    const season   = db.season || '2048';
+    const gameDate = db.gameDate || '';
+    const yearShort = season.toString().slice(-2);
+    const gsUrl = 'https://pnfl.biz/GameStats/'+season+'/'+yearShort+'W'+weekNum+'-PNFL_game%20stats.htm';
+    const ssUrl = 'https://pnfl.biz/pnflstats/PNFL_season.htm';
+
+    const L = [];  // lines array
+
+    // ── Header ───────────────────────────────────────────────────────────────
+    L.push('╔══════════════════════════════════════════════════════════════╗');
+    L.push('║  PNFL '+season+' SEASON — WEEK '+weekNum+(gameDate?' ('+gameDate+')':'')+' KNOWLEDGE BASE  ║');
+    L.push('║  Game Stats Source : '+gsUrl);
+    L.push('║  Season Stats Source: '+ssUrl);
+    L.push('║  ⚠ SIMULATION DATA ONLY — NOT NFL — DO NOT USE NFL TRAINING  ║');
+    L.push('╚══════════════════════════════════════════════════════════════╝');
+    L.push('CURRENT PNFL WEEK: '+weekNum+' | Season: '+season+(gameDate?' | Date: '+gameDate:''));
+    L.push('');
+
+    // ── Game Results Summary ─────────────────────────────────────────────────
+    if (db.games && db.games.length > 0) {
+      L.push('━━━ PNFL WEEK '+weekNum+' GAME RESULTS ━━━');
+      db.games.forEach(function(g) {
+        var winner = g.awayScore > g.homeScore ? g.away : g.home;
+        var ws = Math.max(g.awayScore, g.homeScore);
+        var ls = Math.min(g.awayScore, g.homeScore);
+        L.push(g.away+' '+g.awayScore+'  at  '+g.home+' '+g.homeScore
+              +'  →  '+winner+' wins '+ws+'-'+ls);
+        if (g.potg) L.push('  Player of Game: '+g.potg.name+' ('+g.potg.pos+', '+g.potg.team+')');
+      });
+      if (db.potw) L.push('Player of the Week: '+db.potw.name+' ('+db.potw.pos+', '+db.potw.team+')');
+      L.push('');
+    }
+
+    // ── Per-Game Player Stats (grouped by matchup) ───────────────────────────
+    if (db.games && db.games.length > 0 && db.playerGame && Object.keys(db.playerGame).length > 0) {
+      L.push('━━━ PNFL WEEK '+weekNum+' INDIVIDUAL GAME STATS ━━━');
+      db.games.forEach(function(g) {
+        L.push('');
+        L.push('MATCHUP: '+g.away+' ('+g.awayScore+')  vs  '+g.home+' ('+g.homeScore+') — Week '+weekNum);
+        L.push('  '+g.away+' OFFENSE:');
+        Object.keys(db.playerGame).forEach(function(key) {
+          var p = db.playerGame[key];
+          if (!p || !p.team || !p.lastName) return;
+          if (key.includes('_ALT')) return;
+          var inGame = (p.team===g.away && p.opponent===g.home);
+          if (!inGame) return;
+          var stats = [];
+          if (p.pass) stats.push('PASSING '+p.pass.com+'/'+p.pass.att+' '+p.pass.yds+'yds '+(p.pass.pct||0)+'% '+( p.pass.td||0)+'TD '+(p.pass.int||0)+'INT LG:'+(p.pass.lg||0));
+          if (p.rush) stats.push('RUSHING '+p.rush.car+'car '+p.rush.yds+'yds avg:'+ p.rush.avg+' '+(p.rush.td||0)+'TD');
+          if (p.rec)  stats.push('RECEIVING '+p.rec.rec+'rec '+p.rec.yds+'yds avg:'+p.rec.avg+' '+(p.rec.td||0)+'TD LG:'+(p.rec.lg||0));
+          if (p.def)  stats.push('DEFENSE '+p.def.tackles+'tkl '+(p.def.sacks||0)+'sk');
+          if (stats.length) L.push('    '+p.fullName+' ('+p.team+'): '+stats.join(' | '));
+        });
+        L.push('  '+g.home+' OFFENSE:');
+        Object.keys(db.playerGame).forEach(function(key) {
+          var p = db.playerGame[key];
+          if (!p || !p.team || !p.lastName) return;
+          if (key.includes('_ALT')) return;
+          var inGame = (p.team===g.home && p.opponent===g.away);
+          if (!inGame) return;
+          var stats = [];
+          if (p.pass) stats.push('PASSING '+p.pass.com+'/'+p.pass.att+' '+p.pass.yds+'yds '+(p.pass.pct||0)+'% '+(p.pass.td||0)+'TD '+(p.pass.int||0)+'INT LG:'+(p.pass.lg||0));
+          if (p.rush) stats.push('RUSHING '+p.rush.car+'car '+p.rush.yds+'yds avg:'+p.rush.avg+' '+(p.rush.td||0)+'TD');
+          if (p.rec)  stats.push('RECEIVING '+p.rec.rec+'rec '+p.rec.yds+'yds avg:'+p.rec.avg+' '+(p.rec.td||0)+'TD LG:'+(p.rec.lg||0));
+          if (p.def)  stats.push('DEFENSE '+p.def.tackles+'tkl '+(p.def.sacks||0)+'sk');
+          if (stats.length) L.push('    '+p.fullName+' ('+p.team+'): '+stats.join(' | '));
+        });
+      });
+      L.push('');
+    }
+
+    // ── Quick Lookup: All Players This Week ──────────────────────────────────
+    var gameKeys = Object.keys(db.playerGame||{}).filter(function(k){
+      return !k.includes('_ALT') && db.playerGame[k] && db.playerGame[k].team;
+    });
+    if (gameKeys.length > 0) {
+      L.push('━━━ WEEK '+weekNum+' QUICK PLAYER LOOKUP (by last name) ━━━');
+      gameKeys.forEach(function(key) {
+        var p = db.playerGame[key];
+        if (!p || !p.lastName) return;
+        var stats = [];
+        if (p.pass) stats.push('Pass:'+p.pass.com+'/'+p.pass.att+' '+p.pass.yds+'yds '+(p.pass.td||0)+'TD '+(p.pass.int||0)+'INT');
+        if (p.rush) stats.push('Rush:'+p.rush.car+'car '+p.rush.yds+'yds '+(p.rush.td||0)+'TD');
+        if (p.rec)  stats.push('Rec:'+p.rec.rec+'rec '+p.rec.yds+'yds '+(p.rec.td||0)+'TD');
+        if (p.def)  stats.push('Def:'+p.def.tackles+'tkl '+(p.def.sacks||0)+'sk');
+        if (stats.length) {
+          L.push('  '+p.lastName+' | '+p.team+' vs '+p.opponent+' | '+(p.fullName||p.lastName)+': '+stats.join(' | '));
+        }
+      });
+      L.push('');
+    }
+
+    // ── Season Cumulative Stats ───────────────────────────────────────────────
+    var seasonKeys = Object.keys(db.playerSeason||{}).filter(function(k){ return !k.includes('_'); });
+    if (seasonKeys.length > 0) {
+      L.push('━━━ PNFL '+season+' SEASON STATS (cumulative through Week '+weekNum+') ━━━');
+      seasonKeys.forEach(function(ln) {
+        var p = db.playerSeason[ln];
+        if (!p) return;
+        var stats = [];
+        if (p.pass) stats.push('Pass:'+(p.pass.att||0)+'att '+(p.pass.yds||0)+'yds '+(p.pass.td||0)+'TD '+(p.pass.int||0)+'INT rtg:'+(p.pass.rtg||0));
+        if (p.rush) stats.push('Rush:'+(p.rush.att||0)+'att '+(p.rush.yds||0)+'yds '+(p.rush.td||0)+'TD');
+        if (p.rec)  stats.push('Rec:'+(p.rec.rec||0)+'rec '+(p.rec.yds||0)+'yds '+(p.rec.td||0)+'TD');
+        if (p.def)  stats.push('Def:'+(p.def.tackles||0)+'tkl '+(p.def.sacks||0)+'sk');
+        if (stats.length) L.push('  '+ln+' ('+(p.team||'?')+'): '+stats.join(' | '));
+      });
+      L.push('');
+    }
+
+    // ── Team Sack Summary ─────────────────────────────────────────────────────
+    if (db.games && db.games.length > 0) {
+      L.push('━━━ WEEK '+weekNum+' TEAM SACK SUMMARY ━━━');
+      db.games.forEach(function(g) {
+        var awSk=0, hmSk=0;
+        Object.keys(db.playerGame||{}).forEach(function(key) {
+          var p = db.playerGame[key];
+          if (!p||!p.def||!p.team) return;
+          if (p.team===g.away && p.opponent===g.home) awSk+=(p.def.sacks||0);
+          if (p.team===g.home && p.opponent===g.away) hmSk+=(p.def.sacks||0);
+        });
+        L.push('  '+g.away+' DEF: '+awSk+' sacks | '+g.home+' DEF: '+hmSk+' sacks');
+        L.push('  '+g.away+' OL allowed '+hmSk+' sacks | '+g.home+' OL allowed '+awSk+' sacks');
+      });
+      L.push('');
+    }
+
+    var kb = L.join('\n');
+    window._pnflKnowledgeBase = kb;
+    var nGame = gameKeys.length, nSeason = seasonKeys.length;
+    console.log('[pnflDB] KB built: week='+weekNum+' '+nGame+' game stats, '+nSeason+' season stats');
+    return kb;
+  },
+
+  buildPlayerPrompt: function(playerName, teamName) {
+    const db = window.pnflDB;
+    const ts = db.getTeamSummary(teamName);
+    const ps = db.getPlayerSummary(playerName);
+    const lines = [
+      '=== PNFL 2048 SEASON DATA (Week '+db.week+') — SIMULATION ONLY ===',
+      'NEVER use real NFL knowledge. All stats below are from the PNFL simulation game.',
+      '',
+      'TEAM: '+teamName+' | Record: '+(ts.wins||0)+'-'+(ts.losses||0)+' | PF:'+(ts.pf||0)+' PA:'+(ts.pa||0)+' | Streak:'+ts.streak,
+      'POWER RANK: #'+ts.powerRank+' | Power pts: '+ts.powerPts+' | Opp wins: '+ts.oppWins,
+      ts.teamStats.passOff ? 'PASS OFF: '+ts.teamStats.passOff.yds+' yds (rank #'+ts.teamStats.passOff.rank+'/18) '+ts.teamStats.passOff.td+' TDs '+ts.teamStats.passOff.int+' INTs rating '+ts.teamStats.passOff.rtg : '',
+      ts.teamStats.rushOff ? 'RUSH OFF: '+ts.teamStats.rushOff.yds+' yds (rank #'+ts.teamStats.rushOff.rank+'/18) '+ts.teamStats.rushOff.td+' TDs avg '+ts.teamStats.rushOff.avg : '',
+      ts.teamStats.passDef ? 'PASS DEF: '+ts.teamStats.passDef.yds+' opp yds (rank #'+ts.teamStats.passDef.rank+'/18)' : '',
+      ts.teamStats.rushDef ? 'RUSH DEF: '+ts.teamStats.rushDef.yds+' opp yds (rank #'+ts.teamStats.rushDef.rank+'/18)' : '',
+      ts.teamStats.sacks   ? 'SACKS: '+ts.teamStats.sacks.sacks+' (rank #'+ts.teamStats.sacks.rank+'/18)' : '',
+      ts.schedule.next     ? 'NEXT GAME: '+ts.schedule.next : '',
+    ];
+    if(ps.hasSeasonStats || ps.hasGameStats) {
+      lines.push('', 'PLAYER: '+playerName);
+
+      // Season cumulative stats
+      if(ps.season.pass) lines.push('  Season passing: '+ps.season.pass.yds+' yds, '+ps.season.pass.com+'/'+ps.season.pass.att+' comp, '+ps.season.pass.pct+'%, '+ps.season.pass.td+' TD, '+ps.season.pass.int+' INT, rating '+ps.season.pass.rtg);
+      if(ps.season.rush) lines.push('  Season rushing: '+ps.season.rush.att+' att, '+ps.season.rush.yds+' yds, avg '+ps.season.rush.avg+', '+ps.season.rush.td+' TD');
+      if(ps.season.rec)  lines.push('  Season receiving: '+ps.season.rec.rec+' rec, '+ps.season.rec.yds+' yds, avg '+ps.season.rec.avg+', LG '+ps.season.rec.lg+', '+ps.season.rec.td+' TD');
+      if(ps.season.def)  lines.push('  Season defense: '+ps.season.def.tackles+' tackles, '+ps.season.def.sacks+' sacks');
+
+      // Most recent game stats (week N performance vs opponent)
+      const gameKeys = Object.keys(ps.game);
+      if(gameKeys.length > 0) {
+        // Find opponent from game log
+        const opp = (function() {
+          if(!db.games || !db.games.length) return 'opponent';
+          const g = db.games.find(function(g) {
+            return (g.away&&g.away.includes&&g.away.includes(teamName)) ||
+                   (g.home&&g.home.includes&&g.home.includes(teamName)) ||
+                   g.away===teamName || g.home===teamName;
+          });
+          if(!g) return 'opponent';
+          return g.away===teamName ? g.home : g.away;
+        })();
+        lines.push('  Week '+db.week+' game vs '+opp+':');
+        if(ps.game.pass) lines.push('    Passing: '+ps.game.pass.yds+' yds, '+ps.game.pass.com+'/'+ps.game.pass.att+' comp, '+ps.game.pass.td+' TD, '+ps.game.pass.int+' INT, rating '+ps.game.pass.rtg);
+        if(ps.game.rush) lines.push('    Rushing: '+ps.game.rush.yds+' yds ('+ps.game.rush.car+' car), '+ps.game.rush.td+' TD');
+        if(ps.game.rec)  lines.push('    Receiving: '+ps.game.rec.rec+' rec, '+ps.game.rec.yds+' yds, '+ps.game.rec.td+' TD');
+        if(ps.game.def)  lines.push('    Defense: '+ps.game.def.tackles+' tackles, '+ps.game.def.sacks+' sacks');
+      }
+    } else {
+      lines.push('', 'PLAYER STATS: Not found in PNFL stats for '+playerName+'. Season stats may not be loaded yet.');
+    }
+    return lines.filter(function(l){return l!==undefined && l!='';}).join('\n');
+  },
+
+  buildTeamPrompt: function(team) {
+    const db = window.pnflDB;
+    const ts = db.getTeamSummary(team);
+    const st = db.teamStats[team] || {};
+    const sc = db.schedule[team] || {};
+    const pr = db.powerRank.find(r=>r.team===team) || {};
+
+    // Find game this week
+    const weekGame = db.games.find(g=>g.home===team||g.away===team);
+    const gameLines = weekGame ? [
+      'WEEK '+db.week+' GAME: '+(weekGame.away===team?team+' at '+weekGame.home:weekGame.home+' vs '+weekGame.away),
+      'SCORE: '+weekGame.awayScore+' - '+weekGame.homeScore+(weekGame.away===team?(weekGame.awayScore>weekGame.homeScore?' (W)':(weekGame.awayScore<weekGame.homeScore?' (L)':' (T)')):(weekGame.homeScore>weekGame.awayScore?' (W)':(weekGame.homeScore<weekGame.awayScore?' (L)':' (T)'))),
+      weekGame.potg ? 'PLAYER OF GAME: '+weekGame.potg.name+' ('+weekGame.potg.pos+')' : '',
+    ] : ['NO GAME DATA FOUND FOR WEEK '+db.week];
+
+    // Top players from game stats
+    const teamPlayers = Object.entries(db.playerGame)
+      .filter(([ln,gs]) => {
+        const s = db.playerSeason[ln];
+        return s && s.team && s.team.length<=3 && (
+          s.team === team.substring(0,3).toUpperCase() ||
+          Object.values({JAX:'Jacksonville',BUF:'Buffalo',NE:'New England',MIA:'Miami',DEN:'Denver',LVR:'Las Vegas',CIN:'Cincinnati',LAC:'Los Angeles',PIT:'Pittsburgh',ATL:'Atlanta',NYG:'New York',PHI:'Philadelphia',WSH:'Washington',GB:'Green Bay',CHI:'Chicago',SEA:'Seattle',MIN:'Minnesota',SF:'San Francisco'})[Object.keys({JAX:'Jacksonville',BUF:'Buffalo',NE:'New England',MIA:'Miami',DEN:'Denver',LVR:'Las Vegas',CIN:'Cincinnati',LAC:'Los Angeles',PIT:'Pittsburgh',ATL:'Atlanta',NYG:'New York',PHI:'Philadelphia',WSH:'Washington',GB:'Green Bay',CHI:'Chicago',SEA:'Seattle',MIN:'Minnesota',SF:'San Francisco'}).indexOf(s.team)] === team
+        );
+      })
+      .map(([ln,gs]) => ({lastName:ln, ...gs, seasonTeam: db.playerSeason[ln]?.team}))
+      .slice(0,6);
+
+    return [
+      '=== PNFL '+db.season+' SEASON WEEK '+db.week+' — SIMULATION ONLY ===',
+      'NEVER use real NFL knowledge.',
+      '',
+      'TEAM: '+team+' | Record: '+(ts.wins||0)+'-'+(ts.losses||0)+' | PF:'+(ts.pf||0)+' PA:'+(ts.pa||0)+' | Streak:'+ts.streak+' | Diff:'+(ts.diff||0),
+      'POWER RANK: #'+ts.powerRank+' of 18 | Opp wins: '+ts.oppWins+' | Power pts: '+ts.powerPts,
+      'OPPONENTS BEATEN: '+(pr.opps||[]).join(', ')||'none',
+      'NEXT GAME: '+(sc.next||'TBD'),
+      '',
+      'OFFENSIVE STATS:',
+      st.passOff ? '  Passing: '+st.passOff.yds+' yds/season rank #'+st.passOff.rank+'/18 | '+st.passOff.td+' TDs '+st.passOff.int+' INTs | Rating: '+st.passOff.rtg+' | Pct: '+st.passOff.pct+'%' : '  Pass: no data',
+      st.rushOff ? '  Rushing: '+st.rushOff.yds+' yds rank #'+st.rushOff.rank+'/18 | '+st.rushOff.td+' TDs | Avg: '+st.rushOff.avg+' ypc' : '  Rush: no data',
+      '',
+      'DEFENSIVE STATS:',
+      st.passDef ? '  Pass defense: '+st.passDef.yds+' opp yds rank #'+st.passDef.rank+'/18 | '+st.passDef.td+' TDs allowed | Rating vs: '+st.passDef.rtg : '  Pass def: no data',
+      st.rushDef ? '  Rush defense: '+st.rushDef.yds+' opp yds rank #'+st.rushDef.rank+'/18 | '+st.rushDef.td+' TDs allowed' : '  Rush def: no data',
+      st.sacks   ? '  Sacks: '+st.sacks.sacks+' (rank #'+st.sacks.rank+'/18)' : '',
+      st.ints    ? '  Interceptions: '+st.ints.int+' (rank #'+st.ints.rank+'/18)' : '',
+      '',
+      '=== WEEK '+db.week+' GAME ===',
+      ...gameLines,
+    ].filter(l=>l!=='').join('\n');
+  }
+};
+
+// Bootstrap: try cache first, then fetch if stale
+(function(){
+  if(!window.pnflDB.loadCache()) {
+    console.log('[pnflDB] no cache, will fetch on roster load');
+  }
+})();
 </script>
 
 
@@ -3140,8 +3837,7 @@ window.pnflDB = {
             if (cells.length > 0) lines.push(cells.join('  '));
           });
         });
-        var result = lines.join('
-');
+        var result = lines.join('\n');
         if (result.length > 100) return result;
       }
 
