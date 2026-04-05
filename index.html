@@ -1488,7 +1488,7 @@ const DEFAULT_DEPTH = {
   DE:5, DT:4, LB:5, CB:5, S:4
 };
 
-const APP_VERSION = '10.8'; window.APP_VERSION = APP_VERSION;
+const APP_VERSION = '10.9'; window.APP_VERSION = APP_VERSION;
 window._toastQueue = [];
 window._appAlert = function(msg) {
   try {
@@ -8205,47 +8205,93 @@ function App() {
     setFetchError(null);
     try {
 
-    // ── Try static assets first (deployed via deploy script, no CORS needed) ──
+    // ── Step 1: Check pnfl.biz roster to detect the LIVE current week ──────────
+    // This always happens first so we always know the true current week
+    var liveWeek   = null;
+    var liveSeason = null;
+    var rosterHtml = '';
+    var standingsHtml = '', seasonHtml = '', gameStatsHtml = '', schedHtml = '', teamStatsHtml = '';
+
+    try {
+      var rr = await fetchViaProxy(
+        'https://pnfl.biz/pnflstats/PNFL_roster.htm',
+        function(t){ return t.includes('Team Roster') || t.includes('PNFL'); }
+      );
+      if (rr.ok && rr.text) {
+        rosterHtml = rr.text;
+        var parsed0 = parsePNFLRosterText(rosterHtml);
+        liveWeek   = parsed0.week   || null;
+        liveSeason = parsed0.season || '2048';
+        console.log('[FetchRosters] Live roster: season='+liveSeason+' week='+liveWeek);
+      }
+    } catch(e) { console.warn('[FetchRosters] roster fetch error:', e.message); }
+
+    // ── Step 2: Get manifest week (what's deployed in static assets) ───────────
     var staticManifest = null;
     try { staticManifest = await window.StaticAssets.manifest(); } catch(e) {}
-    var useStatic = staticManifest && staticManifest.files;
+    var manifestWeek   = staticManifest && staticManifest.week;
+    var manifestSeason = staticManifest && (staticManifest.season || '2048');
 
-    var rosterHtml='', standingsHtml='', seasonHtml='', gameStatsHtml='', schedHtml='', teamStatsHtml='';
+    // Determine the authoritative current week
+    var currentWeek   = liveWeek   || manifestWeek   || '4';
+    var currentSeason = liveSeason || manifestSeason || '2048';
+    var yearShort     = String(currentSeason).slice(-2);
 
-    if (useStatic) {
-      console.log('[FetchRosters] Loading from static assets (season='+staticManifest.season+' week='+staticManifest.week+')');
+    var isNewWeek = liveWeek && manifestWeek && String(liveWeek) !== String(manifestWeek);
+    if (isNewWeek) {
+      console.log('[FetchRosters] NEW WEEK DETECTED: deployed=W'+manifestWeek+' live=W'+liveWeek+' — fetching fresh data');
+    }
+
+    // ── Step 3: Load static assets for files that haven't changed ──────────────
+    if (staticManifest && staticManifest.files && !isNewWeek) {
+      console.log('[FetchRosters] Static assets current (W'+manifestWeek+') — loading from cache');
       await Promise.allSettled([
-        staticManifest.files['roster.htm']    ? window.StaticAssets.text('roster.htm').then(function(t){rosterHtml=t;}).catch(function(){}) : Promise.resolve(),
-        staticManifest.files['standings.htm'] ? window.StaticAssets.text('standings.htm').then(function(t){standingsHtml=t;}).catch(function(){}) : Promise.resolve(),
-        staticManifest.files['season.htm']    ? window.StaticAssets.text('season.htm').then(function(t){seasonHtml=t;}).catch(function(){}) : Promise.resolve(),
-        staticManifest.files['gamestats.htm'] ? window.StaticAssets.text('gamestats.htm').then(function(t){gameStatsHtml=t;}).catch(function(){}) : Promise.resolve(),
-        staticManifest.files['schedules.htm'] ? window.StaticAssets.text('schedules.htm').then(function(t){schedHtml=t;}).catch(function(){}) : Promise.resolve(),
-        staticManifest.files['teamstats.htm'] ? window.StaticAssets.text('teamstats.htm').then(function(t){teamStatsHtml=t;}).catch(function(){}) : Promise.resolve(),
+        staticManifest.files['standings.htm'] === true || staticManifest.files['standings.htm'] === 'true'
+          ? window.StaticAssets.text('standings.htm').then(function(t){standingsHtml=t;}).catch(function(){})
+          : Promise.resolve(),
+        staticManifest.files['season.htm'] === true || staticManifest.files['season.htm'] === 'true'
+          ? window.StaticAssets.text('season.htm').then(function(t){seasonHtml=t;}).catch(function(){})
+          : Promise.resolve(),
+        staticManifest.files['gamestats.htm'] === true || staticManifest.files['gamestats.htm'] === 'true'
+          ? window.StaticAssets.text('gamestats.htm').then(function(t){gameStatsHtml=t;}).catch(function(){})
+          : Promise.resolve(),
+        staticManifest.files['schedules.htm'] === true || staticManifest.files['schedules.htm'] === 'true'
+          ? window.StaticAssets.text('schedules.htm').then(function(t){schedHtml=t;}).catch(function(){})
+          : Promise.resolve(),
+        staticManifest.files['teamstats.htm'] === true || staticManifest.files['teamstats.htm'] === 'true'
+          ? window.StaticAssets.text('teamstats.htm').then(function(t){teamStatsHtml=t;}).catch(function(){})
+          : Promise.resolve(),
       ]);
     }
 
-    // ── Fall back to CORS proxy for any missing files ──
-    var needProxy = !rosterHtml || !standingsHtml;
-    if (needProxy) {
-      console.log('[FetchRosters] Static assets incomplete — using CORS proxies');
-      const currentWeek = rosterData?.week || standingsData?.week || (staticManifest?.week) || '3';
-      const currentSeason = rosterData?.season || standingsData?.season || (staticManifest?.season) || '2048';
-      const yearShortFetch = String(currentSeason).slice(-2);
-      const gameStatsUrl = `https://pnfl.biz/GameStats/${currentSeason}/${yearShortFetch}W${currentWeek}-PNFL_game%20stats.htm`;
+    // ── Step 4: Always fetch live data from pnfl.biz ────────────────────────────
+    // gamestats and season always fetched fresh — they update after each game week.
+    // If a new week is out, try that URL first; fall back to current week.
+    var gameStatsUrlCurrent = 'https://pnfl.biz/GameStats/'+currentSeason+'/'+yearShort+'W'+currentWeek+'-PNFL_game%20stats.htm';
+    var gameStatsUrlNext = liveWeek && String(liveWeek) !== String(currentWeek)
+      ? 'https://pnfl.biz/GameStats/'+currentSeason+'/'+yearShort+'W'+liveWeek+'-PNFL_game%20stats.htm'
+      : null;
+    var gsValidator = function(t){ return t.includes('Passing') && (t.includes('Att') || t.includes('Com')); };
+    console.log('[FetchRosters] Live fetch: W'+currentWeek+(gameStatsUrlNext?' (checking W'+liveWeek+' too)':''));
 
-      const [rr, sr, ser, gsr] = await Promise.all([
-        !rosterHtml    ? fetchViaProxy('https://pnfl.biz/pnflstats/PNFL_roster.htm', t=>t.includes('Team Roster')||t.includes('PNFL')) : Promise.resolve({ok:true,text:rosterHtml}),
-        !standingsHtml ? fetchViaProxy('https://pnfl.biz/pnflstats/PNFL_standings.htm', t=>t.includes('Power Rankings')||t.includes('PNFL')||t.includes('Miami')) : Promise.resolve({ok:true,text:standingsHtml}),
-        !seasonHtml    ? fetchViaProxy('https://pnfl.biz/pnflstats/PNFL_season.htm', t=>t.includes('PNFL')||t.length>500) : Promise.resolve({ok:true,text:seasonHtml}),
-        !gameStatsHtml ? fetchViaProxy(gameStatsUrl, t=>t.includes('PNFL')||t.includes('stat')||t.length>500) : Promise.resolve({ok:true,text:gameStatsHtml}),
-      ]);
-      if (rr.ok && rr.text)  rosterHtml    = rr.text;
-      if (sr.ok && sr.text)  standingsHtml = sr.text;
-      if (ser.ok && ser.text) seasonHtml   = ser.text;
-      if (gsr.ok && gsr.text) gameStatsHtml = gsr.text;
-    }
-
-    let rosterOk = false, standingsOk = false;
+    var liveResults = await Promise.all([
+      fetchViaProxy('https://pnfl.biz/pnflstats/PNFL_standings.htm',
+        function(t){ return t.includes('Power Rankings') || t.includes('PNFL') || t.length > 500; }),
+      fetchViaProxy('https://pnfl.biz/pnflstats/PNFL_season.htm',
+        function(t){ return t.includes('PNFL') || t.length > 500; }),
+      gameStatsUrlNext
+        ? fetchViaProxy(gameStatsUrlNext, gsValidator).then(function(r){
+            if (r.ok && r.text) { console.log('[FetchRosters] NEW WEEK W'+liveWeek+' gamestats loaded!'); currentWeek=liveWeek; return r; }
+            return fetchViaProxy(gameStatsUrlCurrent, gsValidator);
+          }).catch(function(){ return fetchViaProxy(gameStatsUrlCurrent, gsValidator); })
+        : fetchViaProxy(gameStatsUrlCurrent, gsValidator),
+    ]);
+    if (liveResults[0] && liveResults[0].ok && liveResults[0].text) standingsHtml = liveResults[0].text;
+    if (liveResults[1] && liveResults[1].ok && liveResults[1].text) seasonHtml    = liveResults[1].text;
+    if (liveResults[2] && liveResults[2].ok && liveResults[2].text) gameStatsHtml = liveResults[2].text;
+    else if (!gameStatsHtml) console.warn('[FetchRosters] No gamestats for W'+currentWeek);
+    // ── Step 5: Process roster ─────────────────────────────────────────────────
+    var rosterOk = false, standingsOk = false;
 
     if (rosterHtml) {
       try {
@@ -8261,21 +8307,15 @@ function App() {
           window.PNFL_WEEKS.saveSnapshot(wk, parsed);
           setCurrentWeekKey(wk);
         }
+        // Update pnflDB week/season
         if (window.pnflDB) {
-          window.pnflDB.fetch(parsed.season||'2048', parsed.week||'3').then(function() {
-            // After pnflDB fetch completes, sync game stats to React state for ticker
-            if (window.pnflDB.games && window.pnflDB.games.length > 0) {
-              var gs = { games:window.pnflDB.games, week:window.pnflDB.week,
-                         season:window.pnflDB.season, fetchedAt:new Date().toISOString() };
-              saveGameStatsCache(gs);
-              setGameStatsData(gs);
-              console.log('[App] pnflDB game stats synced to ticker:', gs.games.length, 'games');
-            }
-          }).catch(function(e){ console.warn('[pnflDB]',e.message); });
+          window.pnflDB.week   = String(parsed.week   || currentWeek);
+          window.pnflDB.season = String(parsed.season || currentSeason);
         }
       } catch(e) { console.warn('Roster parse failed:', e.message); }
     }
 
+    // ── Step 6: Process standings ──────────────────────────────────────────────
     if (standingsHtml) {
       try {
         const parsed = parsePNFLStandingsText(standingsHtml);
@@ -8287,18 +8327,14 @@ function App() {
       } catch(e) { console.warn('Standings parse failed:', e.message); }
     }
 
+    // ── Step 7: Process season stats ──────────────────────────────────────────
     if (seasonHtml) {
       try {
         const parsed = parseSeasonStats(seasonHtml);
         saveSeasonCache(parsed);
         setSeasonData(parsed);
-        // Also feed into pnflDB for AI context
         if (window.pnflDB) {
-          window._pnflRawSeasonStats = seasonHtml;  // cache for AI handler
-          if (!window._pnflWeeklyData) window._pnflWeeklyData = {};
-          var _wkS = (window.pnflDB && window.pnflDB.week) || '?';
-          window._pnflWeeklyData[_wkS] = window._pnflWeeklyData[_wkS] || {};
-          window._pnflWeeklyData[_wkS].season = seasonHtml;
+          window._pnflRawSeasonStats = seasonHtml;
           window.pnflDB._parseSeason(seasonHtml);
         }
         if (window.parsePassingLeadersFromHtml) {
@@ -8306,64 +8342,61 @@ function App() {
           window._pnflRushingLeaders   = window.parseRushingLeadersFromHtml(seasonHtml);
           window._pnflReceivingLeaders = window.parseReceivingLeadersFromHtml(seasonHtml);
           window._pnflTackleLeaders    = window.parseTackleLeadersFromHtml(seasonHtml);
-          console.log('[PNFL] All stat leaders from fetchRosters');
         }
-        console.log('[PNFL] Season stats loaded');
+        console.log('[PNFL] Season stats loaded — W'+currentWeek);
       } catch(e) { console.warn('Season parse failed:', e.message); }
     }
 
+    // ── Step 8: Process game stats — update ticker + AI cache ─────────────────
     if (gameStatsHtml) {
       try {
         const parsed = parseGameStats(gameStatsHtml);
         saveGameStatsCache(parsed);
-        setGameStatsData(parsed);
-        // Feed ONLY game stats into pnflDB.playerGame — separate from season stats
+        setGameStatsData(parsed);  // ← updates ESPN ticker immediately
+
         if (window.pnflDB) {
           window._pnflRawGameStats = gameStatsHtml;
+          if (!window._pnflWeeklyData) window._pnflWeeklyData = {};
+          var _wk = window.pnflDB.week || currentWeek;
+          window._pnflWeeklyData[_wk] = { gameStats: gameStatsHtml, season: seasonHtml||'', week: _wk };
           window.pnflDB._parseGameStats(gameStatsHtml);
           var _pgCount = Object.keys(window.pnflDB.playerGame||{}).length;
-          console.log('[pnflDB] playerGame entries after parse:', _pgCount);
-          // Rebuild KB immediately so AI has fresh data
-          if (window.pnflDB.buildKnowledgeBase) {
-            window._pnflKnowledgeBase = window.pnflDB.buildKnowledgeBase();
-            console.log('[pnflDB] KB rebuilt with', _pgCount, 'game stats');
-          }
+          if (window.pnflDB.buildKnowledgeBase) window._pnflKnowledgeBase = window.pnflDB.buildKnowledgeBase();
+          console.log('[PNFL] Game stats W'+currentWeek+': '+parsed.games.length+' games, '+_pgCount+' player entries');
         }
-        console.log('[PNFL] GameStats loaded:', parsed.games.length, 'games');
+        var weekLabel = 'Week '+currentWeek;
+        window._appAlert(weekLabel+' game data loaded! ✓\n'+parsed.games.length+' games found.\nTicker and AI stats updated.');
       } catch(e) { console.warn('GameStats parse failed:', e.message); }
-    } else if (window.pnflDB && window.pnflDB.games && window.pnflDB.games.length > 0) {
-      var fb = { games:window.pnflDB.games, week:window.pnflDB.week, season:window.pnflDB.season, fetchedAt:new Date().toISOString() };
-      setGameStatsData(fb);
-      console.log('[PNFL] GameStats from pnflDB:', fb.games.length, 'games');
+    } else {
+      console.warn('[FetchRosters] No game stats for W'+currentWeek+' — URL: '+gameStatsUrl);
+      if (window.pnflDB && window.pnflDB.games && window.pnflDB.games.length > 0) {
+        var fb = { games:window.pnflDB.games, week:window.pnflDB.week, season:window.pnflDB.season, fetchedAt:new Date().toISOString() };
+        setGameStatsData(fb);
+      }
     }
 
-    if (schedHtml && window.pnflDB) {
-      try { window.pnflDB._raw.schedules = schedHtml; } catch(e) {}
-    }
-    if (teamStatsHtml && window.pnflDB) {
-      try { window.pnflDB._raw.teamStats = teamStatsHtml; } catch(e) {}
-    }
+    if (schedHtml && window.pnflDB)    { try { window.pnflDB._raw.schedules = schedHtml; } catch(e) {} }
+    if (teamStatsHtml && window.pnflDB) { try { window.pnflDB._raw.teamStats = teamStatsHtml; } catch(e) {} }
 
     if (rosterOk || standingsOk) {
       const msgs = [];
-      if (rosterOk)    msgs.push('Rosters: ' + Object.keys(loadRosterCache()?.teams||{}).length + ' teams');
-      if (standingsOk) msgs.push('Power Rankings: Week ' + loadStandingsCache()?.week);
-      if (!rosterOk)   msgs.push('Rosters fetch failed');
-      if (!standingsOk) msgs.push('Standings fetch failed');
+      if (rosterOk)    msgs.push('Rosters: '+Object.keys(loadRosterCache()?.teams||{}).length+' teams');
+      if (standingsOk) msgs.push('Power Rankings: Week '+loadStandingsCache()?.week);
+      msgs.push('✓ Week '+currentWeek+' — game stats & season stats updated');
       window._appAlert(msgs.join('\n'));
     } else {
       setFetchError('Roster fetch failed');
       if (!rosterData && HARDCODED_ROSTER_DATA && Object.keys(HARDCODED_ROSTER_DATA.teams||{}).length > 0) {
         setRosterData(HARDCODED_ROSTER_DATA);
-        window._appAlert('Live fetch unavailable. Loaded built-in Week 1 roster. Deploy to GitHub Pages for live data.');
+        window._appAlert('Live fetch unavailable. Loaded built-in Week 1 roster.');
       } else {
-        window._appAlert('All fetches failed. Your built-in Week 1 data is still active.');
+        window._appAlert('All fetches failed. Built-in data still active.');
       }
     }
 
     } catch(fetchErr) {
       console.error('[FetchRosters] uncaught error:', fetchErr);
-      window._appAlert('Fetch failed: ' + fetchErr.message);
+      window._appAlert('Fetch failed: '+fetchErr.message);
     } finally {
       setFetching(false);
     }
